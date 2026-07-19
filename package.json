@@ -1,0 +1,31 @@
+{
+  "name": "bainsa-discord-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "BAINSA Discord provisioning, onboarding, permissions, and project management bot.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node --env-file=.env src/bot.mjs",
+    "dev": "node --env-file=.env --watch src/bot.mjs",
+    "commands:register": "node --env-file=.env scripts/register-commands.mjs",
+    "db:migrate": "node --env-file=.env scripts/migrate.mjs",
+    "db:reset": "node --env-file=.env scripts/reset-database.mjs",
+    "provision": "node --env-file=.env scripts/provision-discord.mjs",
+    "provision:dry-run": "node --env-file=.env scripts/provision-discord.mjs --dry-run",
+    "discord:reset": "node --env-file=.env scripts/reset-discord.mjs",
+    "discord:bootstrap": "node --env-file=.env scripts/bootstrap-member.mjs",
+    "check": "node --check src/bot.mjs && for file in scripts/*.mjs; do node --check \"$file\"; done",
+    "test": "node --env-file=.env --test test/*.test.mjs",
+    "test:connections": "node --env-file=.env scripts/test-connections.mjs"
+  },
+  "dependencies": {
+    "discord.js": "^14.26.2",
+    "pg": "^8.16.3"
+  },
+  "overrides": {
+    "undici": "6.27.0"
+  }
+}
