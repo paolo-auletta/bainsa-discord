@@ -23,6 +23,7 @@
     "lint": "eslint src scripts test",
     "format:check": "node scripts/check-format.mjs",
     "test": "DISCORD_TOKEN=test-token DISCORD_CLIENT_ID=test-client DISCORD_GUILD_ID=test-guild DATABASE_URL=postgres://localhost/test node --test test/*.test.mjs",
+    "test:integration": "node scripts/test-integration.mjs",
     "test:connections": "node --env-file=.env scripts/test-connections.mjs"
   },
   "dependencies": {

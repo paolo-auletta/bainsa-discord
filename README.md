@@ -137,6 +137,21 @@ npm run test:connections
 Use `npm ci` for all reproducible installs, including CI. `npm install` is reserved for intentionally updating dependencies and the lockfile.
 `npm test` uses inert local test values and does not require or read `.env`.
 
+### Disposable PostgreSQL integration tests
+
+`npm run test:integration` executes migrations and stateful workflow tests against a local,
+disposable PostgreSQL database. It requires `TEST_DATABASE_URL`; it never reads `DATABASE_URL`
+and refuses URLs that are not local or whose database name does not contain a standalone `test`
+segment. The suite drops and recreates the `public` schema in that test database, so use a
+dedicated database such as `bainsa_discord_test`:
+
+```bash
+createdb bainsa_discord_test
+TEST_DATABASE_URL=postgres://localhost/bainsa_discord_test npm run test:integration
+```
+
+The CI workflow supplies the same disposable database through a PostgreSQL service container.
+
 The bot logs structural actions in `audit_log` and sends operational messages to the configured log channels. Seeded channel messages contain no internal marker comments; their Discord message IDs are tracked in `provisioned_messages` for safe future updates. Project close operations preserve history; v1 has no project delete or separate archive command.
 
 `admin-log` is the private operational audit channel for future bot and server-maintenance events; it is read-only to Global Presidents and the bot. `onboarding-review` is university-scoped: it displays pending onboarding requests to that university's President, Vice President, and Global Presidents, who approve or reject requests through the onboarding controls.
