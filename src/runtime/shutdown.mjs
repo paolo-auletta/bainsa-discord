@@ -1,6 +1,6 @@
 import { logger } from '../logger.mjs';
 
-export function installGracefulShutdown({ client, closeDatabase }) {
+export function installGracefulShutdown({ client, closeDatabase, stopWorkers = () => {} }) {
   let shuttingDown = false;
 
   async function shutdown(signal) {
@@ -9,6 +9,7 @@ export function installGracefulShutdown({ client, closeDatabase }) {
     logger.info('Shutting down bot', { signal });
 
     try {
+      stopWorkers();
       client.destroy();
       await closeDatabase();
       process.exitCode = 0;

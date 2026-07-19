@@ -462,7 +462,7 @@ test('member-update rejects an ineligible active PostgreSQL project assignment b
   assert.equal(member.rows[0].member_type, 'researcher');
 });
 
-test('project creation archives its committed record when the mocked Discord channel create fails', async () => {
+test('project creation retains its committed record and records a pending reconciliation when Discord fails', async () => {
   await resetAndMigrate();
   const { universityId, divisionId } = await seedUniversityAndDivision();
   await database.query(
@@ -509,13 +509,14 @@ test('project creation archives its committed record when the mocked Discord cha
       members: member.id,
       supervisors: supervisor.id,
     }, { db: database }),
-    /Discord provisioning failed and it was archived for review/i,
+    /committed to the database, but Discord reconciliation is pending/i,
   );
   const project = await database.query('SELECT status, notes FROM projects');
-  assert.equal(project.rows[0].status, 'archived');
-  assert.match(project.rows[0].notes, /Controlled Discord channel failure/);
-  const audit = await database.query("SELECT action FROM audit_log WHERE action = 'project.create_failed'");
-  assert.equal(audit.rowCount, 1);
+  assert.equal(project.rows[0].status, 'active');
+  assert.equal(project.rows[0].notes, null);
+  const reconciliation = await database.query('SELECT status, last_error FROM project_reconciliation');
+  assert.equal(reconciliation.rows[0].status, 'failed');
+  assert.match(reconciliation.rows[0].last_error, /Controlled Discord channel failure/);
 });
 
 function lockedTransactionDatabase() {
@@ -614,7 +615,15 @@ async function seedEligibilityRace() {
     cache: { has: () => false, find: () => null },
     async fetch() { return null; },
     async create(options) {
-      return { id: `channel-${options.name}`, guild, async send() {} };
+      return {
+        id: `channel-${options.name}`,
+        guild,
+        name: options.name,
+        parentId: null,
+        permissionOverwrites: { async set() {} },
+        async setName() {},
+        async setParent() {},
+      };
     },
   };
   return {

@@ -1,4 +1,4 @@
-import { ChannelType, PermissionFlagsBits } from 'discord.js';
+import { ChannelType } from 'discord.js';
 
 import { writeAudit } from '../../audit.mjs';
 import {
@@ -16,21 +16,11 @@ import {
   MEMBER_TYPES,
   PROJECT_PERSON_ROLES,
   PROJECT_STATUSES,
-  ROLE_NAMES,
 } from '../../constants.mjs';
 import { query, transaction } from '../../db.mjs';
 import { UserFacingError, assertUser } from '../../errors.mjs';
-import {
-  divisionHeadRoleName,
-  projectChannelName,
-  universityBoardRoleName,
-  universityCategoryName,
-} from '../../naming.mjs';
-import {
-  buildProjectPermissionOverwrites,
-  projectPersonIdsByRole,
-  uniqueIds,
-} from './permissions.mjs';
+import { universityCategoryName } from '../../naming.mjs';
+import { uniqueIds } from './permissions.mjs';
 import {
   assertProjectStatusChange,
   assertNoUserOverlap,
@@ -45,6 +35,7 @@ import {
   validateProjectDates,
 } from './validation.mjs';
 import { lockAndAssertProjectPeopleEligibility, lockMemberEligibilityRows } from './eligibility.mjs';
+import { enqueueProjectReconciliation, reconcileProject } from './reconciliation.mjs';
 
 const DEFAULT_DB = { query, transaction };
 const PROJECT_AUTOCOMPLETE_CACHE_TTL_MS = 30_000;
@@ -80,35 +71,6 @@ function dbClient(db) {
 
 function optionValue(interaction, name, required = true) {
   return interaction.options.getString(name, required);
-}
-
-function roleByName(guild, name) {
-  return guild.roles.cache.find((role) => role.name === name) ?? null;
-}
-
-function resolveRoleId(guild, preferredId, fallbackName) {
-  if (preferredId && guild.roles.cache.has(String(preferredId))) return String(preferredId);
-  return roleByName(guild, fallbackName)?.id ?? null;
-}
-
-function resolveBoardRoleIds(guild, project) {
-  return uniqueIds([
-    resolveRoleId(
-      guild,
-      project.division_head_role_id,
-      divisionHeadRoleName(project.university_name, project.division_name),
-    ),
-    resolveRoleId(guild, null, universityBoardRoleName(project.university_name, 'Vice President')),
-    resolveRoleId(guild, null, universityBoardRoleName(project.university_name, 'President')),
-  ]);
-}
-
-function resolveGlobalPresidentRoleId(guild) {
-  return roleByName(guild, ROLE_NAMES.GLOBAL_PRESIDENT)?.id ?? null;
-}
-
-function resolveBotRoleId(guild) {
-  return roleByName(guild, ROLE_NAMES.BOT)?.id ?? null;
 }
 
 async function fetchGuildMember(guild, userId) {
@@ -247,133 +209,9 @@ export function findProjectParentId(guild, project) {
   return findCategoryId(guild, project.category_id, universityCategoryName(project.university_name));
 }
 
-function findArchiveParentId(guild, project) {
-  return findCategoryId(guild, null, 'ARCHIVE / HISTORY');
-}
-
 function formatPeopleLine(people, role) {
   const ids = people.filter((person) => person.role === role).map((person) => `<@${person.discord_user_id}>`);
   return ids.length ? ids.join(', ') : 'None yet';
-}
-
-function formatProjectIntro(project, people, extra = '') {
-  return [
-    `# ${project.name}`,
-    `**University:** ${project.university_name}`,
-    `**Division:** ${divisionLabel(project.division_name, project.division_color)}`,
-    `**Status:** ${project.status}`,
-    `**Timeline:** ${project.start_date} -> ${project.expected_end}`,
-    `**Members:** ${formatPeopleLine(people, PROJECT_PERSON_ROLES.MEMBER)}`,
-    `**Supervisors:** ${formatPeopleLine(people, PROJECT_PERSON_ROLES.SUPERVISOR)}`,
-    project.notes ? `**Notes:** ${project.notes}` : null,
-    extra || null,
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-function formatShowcasePost(project, people, extra = '') {
-  return [
-    `**${project.name}** is now tracked in BAINSA ${project.university_name}.`,
-    `Division: **${divisionLabel(project.division_name, project.division_color)}**`,
-    `Status: **${project.status}**`,
-    `Expected end: **${project.expected_end}**`,
-    `Supervisors: ${formatPeopleLine(people, PROJECT_PERSON_ROLES.SUPERVISOR)}`,
-    extra || project.notes || null,
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-async function ensureForumTag(forum, tagName) {
-  const existing = forum.availableTags.find((tag) => tag.name.toLowerCase() === tagName.toLowerCase());
-  if (existing) return existing.id;
-  const nextTags = [...forum.availableTags.map((tag) => ({ id: tag.id, name: tag.name, moderated: tag.moderated })), { name: tagName }];
-  const updated = await forum.setAvailableTags(nextTags, `Create ${tagName} project tag`);
-  return updated.availableTags.find((tag) => tag.name.toLowerCase() === tagName.toLowerCase())?.id ?? null;
-}
-
-async function createShowcaseThread(guild, project, people) {
-  if (!project.showcase_channel_id) return null;
-  const forum = await guild.channels.fetch(project.showcase_channel_id).catch(() => null);
-  if (!forum || forum.type !== ChannelType.GuildForum) return null;
-  const tagId = await ensureForumTag(forum, project.division_name);
-  const thread = await forum.threads.create({
-    name: project.name,
-    appliedTags: tagId ? [tagId] : [],
-    message: { content: formatShowcasePost(project, people) },
-    reason: `Project ${project.id} showcase post`,
-  });
-  return thread;
-}
-
-async function updateShowcaseThread(guild, project, people, extra = '') {
-  if (!project.showcase_thread_id) return;
-  const thread = await guild.channels.fetch(project.showcase_thread_id).catch(() => null);
-  if (!thread) return;
-  await thread.setName(project.name, `Update project ${project.id} showcase`).catch(() => undefined);
-  await thread.send({ content: formatShowcasePost(project, people, extra) }).catch(() => undefined);
-}
-
-async function createProjectChannel(guild, project, people) {
-  const roleIds = resolveBoardRoleIds(guild, project);
-  const permissionIds = projectPersonIdsByRole(people);
-  const channel = await guild.channels.create({
-    name: projectChannelName(project.id, project.name),
-    type: ChannelType.GuildText,
-    parent: findProjectParentId(guild, project) ?? undefined,
-    topic: `${project.university_name} / ${project.division_name} project ${project.id}`,
-    permissionOverwrites: buildProjectPermissionOverwrites({
-      guildId: guild.id,
-      ...permissionIds,
-      boardRoleIds: roleIds,
-      globalPresidentRoleId: resolveGlobalPresidentRoleId(guild),
-      botRoleId: resolveBotRoleId(guild),
-    }),
-    reason: `Create project ${project.id}`,
-  });
-  await channel.send({ content: formatProjectIntro(project, people) });
-  return channel;
-}
-
-async function applyProjectOverwrites(guild, project, people, options = {}) {
-  if (!project.discord_channel_id) return;
-  const channel = await guild.channels.fetch(project.discord_channel_id).catch(() => null);
-  if (!channel?.permissionOverwrites) return;
-  const overwriteIds = projectPersonIdsByRole(people);
-  await channel.permissionOverwrites.set(
-    buildProjectPermissionOverwrites({
-      guildId: guild.id,
-      ...overwriteIds,
-      boardRoleIds: resolveBoardRoleIds(guild, project),
-      globalPresidentRoleId: resolveGlobalPresidentRoleId(guild),
-      botRoleId: resolveBotRoleId(guild),
-      locked: options.locked,
-      archived: options.archived,
-    }),
-    options.reason ?? `Refresh project ${project.id} access`,
-  );
-}
-
-async function updateProjectChannel(guild, project, people, extra = '') {
-  if (!project.discord_channel_id) return;
-  const channel = await guild.channels.fetch(project.discord_channel_id).catch(() => null);
-  if (!channel) return;
-  await channel.setName(projectChannelName(project.id, project.name), `Update project ${project.id}`).catch(() => undefined);
-  await channel.send({ content: formatProjectIntro(project, people, extra) }).catch(() => undefined);
-}
-
-async function compensateCreatedDiscord(channel, thread) {
-  await thread?.setLocked?.(true, 'Rollback failed project create').catch(() => undefined);
-  await thread?.setArchived?.(true, 'Rollback failed project create').catch(() => undefined);
-  if (!channel) return;
-  await channel
-    .permissionOverwrites?.set(
-      [{ id: channel.guild.id, deny: [PermissionFlagsBits.ViewChannel] }],
-      'Rollback failed project create',
-    )
-    .catch(() => undefined);
-  await channel.setName(`orphaned-${channel.name}`.slice(0, 100), 'Rollback failed project create').catch(() => undefined);
 }
 
 export function projectIdFromOption(value) {
@@ -441,52 +279,23 @@ export async function createProject(input, deps = {}) {
         [created.id, person.discord_user_id, person.role],
       );
     }
+    await enqueueProjectReconciliation(client, created.id);
     return created;
   });
 
-  let channel = null;
-  let showcaseThread = null;
-  try {
-    channel = await createProjectChannel(guild, project, people);
-    showcaseThread = await createShowcaseThread(guild, project, people);
-    await db.transaction(async (client) => {
-      await client.query(
-        `UPDATE projects
-         SET channel_id = $1, showcase_thread_id = $2, updated_at = now()
-         WHERE id = $3`,
-        [channel.id, showcaseThread?.id ?? null, project.id],
-      );
-      await writeAudit(client, {
-        actorId: interaction.user.id,
-        action: 'project.create',
-        targetType: 'project',
-        targetId: project.id,
-        universityId: project.university_id,
-        after: { ...project, discord_channel_id: channel.id, showcase_thread_id: showcaseThread?.id ?? null, people },
-      });
+  await db.transaction(async (client) => {
+    await writeAudit(client, {
+      actorId: interaction.user.id, action: 'project.create', targetType: 'project', targetId: project.id,
+      universityId: project.university_id, after: { ...project, people },
     });
-  } catch (error) {
-    await compensateCreatedDiscord(channel, showcaseThread);
-    await db.transaction(async (client) => {
-      await client.query(
-        `UPDATE projects
-         SET status = $1, notes = concat(coalesce(notes, ''), E'\\nProvisioning failed: ', $2::text), updated_at = now()
-         WHERE id = $3`,
-        [PROJECT_STATUSES.ARCHIVED, error.message, project.id],
-      );
-      await writeAudit(client, {
-        actorId: interaction.user.id,
-        action: 'project.create_failed',
-        targetType: 'project',
-        targetId: project.id,
-        universityId: project.university_id,
-        reason: error.message,
-      });
-    });
-    throw new UserFacingError(`Project record ${project.id} was created, but Discord provisioning failed and it was archived for review.`);
+  });
+  const reconciliation = await reconcileProject({ projectId: project.id, guild, db });
+  if (reconciliation.status !== 'succeeded') {
+    throw new UserFacingError(
+      `Project #${project.id} was committed to the database, but Discord reconciliation is pending after a failure. It will retry automatically.`,
+    );
   }
-
-  return { ...project, discord_channel_id: channel.id, showcase_thread_id: showcaseThread?.id ?? null, people };
+  return { ...reconciliation.project, people: reconciliation.people };
 }
 
 export async function addProjectMember(input, deps = {}) {
@@ -515,6 +324,7 @@ export async function addProjectMember(input, deps = {}) {
        DO UPDATE SET role = EXCLUDED.role`,
       [project.id, input.user.id, role],
     );
+    await enqueueProjectReconciliation(client, project.id);
     await writeAudit(client, {
       actorId: input.interaction.user.id,
       action: 'project.add_member',
@@ -524,10 +334,11 @@ export async function addProjectMember(input, deps = {}) {
       after: { user_id: input.user.id, role },
     });
   });
-  const people = await getProjectPeople(db, project.id);
-  await applyProjectOverwrites(input.interaction.guild, project, people);
-  await updateProjectChannel(input.interaction.guild, project, people, `<@${input.user.id}> joined as **${role}**.`);
-  return { project, people };
+  const reconciliation = await reconcileProject({ projectId: project.id, guild: input.interaction.guild, db });
+  if (reconciliation.status !== 'succeeded') {
+    throw new UserFacingError(`Project #${project.id} was committed to the database, but Discord reconciliation is pending after a failure. It will retry automatically.`);
+  }
+  return { project: reconciliation.project, people: reconciliation.people };
 }
 
 export async function removeProjectMember(input, deps = {}) {
@@ -544,6 +355,7 @@ export async function removeProjectMember(input, deps = {}) {
       project.id,
       input.user.id,
     ]);
+    await enqueueProjectReconciliation(client, project.id);
     await writeAudit(client, {
       actorId: input.interaction.user.id,
       action: 'project.remove_member',
@@ -554,10 +366,11 @@ export async function removeProjectMember(input, deps = {}) {
       reason: input.reason ?? null,
     });
   });
-  const people = await getProjectPeople(db, project.id);
-  await applyProjectOverwrites(input.interaction.guild, project, people, { reason: input.reason });
-  await updateProjectChannel(input.interaction.guild, project, people, `<@${input.user.id}> was removed from the project.`);
-  return { project, people };
+  const reconciliation = await reconcileProject({ projectId: project.id, guild: input.interaction.guild, db });
+  if (reconciliation.status !== 'succeeded') {
+    throw new UserFacingError(`Project #${project.id} was committed to the database, but Discord reconciliation is pending after a failure. It will retry automatically.`);
+  }
+  return { project: reconciliation.project, people: reconciliation.people };
 }
 
 export async function updateProject(input, deps = {}) {
@@ -581,6 +394,7 @@ export async function updateProject(input, deps = {}) {
        WHERE id = $5`,
       [patch.name, patch.expected_end, patch.notes, patch.status, before.id],
     );
+    await enqueueProjectReconciliation(client, before.id);
     await writeAudit(client, {
       actorId: input.interaction.user.id,
       action: 'project.update',
@@ -591,15 +405,11 @@ export async function updateProject(input, deps = {}) {
       after: patch,
     });
   });
-  const project = await getProject(db, before.id);
-  const people = await getProjectPeople(db, project.id);
-  await applyProjectOverwrites(input.interaction.guild, project, people, {
-    locked: project.status === PROJECT_STATUSES.COMPLETED,
-    archived: project.status === PROJECT_STATUSES.ARCHIVED,
-  });
-  await updateProjectChannel(input.interaction.guild, project, people, 'Project details were updated.');
-  await updateShowcaseThread(input.interaction.guild, project, people, 'Project details were updated.');
-  return { project, people };
+  const reconciliation = await reconcileProject({ projectId: before.id, guild: input.interaction.guild, db });
+  if (reconciliation.status !== 'succeeded') {
+    throw new UserFacingError(`Project #${before.id} was committed to the database, but Discord reconciliation is pending after a failure. It will retry automatically.`);
+  }
+  return { project: reconciliation.project, people: reconciliation.people };
 }
 
 export async function closeProject(input, deps = {}) {
@@ -619,6 +429,7 @@ export async function closeProject(input, deps = {}) {
        WHERE id = $4`,
       [PROJECT_STATUSES.COMPLETED, outcome, finalNotes, project.id],
     );
+    await enqueueProjectReconciliation(client, project.id);
     await writeAudit(client, {
       actorId: input.interaction.user.id,
       action: 'project.close',
@@ -629,17 +440,11 @@ export async function closeProject(input, deps = {}) {
       after: { status: PROJECT_STATUSES.COMPLETED, outcome, final_notes: finalNotes },
     });
   });
-  const closed = await getProject(db, project.id);
-  const people = await getProjectPeople(db, project.id);
-  await applyProjectOverwrites(input.interaction.guild, closed, people, { locked: true, reason: 'Project closed' });
-  const channel = closed.discord_channel_id
-    ? await input.interaction.guild.channels.fetch(closed.discord_channel_id).catch(() => null)
-    : null;
-  const archiveParent = findArchiveParentId(input.interaction.guild, closed);
-  if (channel && archiveParent) await channel.setParent(archiveParent, { lockPermissions: false }).catch(() => undefined);
-  await updateProjectChannel(input.interaction.guild, closed, people, `**Outcome:** ${outcome}\n**Final notes:** ${finalNotes}`);
-  await updateShowcaseThread(input.interaction.guild, closed, people, `Completed: ${outcome}`);
-  return { project: closed, people };
+  const reconciliation = await reconcileProject({ projectId: project.id, guild: input.interaction.guild, db });
+  if (reconciliation.status !== 'succeeded') {
+    throw new UserFacingError(`Project #${project.id} was committed to the database, but Discord reconciliation is pending after a failure. It will retry automatically.`);
+  }
+  return { project: reconciliation.project, people: reconciliation.people };
 }
 
 export async function getProjectInfo(input, deps = {}) {
@@ -870,4 +675,4 @@ export function projectSuccessMessage(action, project) {
   return `${action} **${project.name}** (#${project.id}).${channel}`;
 }
 
-export { PermissionFlagsBits, parseDiscordUserIds, validateProjectDates };
+export { parseDiscordUserIds, validateProjectDates };

@@ -151,8 +151,21 @@ TEST_DATABASE_URL=postgres://localhost/bainsa_discord_test npm run test:integrat
 ```
 
 The CI workflow supplies the same disposable database through a PostgreSQL service container.
-This coverage also guards the project-create Discord failure path; its archival update explicitly
-casts the diagnostic parameter to text for PostgreSQL. No reconciliation behavior is changed here.
+### Project Discord reconciliation
+
+Every project create, participant change, metadata update, and close transaction also advances a
+per-project desired-state generation in `project_reconciliation`. The command immediately applies
+the latest desired channel name, parent, and direct permission overwrites. If Discord fails after
+the database commit, the command reports that the committed project ID is pending reconciliation;
+it never claims a rollback.
+
+The bot retries up to ten pending or failed projects on startup and once per minute. A row lock held
+for the full reconciliation serializes workers and project mutations, so an older attempt cannot
+mark a newer generation complete. Replays use idempotent channel identity/name/parent/overwrite
+operations only. Intro, showcase, and other history messages are deliberately best-effort and are
+not retried, preventing duplicate announcements. Retain `project_reconciliation` rows alongside
+the project record for operational observability; `status`, `attempts`, `last_error`, and timestamps
+identify items needing investigation.
 
 The bot logs structural actions in `audit_log` and sends operational messages to the configured log channels. Seeded channel messages contain no internal marker comments; their Discord message IDs are tracked in `provisioned_messages` for safe future updates. Project close operations preserve history; v1 has no project delete or separate archive command.
 

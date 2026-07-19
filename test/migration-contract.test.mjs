@@ -7,6 +7,7 @@ const migrationUrl = new URL('../db/migrations/003_upgrade_v1_contract.sql', imp
 const onboardingMigrationUrl = new URL('../db/migrations/004_onboarding_name_and_single_division.sql', import.meta.url);
 const divisionColorMigrationUrl = new URL('../db/migrations/005_division_colors.sql', import.meta.url);
 const expandedDivisionColorMigrationUrl = new URL('../db/migrations/006_expand_division_colors.sql', import.meta.url);
+const reconciliationMigrationUrl = new URL('../db/migrations/007_project_reconciliation.sql', import.meta.url);
 
 async function migrationSql() {
   return readFile(migrationUrl, 'utf8');
@@ -24,6 +25,10 @@ async function expandedDivisionColorMigrationSql() {
   return readFile(expandedDivisionColorMigrationUrl, 'utf8');
 }
 
+async function reconciliationMigrationSql() {
+  return readFile(reconciliationMigrationUrl, 'utf8');
+}
+
 function assertIncludes(sql, snippet) {
   assert.ok(sql.includes(snippet), `Expected migration to include: ${snippet}`);
 }
@@ -38,7 +43,16 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '004_onboarding_name_and_single_division.sql',
     '005_division_colors.sql',
     '006_expand_division_colors.sql',
+    '007_project_reconciliation.sql',
   ]);
+});
+
+test('adds durable, generation-guarded project reconciliation state', async () => {
+  const sql = await reconciliationMigrationSql();
+  assertIncludes(sql, 'CREATE TABLE IF NOT EXISTS project_reconciliation');
+  assertIncludes(sql, 'desired_generation bigint NOT NULL DEFAULT 0');
+  assertIncludes(sql, "status IN ('pending', 'processing', 'succeeded', 'failed')");
+  assertIncludes(sql, 'project_reconciliation_repair_idx');
 });
 
 test('preserves the legacy migration table shape', async () => {

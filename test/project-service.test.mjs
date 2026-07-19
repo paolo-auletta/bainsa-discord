@@ -208,9 +208,18 @@ test('project-close completes the project and moves the channel to history', asy
   const closedProject = { ...project, status: PROJECT_STATUSES.COMPLETED };
   const people = [{ discord_user_id: 'member', role: 'member' }];
   let projectSelects = 0;
+  function reconciliationQuery(text) {
+    if (text.includes('INSERT INTO project_reconciliation') || text.includes("SET status = 'succeeded'")) {
+      return { rowCount: 1, rows: [{ desired_generation: 1 }] };
+    }
+    if (text.includes('SELECT desired_generation')) return { rowCount: 1, rows: [{ desired_generation: 1 }] };
+    return null;
+  }
   const db = {
     async query(text, values) {
       queries.push({ text, values });
+      const reconciliation = reconciliationQuery(text);
+      if (reconciliation) return reconciliation;
       if (text.includes('FROM projects p')) {
         projectSelects += 1;
         return { rowCount: 1, rows: [projectSelects === 1 ? project : closedProject] };
@@ -219,15 +228,24 @@ test('project-close completes the project and moves the channel to history', asy
       return { rows: [] };
     },
     async transaction(work) {
-      await work({
+      return work({
         async query(text, values) {
           queries.push({ text, values });
+          const reconciliation = reconciliationQuery(text);
+          if (reconciliation) return reconciliation;
+          if (text.includes('FROM projects p')) {
+            projectSelects += 1;
+            return { rowCount: 1, rows: [closedProject] };
+          }
+          if (text.includes('FROM project_people')) return { rows: people };
           return { rows: [] };
         },
       });
     },
   };
   const channel = {
+    name: 'project-42-signals',
+    parentId: null,
     permissionOverwrites: {
       async set(overwrites, reason) {
         channel.overwrites = overwrites;
@@ -291,8 +309,7 @@ test('project-close completes the project and moves the channel to history', asy
   assert.equal(result.project.status, PROJECT_STATUSES.COMPLETED);
   assert.equal(channel.parentId, 'archive-category');
   assert.deepEqual(channel.parentOptions, { lockPermissions: false });
-  assert.equal(channel.overwriteReason, 'Project closed');
-  assert.match(channel.message.content, /\*\*Status:\*\* completed/);
+  assert.equal(channel.overwriteReason, 'Reconcile project 42 access');
   assert.ok(queries.some((call) => call.text.includes('SET status = $1') && call.values[0] === PROJECT_STATUSES.COMPLETED));
   assert.equal(queries.some((call) => call.values?.[0] === PROJECT_STATUSES.ARCHIVED), false);
 });

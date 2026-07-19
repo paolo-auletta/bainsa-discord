@@ -1,7 +1,7 @@
 import { Events } from 'discord.js';
 
 import { commands } from './commands/index.mjs';
-import { closeDatabase } from './db.mjs';
+import { closeDatabase, query, transaction } from './db.mjs';
 import { logger } from './logger.mjs';
 import { createOnboardingService } from './onboarding/service.mjs';
 import { createBotClient } from './runtime/client.mjs';
@@ -10,10 +10,12 @@ import { installGracefulShutdown } from './runtime/shutdown.mjs';
 import { config } from './config.mjs';
 import { warmGovernanceAutocompleteCache } from './services/governance/service.mjs';
 import { warmProjectAutocompleteCache } from './services/projects/index.mjs';
+import { createProjectReconciliationWorker } from './services/projects/reconciliation.mjs';
 
 const client = createBotClient();
 const onboarding = createOnboardingService();
 const dispatchInteraction = createInteractionDispatcher({ commands, onboarding });
+let projectReconciliationWorker = null;
 
 client.once(Events.ClientReady, (readyClient) => {
   logger.info('BAINSA Discord bot is online', {
@@ -30,6 +32,12 @@ client.once(Events.ClientReady, (readyClient) => {
       error: error instanceof Error ? error.message : String(error),
     });
   });
+  const guild = readyClient.guilds.cache.get(config.discordGuildId);
+  if (guild) {
+    projectReconciliationWorker = createProjectReconciliationWorker({ guild, db: { query, transaction } });
+  } else {
+    logger.warn('Project reconciliation worker was not started because the configured guild is unavailable');
+  }
 });
 
 client.on(Events.InteractionCreate, (interaction) => {
@@ -49,6 +57,6 @@ client.on(Events.Error, (error) => {
   logger.error('Discord client error', { error: error instanceof Error ? error.message : String(error) });
 });
 
-installGracefulShutdown({ client, closeDatabase });
+installGracefulShutdown({ client, closeDatabase, stopWorkers: () => projectReconciliationWorker?.stop() });
 
 await client.login(config.discordToken);
