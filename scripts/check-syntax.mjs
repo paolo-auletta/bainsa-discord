@@ -6,8 +6,15 @@ const files = execFileSync('git', ['ls-files', '--', 'src', 'scripts'], {
   .split('\n')
   .filter((file) => file.endsWith('.mjs'));
 
-const result = spawnSync(process.execPath, ['--check', ...files], {
-  stdio: 'inherit'
+const failedFiles = files.filter((file) => {
+  const result = spawnSync(process.execPath, ['--check', file], {
+    stdio: 'inherit'
+  });
+
+  return result.status !== 0;
 });
 
-process.exit(result.status ?? 1);
+if (failedFiles.length > 0) {
+  console.error(`Syntax check failed for: ${failedFiles.join(', ')}`);
+  process.exit(1);
+}
