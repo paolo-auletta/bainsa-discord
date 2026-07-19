@@ -20,3 +20,20 @@ The CI workflow runs the same commands without credentials. `npm test` supplies 
 - Treat migrations in `db/migrations/` as append-only once shared or deployed. Add a new numbered migration; do not edit, rename, or reorder an existing migration.
 - Commands and provisioning scripts can change Discord or PostgreSQL. Preserve dry-run behavior, explicit confirmation flags, authorization checks, and the separation between planning/validation and external side effects.
 - Tests must use fixtures, fakes, or local values and must not call Discord or a production database.
+
+## Service architecture
+
+Governance and project commands import their domain entrypoint (`governance/service.mjs` or
+`projects/index.mjs`). Those entrypoints own explicit workflow ordering: authorization,
+transactions, Discord effects, compensation or reconciliation, audits, and returned messages.
+Do not replace them with a generic workflow framework.
+
+Within each domain:
+
+- `policy.mjs`, `validation.mjs`, and `formatters.mjs` contain deterministic domain decisions and presentation.
+- `repository.mjs` owns characterized SQL reads and writes and must not accept Discord guilds, interactions, or members.
+- `gateway.mjs` owns characterized Discord reads and mutations and must not contain SQL or call a database client.
+- `autocomplete.mjs` owns read-optimized lookup queries and cache behavior; command handlers still pass through dispatcher authorization before invoking it.
+
+Preserve the service entrypoint exports when moving code. Add a public API contract test before
+changing imports, and keep effect ordering and dependency-injection shapes unchanged.
