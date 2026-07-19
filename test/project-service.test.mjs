@@ -310,6 +310,7 @@ test('project-close completes the project and moves the channel to history', asy
   assert.equal(channel.parentId, 'archive-category');
   assert.deepEqual(channel.parentOptions, { lockPermissions: false });
   assert.equal(channel.overwriteReason, 'Reconcile project 42 access');
+  assert.match(channel.message.content, /\*\*Outcome:\*\* Completed successfully/);
   assert.ok(queries.some((call) => call.text.includes('SET status = $1') && call.values[0] === PROJECT_STATUSES.COMPLETED));
   assert.equal(queries.some((call) => call.values?.[0] === PROJECT_STATUSES.ARCHIVED), false);
 });

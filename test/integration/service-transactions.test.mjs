@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { ChannelType } from 'discord.js';
+
 import { ONBOARDING_ACTIONS, onboardingId } from '../../src/onboarding/custom-ids.mjs';
 import { createOnboardingService } from '../../src/onboarding/service.mjs';
 import { ROLE_NAMES } from '../../src/constants.mjs';
 import { addMember, removeMember, updateMember } from '../../src/services/governance/service.mjs';
 import { lockMemberEligibilityRows } from '../../src/services/projects/eligibility.mjs';
-import { addProjectMember, createProject } from '../../src/services/projects/index.mjs';
+import { addProjectMember, closeProject, createProject, updateProject } from '../../src/services/projects/index.mjs';
 import { runMigrations } from '../../src/migrations/runner.mjs';
 import {
   assertDisposableTestDatabaseUrl,
@@ -517,6 +519,61 @@ test('project creation retains its committed record and records a pending reconc
   const reconciliation = await database.query('SELECT status, last_error FROM project_reconciliation');
   assert.equal(reconciliation.rows[0].status, 'failed');
   assert.match(reconciliation.rows[0].last_error, /Controlled Discord channel failure/);
+});
+
+test('successful project create, update, and close retain their one-shot history posts', async () => {
+  await resetAndMigrate();
+  const { universityId, divisionId } = await seedUniversityAndDivision();
+  await database.query('UPDATE universities SET showcase_channel_id = $1 WHERE id = $2', ['showcase', universityId]);
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type, status)
+     VALUES ($1, $2, 'researcher', 'active'), ($3, $2, 'alumni', 'active')`,
+    ['111111111111111111', universityId, '222222222222222222'],
+  );
+  await database.query('INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)', ['111111111111111111', divisionId]);
+
+  const channels = new Map();
+  const workspaceMessages = [];
+  const threadMessages = [];
+  const thread = { id: 'thread', async setName() {}, async send(payload) { threadMessages.push(payload); } };
+  const forum = {
+    id: 'showcase', type: ChannelType.GuildForum, availableTags: [],
+    async setAvailableTags(tags) { forum.availableTags = tags.map((tag, index) => ({ ...tag, id: tag.id ?? `tag-${index}` })); return forum; },
+    threads: { async create(payload) { forum.created = payload; channels.set(thread.id, thread); return thread; } },
+  };
+  channels.set(forum.id, forum);
+  const guild = { id: 'guild' };
+  guild.roles = { cache: roleCache([role('head-role', 'Bocconi - Head of Analysis')]) };
+  const actor = { id: 'actor', roles: { cache: roleCache([role('head-role', 'Bocconi - Head of Analysis')]) } };
+  const member = managedMember('111111111111111111', guild);
+  const supervisor = managedMember('222222222222222222', guild);
+  guild.members = { async fetch(id) { if (String(id) === member.id) return member; if (String(id) === supervisor.id) return supervisor; throw new Error('Unknown member'); } };
+  guild.channels = {
+    cache: { has: (id) => channels.has(id), find: (predicate) => [...channels.values()].find(predicate) },
+    async fetch(id) { return id == null ? channels : channels.get(id) ?? null; },
+    async create(options) {
+      const workspace = {
+        id: 'workspace', name: options.name, topic: options.topic, parentId: null,
+        permissionOverwrites: { async set() {} }, async setName() {}, async setParent() {},
+        async send(payload) { workspaceMessages.push(payload); },
+      };
+      channels.set(workspace.id, workspace);
+      return workspace;
+    },
+  };
+  const interaction = { guild, member: actor, user: { id: actor.id } };
+  const created = await createProject({
+    interaction, name: 'Signals', university: 'Bocconi', division: 'Analysis',
+    startDate: '2026-07-01', expectedEnd: '2026-08-01', notes: null, members: member.id, supervisors: supervisor.id,
+  }, { db: database });
+  await updateProject({ interaction, project: String(created.id), notes: 'Updated notes' }, { db: database });
+  await closeProject({ interaction, project: String(created.id), outcome: 'Done', finalNotes: 'Handed over' }, { db: database });
+  assert.equal(workspaceMessages.length, 3);
+  assert.match(workspaceMessages[0].content, /# Signals/);
+  assert.match(workspaceMessages[1].content, /Project details were updated/);
+  assert.match(workspaceMessages[2].content, /\*\*Outcome:\*\* Done/);
+  assert.equal(forum.created.name, 'Signals');
+  assert.equal(threadMessages.length, 2);
 });
 
 function lockedTransactionDatabase() {

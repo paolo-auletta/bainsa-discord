@@ -19,7 +19,7 @@ import {
 } from '../../constants.mjs';
 import { query, transaction } from '../../db.mjs';
 import { UserFacingError, assertUser } from '../../errors.mjs';
-import { universityCategoryName } from '../../naming.mjs';
+import { projectChannelName, universityCategoryName } from '../../naming.mjs';
 import { uniqueIds } from './permissions.mjs';
 import {
   assertProjectStatusChange,
@@ -214,6 +214,75 @@ function formatPeopleLine(people, role) {
   return ids.length ? ids.join(', ') : 'None yet';
 }
 
+function formatProjectIntro(project, people, extra = '') {
+  return [
+    `# ${project.name}`,
+    `**University:** ${project.university_name}`,
+    `**Division:** ${divisionLabel(project.division_name, project.division_color)}`,
+    `**Status:** ${project.status}`,
+    `**Timeline:** ${project.start_date} -> ${project.expected_end}`,
+    `**Members:** ${formatPeopleLine(people, PROJECT_PERSON_ROLES.MEMBER)}`,
+    `**Supervisors:** ${formatPeopleLine(people, PROJECT_PERSON_ROLES.SUPERVISOR)}`,
+    project.notes ? `**Notes:** ${project.notes}` : null,
+    extra || null,
+  ].filter(Boolean).join('\n');
+}
+
+function formatShowcasePost(project, people, extra = '') {
+  return [
+    `**${project.name}** is now tracked in BAINSA ${project.university_name}.`,
+    `Division: **${divisionLabel(project.division_name, project.division_color)}**`,
+    `Status: **${project.status}**`,
+    `Expected end: **${project.expected_end}**`,
+    `Supervisors: ${formatPeopleLine(people, PROJECT_PERSON_ROLES.SUPERVISOR)}`,
+    extra || project.notes || null,
+  ].filter(Boolean).join('\n');
+}
+
+async function createShowcaseThread(guild, project, people) {
+  if (!project.showcase_channel_id) return null;
+  const forum = await guild.channels.fetch(project.showcase_channel_id).catch(() => null);
+  if (!forum || forum.type !== ChannelType.GuildForum) return null;
+  const existing = forum.availableTags.find((tag) => tag.name.toLowerCase() === project.division_name.toLowerCase());
+  const tags = existing
+    ? forum.availableTags
+    : (await forum.setAvailableTags([...forum.availableTags.map((tag) => ({ id: tag.id, name: tag.name, moderated: tag.moderated })), { name: project.division_name }], `Create ${project.division_name} project tag`)).availableTags;
+  const tagId = tags.find((tag) => tag.name.toLowerCase() === project.division_name.toLowerCase())?.id ?? null;
+  return forum.threads.create({
+    name: project.name,
+    appliedTags: tagId ? [tagId] : [],
+    message: { content: formatShowcasePost(project, people) },
+    reason: `Project ${project.id} showcase post`,
+  });
+}
+
+async function updateShowcaseThread(guild, project, people, extra = '') {
+  if (!project.showcase_thread_id) return;
+  const thread = await guild.channels.fetch(project.showcase_thread_id).catch(() => null);
+  if (!thread) return;
+  await thread.setName(project.name, `Update project ${project.id} showcase`).catch(() => undefined);
+  await thread.send({ content: formatShowcasePost(project, people, extra) }).catch(() => undefined);
+}
+
+async function updateProjectChannel(guild, project, people, extra = '') {
+  if (!project.discord_channel_id) return;
+  const channel = await guild.channels.fetch(project.discord_channel_id).catch(() => null);
+  if (!channel) return;
+  await channel.send({ content: formatProjectIntro(project, people, extra) }).catch(() => undefined);
+}
+
+async function createProjectHistory(guild, db, project, people) {
+  await updateProjectChannel(guild, project, people);
+  try {
+    const thread = await createShowcaseThread(guild, project, people);
+    if (!thread) return;
+    await db.query('UPDATE projects SET showcase_thread_id = $1, updated_at = now() WHERE id = $2', [thread.id, project.id]);
+    project.showcase_thread_id = thread.id;
+  } catch {
+    // Showcase posts are intentionally one-shot best effort, never replayed by reconciliation.
+  }
+}
+
 export function projectIdFromOption(value) {
   const projectId = String(value ?? '').trim();
   assertUser(/^[1-9]\d*$/.test(projectId), 'Choose a valid project.');
@@ -280,21 +349,20 @@ export async function createProject(input, deps = {}) {
       );
     }
     await enqueueProjectReconciliation(client, created.id);
+    await writeAudit(client, {
+      actorId: interaction.user.id, action: 'project.create', targetType: 'project', targetId: created.id,
+      universityId: created.university_id, after: { ...created, people },
+    });
     return created;
   });
 
-  await db.transaction(async (client) => {
-    await writeAudit(client, {
-      actorId: interaction.user.id, action: 'project.create', targetType: 'project', targetId: project.id,
-      universityId: project.university_id, after: { ...project, people },
-    });
-  });
   const reconciliation = await reconcileProject({ projectId: project.id, guild, db });
   if (reconciliation.status !== 'succeeded') {
     throw new UserFacingError(
       `Project #${project.id} was committed to the database, but Discord reconciliation is pending after a failure. It will retry automatically.`,
     );
   }
+  await createProjectHistory(guild, db, reconciliation.project, reconciliation.people);
   return { ...reconciliation.project, people: reconciliation.people };
 }
 
@@ -338,6 +406,7 @@ export async function addProjectMember(input, deps = {}) {
   if (reconciliation.status !== 'succeeded') {
     throw new UserFacingError(`Project #${project.id} was committed to the database, but Discord reconciliation is pending after a failure. It will retry automatically.`);
   }
+  await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, `<@${input.user.id}> joined as **${role}**.`);
   return { project: reconciliation.project, people: reconciliation.people };
 }
 
@@ -370,6 +439,7 @@ export async function removeProjectMember(input, deps = {}) {
   if (reconciliation.status !== 'succeeded') {
     throw new UserFacingError(`Project #${project.id} was committed to the database, but Discord reconciliation is pending after a failure. It will retry automatically.`);
   }
+  await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, `<@${input.user.id}> was removed from the project.`);
   return { project: reconciliation.project, people: reconciliation.people };
 }
 
@@ -409,6 +479,8 @@ export async function updateProject(input, deps = {}) {
   if (reconciliation.status !== 'succeeded') {
     throw new UserFacingError(`Project #${before.id} was committed to the database, but Discord reconciliation is pending after a failure. It will retry automatically.`);
   }
+  await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, 'Project details were updated.');
+  await updateShowcaseThread(input.interaction.guild, reconciliation.project, reconciliation.people, 'Project details were updated.');
   return { project: reconciliation.project, people: reconciliation.people };
 }
 
@@ -444,6 +516,8 @@ export async function closeProject(input, deps = {}) {
   if (reconciliation.status !== 'succeeded') {
     throw new UserFacingError(`Project #${project.id} was committed to the database, but Discord reconciliation is pending after a failure. It will retry automatically.`);
   }
+  await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, `**Outcome:** ${outcome}\n**Final notes:** ${finalNotes}`);
+  await updateShowcaseThread(input.interaction.guild, reconciliation.project, reconciliation.people, `Completed: ${outcome}`);
   return { project: reconciliation.project, people: reconciliation.people };
 }
 

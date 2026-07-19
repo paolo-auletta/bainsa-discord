@@ -7,11 +7,15 @@ import { buildProjectPermissionOverwrites, projectPersonIdsByRole, uniqueIds } f
 
 const PROJECT_SELECT = `
   p.id, p.name, p.university_id, p.division_id, p.start_date::text AS start_date,
-  p.expected_end::text AS expected_end, p.notes, p.status, p.channel_id AS discord_channel_id,
-  u.name AS university_name, u.category_id, d.name AS division_name, d.color AS division_color,
+  p.expected_end::text AS expected_end, p.notes, p.status, p.channel_id AS discord_channel_id, p.showcase_thread_id,
+  u.name AS university_name, u.category_id, u.showcase_channel_id, d.name AS division_name, d.color AS division_color,
   d.head_role_id AS division_head_role_id
 `;
 const REPAIR_LIMIT = 10;
+
+function projectChannelTopic(project) {
+  return `${project.university_name} / ${project.division_name} project ${project.id}`;
+}
 
 function roleByName(guild, name) {
   return guild.roles.cache.find((role) => role.name === name) ?? null;
@@ -65,16 +69,26 @@ async function loadDesiredState(client, projectId) {
 
 async function ensureProjectChannel(client, guild, project, people) {
   if (project.discord_channel_id) {
-    const channel = await guild.channels.fetch(project.discord_channel_id);
-    if (!channel) throw new Error(`Discord channel ${project.discord_channel_id} could not be fetched.`);
-    return channel;
+    const channel = await guild.channels.fetch(project.discord_channel_id).catch(() => null);
+    if (channel) return channel;
+  }
+
+  const topic = projectChannelTopic(project);
+  const fetchedChannels = typeof guild.channels.fetch === 'function' ? await guild.channels.fetch() : null;
+  const channels = fetchedChannels?.values ? [...fetchedChannels.values()] : [];
+  const matches = channels.filter((channel) => channel.type === ChannelType.GuildText && channel.topic === topic);
+  if (matches.length > 1) throw new Error(`Multiple Discord channels match project ${project.id}'s reconciliation marker.`);
+  if (matches.length === 1) {
+    await client.query('UPDATE projects SET channel_id = $1, updated_at = now() WHERE id = $2', [matches[0].id, project.id]);
+    project.discord_channel_id = matches[0].id;
+    return matches[0];
   }
 
   const channel = await guild.channels.create({
     name: projectChannelName(project.id, project.name),
     type: ChannelType.GuildText,
     parent: findCategoryId(guild, project.category_id, universityCategoryName(project.university_name)) ?? undefined,
-    topic: `${project.university_name} / ${project.division_name} project ${project.id}`,
+    topic,
     permissionOverwrites: desiredOverwrites(guild, project, people),
     reason: `Reconcile project ${project.id}`,
   });
