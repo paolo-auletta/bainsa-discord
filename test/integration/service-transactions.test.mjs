@@ -4,8 +4,8 @@ import test from 'node:test';
 import { ONBOARDING_ACTIONS, onboardingId } from '../../src/onboarding/custom-ids.mjs';
 import { createOnboardingService } from '../../src/onboarding/service.mjs';
 import { ROLE_NAMES } from '../../src/constants.mjs';
-import { addMember, updateMember } from '../../src/services/governance/service.mjs';
-import { createProject } from '../../src/services/projects/index.mjs';
+import { addMember, removeMember, updateMember } from '../../src/services/governance/service.mjs';
+import { addProjectMember, createProject } from '../../src/services/projects/index.mjs';
 import { runMigrations } from '../../src/migrations/runner.mjs';
 import {
   assertDisposableTestDatabaseUrl,
@@ -515,4 +515,215 @@ test('project creation archives its committed record when the mocked Discord cha
   assert.match(project.rows[0].notes, /Controlled Discord channel failure/);
   const audit = await database.query("SELECT action FROM audit_log WHERE action = 'project.create_failed'");
   assert.equal(audit.rowCount, 1);
+});
+
+function lockedTransactionDatabase() {
+  const locked = deferred();
+  const release = deferred();
+  let didLock = false;
+  return {
+    query: database.query.bind(database),
+    locked: locked.promise,
+    release: release.resolve,
+    async transaction(work) {
+      return database.transaction(async (client) => work({
+        ...client,
+        async query(text, values = []) {
+          const result = await client.query(text, values);
+          if (!didLock && text.includes('FROM members') && text.includes('FOR UPDATE')) {
+            didLock = true;
+            locked.resolve();
+            await release.promise;
+          }
+          return result;
+        },
+      }));
+    },
+  };
+}
+
+async function seedEligibilityRace() {
+  await resetAndMigrate();
+  const { universityId, divisionId } = await seedUniversityAndDivision();
+  const culture = await database.query(
+    `INSERT INTO divisions (university_id, name, member_role_id)
+     VALUES ($1, 'Culture', 'culture-role') RETURNING id`,
+    [universityId],
+  );
+  const sapienza = await database.query(
+    `INSERT INTO universities (name, discord_role_id)
+     VALUES ('Sapienza', 'sapienza-role') RETURNING id`,
+  );
+  const sapienzaDivision = await database.query(
+    `INSERT INTO divisions (university_id, name, member_role_id)
+     VALUES ($1, 'Analysis', 'sapienza-analysis-role') RETURNING id`,
+    [sapienza.rows[0].id],
+  );
+  const userId = '333333333333333333';
+  const supervisorId = '444444444444444444';
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type, status)
+     VALUES ($1, $2, 'researcher', 'active'), ($3, $2, 'alumni', 'active')`,
+    [userId, universityId, supervisorId],
+  );
+  await database.query(
+    'INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)',
+    [userId, divisionId],
+  );
+  const project = await database.query(
+    `INSERT INTO projects (name, university_id, division_id, start_date, expected_end, status)
+     VALUES ('Existing Signals', $1, $2, '2026-07-01', '2026-08-01', 'active') RETURNING id`,
+    [universityId, divisionId],
+  );
+
+  const guild = { id: 'guild' };
+  guild.roles = {
+    cache: roleCache([
+      role('researcher-role', ROLE_NAMES.RESEARCHER),
+      role('alumni-role', ROLE_NAMES.ALUMNI),
+      role('bocconi-role', 'Bocconi'),
+      role('analysis-role', 'Bocconi - Analysis'),
+      role('culture-role', 'Bocconi - Culture'),
+      role('sapienza-role', 'Sapienza'),
+      role('sapienza-analysis-role', 'Sapienza - Analysis'),
+      role('head-role', 'Bocconi - Head of Analysis'),
+      role('global-president', ROLE_NAMES.GLOBAL_PRESIDENT),
+    ]),
+  };
+  const target = managedMember(userId, guild, [
+    role('researcher-role', ROLE_NAMES.RESEARCHER),
+    role('bocconi-role', 'Bocconi'),
+    role('analysis-role', 'Bocconi - Analysis'),
+  ]);
+  const supervisor = managedMember(supervisorId, guild, [
+    role('alumni-role', ROLE_NAMES.ALUMNI),
+    role('bocconi-role', 'Bocconi'),
+  ]);
+  target.kick = async () => {};
+  const head = { id: 'head', roles: { cache: roleCache([role('head-role', 'Bocconi - Head of Analysis')]) } };
+  const president = globalPresident('president');
+  guild.members = {
+    async fetch(id) {
+      if (String(id) === target.id) return target;
+      if (String(id) === supervisor.id) return supervisor;
+      throw new Error(`Unknown mock member ${id}`);
+    },
+  };
+  guild.channels = {
+    cache: { has: () => false, find: () => null },
+    async fetch() { return null; },
+    async create(options) {
+      return { id: `channel-${options.name}`, guild, async send() {} };
+    },
+  };
+  return {
+    userId,
+    supervisorId,
+    universityId,
+    divisionId,
+    cultureId: culture.rows[0].id,
+    sapienzaId: sapienza.rows[0].id,
+    sapienzaDivisionId: sapienzaDivision.rows[0].id,
+    projectId: project.rows[0].id,
+    guild,
+    target,
+    head,
+    president,
+  };
+}
+
+function projectAddInput(fixture) {
+  return {
+    interaction: { guild: fixture.guild, user: { id: fixture.head.id }, member: fixture.head },
+    project: String(fixture.projectId),
+    user: { id: fixture.userId },
+    role: 'member',
+  };
+}
+
+async function assertProjectWriteWinsMembershipRace(fixture, membershipWrite) {
+  const blockingDb = lockedTransactionDatabase();
+  const membershipPreflight = deferred();
+  const membershipDb = {
+    query: async (text, values) => {
+      const result = await database.query(text, values);
+      if (text.includes('FROM project_people pp')) membershipPreflight.resolve();
+      return result;
+    },
+    transaction: database.transaction.bind(database),
+  };
+  const projectWrite = addProjectMember(projectAddInput(fixture), { db: blockingDb });
+  await blockingDb.locked;
+  const governanceWrite = membershipWrite(membershipDb);
+  await membershipPreflight.promise;
+  const governanceRejected = assert.rejects(governanceWrite, /ineligible for active projects/i);
+  blockingDb.release();
+  await projectWrite;
+  await governanceRejected;
+  const joined = await database.query(
+    'SELECT role FROM project_people WHERE project_id = $1 AND discord_user_id = $2',
+    [fixture.projectId, fixture.userId],
+  );
+  assert.equal(joined.rowCount, 1);
+}
+
+test('project eligibility boundary serializes real PostgreSQL add/create races with membership changes', async () => {
+  for (const change of ['type', 'university', 'division']) {
+    const fixture = await seedEligibilityRace();
+    await assertProjectWriteWinsMembershipRace(fixture, (db) => updateMember(
+      { guild: fixture.guild, user: { id: fixture.president.id }, member: fixture.president },
+      {
+        user: { id: fixture.userId },
+        ...(change === 'type' ? { memberType: 'alumni' } : {}),
+        ...(change === 'university' ? { university: 'Sapienza', divisionsText: 'Analysis' } : {}),
+        ...(change === 'division' ? { divisionsText: 'Culture' } : {}),
+      },
+      { db },
+    ));
+  }
+
+  const removal = await seedEligibilityRace();
+  const blockingDb = lockedTransactionDatabase();
+  const projectWrite = addProjectMember(projectAddInput(removal), { db: blockingDb });
+  await blockingDb.locked;
+  const removalWrite = removeMember(
+    { guild: removal.guild, user: { id: removal.president.id }, member: removal.president },
+    { user: { id: removal.userId }, reason: 'race test' },
+    { db: database },
+  );
+  blockingDb.release();
+  await projectWrite;
+  await removalWrite;
+  assert.equal(
+    (await database.query('SELECT status FROM members WHERE discord_user_id = $1', [removal.userId])).rows[0].status,
+    'removed',
+  );
+  assert.equal(
+    (await database.query('SELECT count(*)::int AS count FROM project_people WHERE discord_user_id = $1', [removal.userId]))
+      .rows[0].count,
+    0,
+  );
+
+  const createRace = await seedEligibilityRace();
+  const blockingDbForCreate = lockedTransactionDatabase();
+  const creating = createProject({
+    interaction: { guild: createRace.guild, user: { id: createRace.head.id }, member: createRace.head },
+    name: 'Created Signals',
+    university: 'Bocconi',
+    division: 'Analysis',
+    startDate: '2026-07-01',
+    expectedEnd: '2026-08-01',
+    members: createRace.userId,
+    supervisors: createRace.supervisorId,
+  }, { db: blockingDbForCreate });
+  await blockingDbForCreate.locked;
+  const change = updateMember(
+    { guild: createRace.guild, user: { id: createRace.president.id }, member: createRace.president },
+    { user: { id: createRace.userId }, divisionsText: 'Culture' },
+    { db: database },
+  );
+  const changeRejected = assert.rejects(change, /ineligible for active projects/i);
+  blockingDbForCreate.release();
+  await creating;
+  await changeRejected;
 });

@@ -44,6 +44,7 @@ import {
   validateExpectedEndUpdate,
   validateProjectDates,
 } from './validation.mjs';
+import { lockAndAssertProjectPeopleEligibility, lockMemberEligibilityRows } from './eligibility.mjs';
 
 const DEFAULT_DB = { query, transaction };
 const PROJECT_AUTOCOMPLETE_CACHE_TTL_MS = 30_000;
@@ -413,6 +414,7 @@ export async function createProject(input, deps = {}) {
   await assertActiveUniversityMembers(db, divisionRecord.university_id, supervisorIds, 'supervisors');
 
   const project = await db.transaction(async (client) => {
+    await lockAndAssertProjectPeopleEligibility(client, divisionRecord, people);
     const result = await client.query(
       `INSERT INTO projects
         (name, university_id, division_id, start_date, expected_end, notes, status)
@@ -503,6 +505,9 @@ export async function addProjectMember(input, deps = {}) {
   }
 
   await db.transaction(async (client) => {
+    await lockAndAssertProjectPeopleEligibility(client, project, [
+      { discord_user_id: input.user.id, role },
+    ]);
     await client.query(
       `INSERT INTO project_people (project_id, discord_user_id, role)
        VALUES ($1, $2, $3)
@@ -534,6 +539,7 @@ export async function removeProjectMember(input, deps = {}) {
   assertProjectIsOpen(project.status);
 
   await db.transaction(async (client) => {
+    await lockMemberEligibilityRows(client, [input.user.id]);
     await client.query('DELETE FROM project_people WHERE project_id = $1 AND discord_user_id = $2', [
       project.id,
       input.user.id,

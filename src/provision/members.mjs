@@ -1,5 +1,9 @@
 import { BOARD_ROLES, MEMBER_TYPES, ROLE_NAMES } from '../constants.mjs';
 import { divisionHeadRoleName, divisionRoleName } from '../naming.mjs';
+import {
+  assertMemberProjectAssignmentEligibility,
+  lockMemberEligibilityRows,
+} from '../services/projects/eligibility.mjs';
 
 export async function reconcileExistingMembers({
   guild,
@@ -181,62 +185,92 @@ async function upsertRecognizedMember(db, {
 }) {
   const universityRecord = resourceIndex.universities.get(primaryUniversity.slug);
   if (!universityRecord?.id) return;
+  const divisionIds = memberType === MEMBER_TYPES.RESEARCHER
+    ? recognition.divisions
+      .map(({ university, division }) => resourceIndex.divisions.get(`${university.slug}:${division.slug}`)?.id)
+      .filter(Boolean)
+    : [];
 
-  await db.query(
-    `INSERT INTO members
-      (discord_user_id, university_id, member_type, status, joined_at, updated_at)
-     VALUES ($1, $2, $3, 'active', NOW(), NOW())
-     ON CONFLICT (discord_user_id)
-     DO UPDATE SET
-       university_id = EXCLUDED.university_id,
-       member_type = EXCLUDED.member_type,
-       status = 'active',
-       removed_at = NULL,
-       updated_at = NOW()`,
-    [String(discordUserId), universityRecord.id, memberType],
-  );
+  await membershipTransaction(db, async (q) => {
+    await lockMemberEligibilityRows(q, [discordUserId]);
+    await assertMemberProjectAssignmentEligibility(q, {
+      userId: discordUserId,
+      memberType,
+      universityId: universityRecord.id,
+      divisionIds,
+    });
+    await q.query(
+      `INSERT INTO members
+        (discord_user_id, university_id, member_type, status, joined_at, updated_at)
+       VALUES ($1, $2, $3, 'active', NOW(), NOW())
+       ON CONFLICT (discord_user_id)
+       DO UPDATE SET
+         university_id = EXCLUDED.university_id,
+         member_type = EXCLUDED.member_type,
+         status = 'active',
+         removed_at = NULL,
+         updated_at = NOW()`,
+      [String(discordUserId), universityRecord.id, memberType],
+    );
 
-  await db.query(
-    'DELETE FROM member_divisions WHERE discord_user_id = $1',
-    [String(discordUserId)],
-  );
-  await db.query(
-    `UPDATE board_assignments
+    await q.query(
+      'DELETE FROM member_divisions WHERE discord_user_id = $1',
+      [String(discordUserId)],
+    );
+    await q.query(
+      `UPDATE board_assignments
         SET active = false,
             updated_at = NOW()
       WHERE discord_user_id = $1
         AND active = true`,
-    [String(discordUserId)],
-  );
-
-  for (const { university, division } of recognition.divisions) {
-    const divisionRecord = resourceIndex.divisions.get(`${university.slug}:${division.slug}`);
-    if (!divisionRecord?.id) continue;
-    await db.query(
-      `INSERT INTO member_divisions (discord_user_id, division_id)
-       VALUES ($1, $2)
-       ON CONFLICT DO NOTHING`,
-      [String(discordUserId), divisionRecord.id],
+      [String(discordUserId)],
     );
-  }
 
-  for (const assignment of recognition.boardAssignments) {
-    const assignmentUniversity = assignment.university
-      ? resourceIndex.universities.get(assignment.university.slug)
-      : null;
-    const assignmentDivision = assignment.division
-      ? resourceIndex.divisions.get(`${assignment.university.slug}:${assignment.division.slug}`)
-      : null;
-    await db.query(
-      `INSERT INTO board_assignments (discord_user_id, university_id, role, division_id, active)
-       VALUES ($1, $2, $3, $4, true)
-       ON CONFLICT DO NOTHING`,
-      [
-        String(discordUserId),
-        assignmentUniversity?.id ?? null,
-        assignment.role,
-        assignmentDivision?.id ?? null,
-      ],
-    );
+    for (const { university, division } of recognition.divisions) {
+      const divisionRecord = resourceIndex.divisions.get(`${university.slug}:${division.slug}`);
+      if (!divisionRecord?.id) continue;
+      await q.query(
+        `INSERT INTO member_divisions (discord_user_id, division_id)
+         VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
+        [String(discordUserId), divisionRecord.id],
+      );
+    }
+
+    for (const assignment of recognition.boardAssignments) {
+      const assignmentUniversity = assignment.university
+        ? resourceIndex.universities.get(assignment.university.slug)
+        : null;
+      const assignmentDivision = assignment.division
+        ? resourceIndex.divisions.get(`${assignment.university.slug}:${assignment.division.slug}`)
+        : null;
+      await q.query(
+        `INSERT INTO board_assignments (discord_user_id, university_id, role, division_id, active)
+         VALUES ($1, $2, $3, $4, true)
+         ON CONFLICT DO NOTHING`,
+        [
+          String(discordUserId),
+          assignmentUniversity?.id ?? null,
+          assignment.role,
+          assignmentDivision?.id ?? null,
+        ],
+      );
+    }
+  });
+}
+
+async function membershipTransaction(db, work) {
+  if (typeof db.transaction === 'function') return db.transaction(work);
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await work(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
 }

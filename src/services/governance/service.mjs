@@ -47,6 +47,10 @@ import {
   memberTypeLabel,
   parseDivisionList,
 } from './policy.mjs';
+import {
+  assertMemberProjectAssignmentEligibility,
+  lockMemberEligibilityRows,
+} from '../projects/eligibility.mjs';
 
 const ACTIVE_PROJECT_STATUSES = [PROJECT_STATUSES.ACTIVE, PROJECT_STATUSES.PAUSED];
 const GOVERNANCE_AUTOCOMPLETE_CACHE_TTL_MS = 30_000;
@@ -795,6 +799,13 @@ async function applyMemberMembership(interaction, options, deps = {}) {
 
   try {
     await db.transaction(async (q) => {
+      await lockMemberEligibilityRows(q, [target.id]);
+      await assertMemberProjectAssignmentEligibility(q, {
+        userId: target.id,
+        memberType,
+        universityId: university.id,
+        divisionIds: divisions.map((division) => division.id),
+      });
       await upsertMemberRecord(q, target.id, memberType, university.id, options.notes);
       await replaceMemberDivisionRows(q, target.id, divisions);
       await writeAudit(q, {
@@ -873,6 +884,7 @@ export async function removeMember(interaction, options, deps = {}) {
 
   try {
     await db.transaction(async (q) => {
+      await lockMemberEligibilityRows(q, [target.id]);
       const boardUpdate = await q.query(
         `UPDATE board_assignments
             SET active = false,
@@ -889,6 +901,12 @@ export async function removeMember(interaction, options, deps = {}) {
         'DELETE FROM project_people WHERE discord_user_id = $1',
         [String(target.id)],
       );
+      await assertMemberProjectAssignmentEligibility(q, {
+        userId: target.id,
+        memberType: member.member_type,
+        universityId: member.university_id,
+        divisionIds: [],
+      });
       await q.query(
         `UPDATE members
             SET status = 'removed',
@@ -1239,6 +1257,14 @@ export async function addDivisionMember(interaction, options, deps = {}) {
 
   try {
     await db.transaction(async (q) => {
+      await lockMemberEligibilityRows(q, [target.id]);
+      const currentDivisions = await getMemberDivisions(q, target.id);
+      await assertMemberProjectAssignmentEligibility(q, {
+        userId: target.id,
+        memberType: MEMBER_TYPES.RESEARCHER,
+        universityId: university.id,
+        divisionIds: [...currentDivisions.map((entry) => entry.id), division.id],
+      });
       await upsertMemberRecord(q, target.id, MEMBER_TYPES.RESEARCHER, university.id, null);
       await addMemberDivisionRow(q, target.id, division.id);
       await writeAudit(q, {
@@ -1284,6 +1310,17 @@ export async function removeDivisionMember(interaction, options, deps = {}) {
 
   try {
     await db.transaction(async (q) => {
+      await lockMemberEligibilityRows(q, [target.id]);
+      const currentMember = await getMemberRecord(q, target.id);
+      const currentDivisions = await getMemberDivisions(q, target.id);
+      await assertMemberProjectAssignmentEligibility(q, {
+        userId: target.id,
+        memberType: currentMember?.member_type ?? MEMBER_TYPES.RESEARCHER,
+        universityId: currentMember?.university_id ?? university.id,
+        divisionIds: currentDivisions
+          .filter((entry) => String(entry.id) !== String(division.id))
+          .map((entry) => entry.id),
+      });
       await removeMemberDivisionRow(q, target.id, division.id);
       await writeAudit(q, {
         actorId: interaction.user.id,

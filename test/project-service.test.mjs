@@ -19,6 +19,7 @@ import {
   updateProject,
 } from '../src/services/projects/index.mjs';
 import { UserFacingError } from '../src/errors.mjs';
+import { sortedDiscordUserIds } from '../src/services/projects/eligibility.mjs';
 
 function memberWithRoles(id, roleNames) {
   return {
@@ -177,6 +178,13 @@ test('supervisor eligibility is university-scoped and accepts active alumni', as
   await assertActiveUniversityMembers(db, 10, ['222222222222222222'], 'supervisors');
   assert.doesNotMatch(calls[0].text, /member_type/);
   assert.deepEqual(calls[0].values, [10, ['222222222222222222']]);
+});
+
+test('participant eligibility locks use one deterministic Discord user ID order', () => {
+  assert.deepEqual(
+    sortedDiscordUserIds(['333333333333333333', '111111111111111111', '333333333333333333', '222222222222222222']),
+    ['111111111111111111', '222222222222222222', '333333333333333333'],
+  );
 });
 
 test('project-close completes the project and moves the channel to history', async () => {

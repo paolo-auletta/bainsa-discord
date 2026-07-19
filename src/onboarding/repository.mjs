@@ -1,6 +1,10 @@
 import { MEMBER_TYPES } from '../constants.mjs';
 import { ONBOARDING_STATUSES, normalizeSelectedDivisionIds } from './state.mjs';
 import { UserFacingError } from '../errors.mjs';
+import {
+  assertMemberProjectAssignmentEligibility,
+  lockMemberEligibilityRows,
+} from '../services/projects/eligibility.mjs';
 
 export async function createDraft(db, discordUserId) {
   const activeMember = await getActiveMember(db, discordUserId);
@@ -226,6 +230,16 @@ export async function listAllDivisions(db) {
 }
 
 export async function upsertActiveMember(db, request) {
+  const divisionIds = request.member_type === MEMBER_TYPES.RESEARCHER
+    ? normalizeSelectedDivisionIds(request.division_ids)
+    : [];
+  await lockMemberEligibilityRows(db, [request.discord_user_id]);
+  await assertMemberProjectAssignmentEligibility(db, {
+    userId: request.discord_user_id,
+    memberType: request.member_type,
+    universityId: request.university_id,
+    divisionIds,
+  });
   await db.query(
     `INSERT INTO members
       (discord_user_id, university_id, member_type, status, full_name, joined_at, updated_at)
@@ -241,10 +255,6 @@ export async function upsertActiveMember(db, request) {
   );
 
   await db.query('DELETE FROM member_divisions WHERE discord_user_id = $1', [request.discord_user_id]);
-
-  const divisionIds = request.member_type === MEMBER_TYPES.RESEARCHER
-    ? normalizeSelectedDivisionIds(request.division_ids)
-    : [];
 
   for (const divisionId of divisionIds) {
     await db.query(
