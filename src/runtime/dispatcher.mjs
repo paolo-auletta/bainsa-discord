@@ -1,7 +1,8 @@
 import { handleInteractionError } from '../discord/reply.mjs';
 import { UserFacingError } from '../errors.mjs';
 import { assertNoBotCommandTarget } from '../authorization.mjs';
-import { assertBotCommandChannel } from './command-channels.mjs';
+import { assertBotCommandChannel, botCommandChannelScope } from './command-channels.mjs';
+import { canDiscoverCommand } from './command-permissions.mjs';
 import { buildCommandMap } from './command-registry.mjs';
 
 export function routeInteraction(interaction) {
@@ -36,6 +37,14 @@ export function createInteractionDispatcher({
       if (route === 'autocomplete') {
         const command = commandMap.get(interaction.commandName);
         if (!command?.autocomplete) return interaction.respond([]);
+        const allowed = canDiscoverCommand({
+          commandName: interaction.commandName,
+          member: interaction.member,
+          channelScope: botCommandChannelScope(interaction.channel),
+        });
+        // Do this before invoking a handler: autocomplete handlers may query
+        // Postgres or Discord's guild-member directory.
+        if (!allowed) return interaction.respond([]);
         await command.autocomplete(interaction);
         return;
       }

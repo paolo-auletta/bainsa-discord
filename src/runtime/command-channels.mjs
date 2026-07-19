@@ -4,12 +4,19 @@ const BOT_LOG_CHANNEL_NAME = 'bot-log';
 const GLOBAL_LOG_CATEGORY_NAME = 'LOGS';
 const UNIVERSITY_CATEGORY_PREFIX = 'BAINSA ';
 
-export function isBotCommandChannel(channel) {
-  if (!channel || channel.name !== BOT_LOG_CHANNEL_NAME) return false;
+export function botCommandChannelScope(channel) {
+  if (!channel || channel.name !== BOT_LOG_CHANNEL_NAME) return null;
+
   const parentName = channel.parent?.name ?? channel.parent?.parent?.name ?? null;
-  return Boolean(
-    parentName === GLOBAL_LOG_CATEGORY_NAME || parentName?.startsWith(UNIVERSITY_CATEGORY_PREFIX),
-  );
+  if (parentName === GLOBAL_LOG_CATEGORY_NAME) return { kind: 'global' };
+  if (!parentName?.startsWith(UNIVERSITY_CATEGORY_PREFIX)) return null;
+
+  const universityName = parentName.slice(UNIVERSITY_CATEGORY_PREFIX.length).trim();
+  return universityName ? { kind: 'university', universityName } : null;
+}
+
+export function isBotCommandChannel(channel) {
+  return Boolean(botCommandChannelScope(channel));
 }
 
 export function assertBotCommandChannel(interaction) {

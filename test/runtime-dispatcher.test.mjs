@@ -86,6 +86,92 @@ test('dispatcher blocks bot-targeting commands before execution', async () => {
   assert.match(captured.message, /cannot be managed or assigned/);
 });
 
+function autocompleteInteraction({ member, channel }) {
+  return {
+    commandName: 'project-create',
+    member,
+    channel,
+    isChatInputCommand: () => false,
+    isAutocomplete: () => true,
+    isButton: () => false,
+    isStringSelectMenu: () => false,
+    isModalSubmit: () => false,
+  };
+}
+
+function memberWithRoles(names) {
+  return {
+    roles: {
+      cache: names.map((name) => ({ name })),
+    },
+  };
+}
+
+test('dispatcher returns no autocomplete choices before a denied handler can look up data', async () => {
+  let databaseLookups = 0;
+  let memberLookups = 0;
+  const dispatch = createInteractionDispatcher({
+    commands: [{
+      name: 'project-create',
+      autocomplete: async () => {
+        databaseLookups += 1;
+        memberLookups += 1;
+      },
+    }],
+    onError: async () => assert.fail('unexpected error handler call'),
+  });
+
+  for (const interaction of [
+    autocompleteInteraction({
+      member: memberWithRoles(['Researcher']),
+      channel: { name: 'bot-log', parent: { name: 'BAINSA BOCCONI' } },
+    }),
+    autocompleteInteraction({
+      member: memberWithRoles(['Bocconi - Head of Projects']),
+      channel: { name: 'general', parent: { name: 'BAINSA BOCCONI' } },
+    }),
+    autocompleteInteraction({
+      member: null,
+      channel: { name: 'bot-log', parent: { name: 'BAINSA BOCCONI' } },
+    }),
+  ]) {
+    let choices;
+    interaction.respond = async (value) => {
+      choices = value;
+    };
+    await dispatch(interaction);
+    assert.deepEqual(choices, []);
+  }
+
+  assert.equal(databaseLookups, 0);
+  assert.equal(memberLookups, 0);
+});
+
+test('dispatcher invokes autocomplete for every authorized board tier', async () => {
+  let invocations = 0;
+  const dispatch = createInteractionDispatcher({
+    commands: [{
+      name: 'project-create',
+      autocomplete: async () => {
+        invocations += 1;
+      },
+    }],
+    onError: async () => assert.fail('unexpected error handler call'),
+  });
+  const channel = { name: 'bot-log', parent: { name: 'BAINSA BOCCONI' } };
+
+  for (const roles of [
+    ['Global President'],
+    ['Bocconi - President'],
+    ['Bocconi - Vice President'],
+    ['Bocconi - Head of Projects'],
+  ]) {
+    await dispatch(autocompleteInteraction({ member: memberWithRoles(roles), channel }));
+  }
+
+  assert.equal(invocations, 4);
+});
+
 test('deferred ephemeral replies edit the original response', async () => {
   let edited;
   await replyEphemeral({

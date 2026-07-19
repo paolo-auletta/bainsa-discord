@@ -13,6 +13,8 @@ Commands can only be run in a channel named `bot-log`:
 - `LOGS / bot-log` for Global Presidents.
 - The `bot-log` channel inside a university category for that university's board.
 
+Autocomplete is subject to the same command-channel, board-tier, and university scope checks before the bot queries Postgres or Discord's member directory. An interaction with missing or stale channel/member context, or an unauthorized caller, receives an empty suggestion list.
+
 The bot checks the channel in the dispatcher before running a command. A command copied into another channel is rejected even if a Discord permission is changed manually.
 
 Successful command output is posted as a normal bot message in that `bot-log` channel so the result remains in channel history after refresh. The command actor receives a short ephemeral acknowledgement, and validation or failure messages remain ephemeral.

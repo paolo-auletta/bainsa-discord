@@ -6,6 +6,14 @@ import { logger } from '../src/logger.mjs';
 import { serializeCommands } from '../src/runtime/command-registry.mjs';
 import { syncCommandPermissions } from '../src/runtime/command-permissions.mjs';
 
+const allowUnsyncedVisibility = process.argv.slice(2).includes('--allow-unsynced-visibility');
+if (!config.discordClientSecret && !allowUnsyncedVisibility) {
+  throw new Error(
+    'DISCORD_CLIENT_SECRET is required for production command registration because command visibility ' +
+    'must be synchronized. For local development or tests only, rerun with --allow-unsynced-visibility.',
+  );
+}
+
 const rest = new REST({ version: '10' }).setToken(config.discordToken);
 const body = serializeCommands(commands);
 
@@ -28,6 +36,7 @@ const permissionSync = await syncCommandPermissions({
   botToken: config.discordToken,
   guildId: config.discordGuildId,
   commands: registered,
+  allowUnsynced: allowUnsyncedVisibility,
 });
 
 if (permissionSync.skipped) {

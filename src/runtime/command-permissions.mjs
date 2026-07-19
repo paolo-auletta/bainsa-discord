@@ -24,6 +24,51 @@ export const COMMAND_VISIBILITY = Object.freeze({
   'project-info': 'board',
 });
 
+function memberRoleNames(member) {
+  const cache = member?.roles?.cache;
+  if (!cache?.some) return [];
+
+  const names = [];
+  cache.some((role) => {
+    if (typeof role?.name === 'string') names.push(role.name.toLowerCase());
+    return false;
+  });
+  return names;
+}
+
+function hasRole(member, roleName) {
+  const expected = roleName.toLowerCase();
+  return memberRoleNames(member).includes(expected);
+}
+
+function hasScopedBoardRole(member, universityName, visibility) {
+  const prefix = `${universityName} - `.toLowerCase();
+  const roleNames = memberRoleNames(member);
+  if (visibility === 'president') return roleNames.includes(`${prefix}president`);
+  if (visibility === 'executive') {
+    return roleNames.includes(`${prefix}president`) || roleNames.includes(`${prefix}vice president`);
+  }
+  return roleNames.some(
+    (roleName) =>
+      roleName === `${prefix}president` ||
+      roleName === `${prefix}vice president` ||
+      roleName.startsWith(`${prefix}head of `),
+  );
+}
+
+/**
+ * Returns whether this interaction's cached member can discover a command in
+ * the given command-channel scope. It intentionally performs no API or
+ * database lookup: incomplete or stale interaction context is denied.
+ */
+export function canDiscoverCommand({ commandName, member, channelScope }) {
+  const visibility = COMMAND_VISIBILITY[commandName];
+  if (!visibility || !channelScope || !member) return false;
+  if (hasRole(member, 'Global President')) return true;
+  if (channelScope.kind !== 'university' || !channelScope.universityName) return false;
+  return hasScopedBoardRole(member, channelScope.universityName, visibility);
+}
+
 export function visibleRoleIds(visibility, roles) {
   const global = roles.filter((role) => role.name === 'Global President');
   const presidents = roles.filter((role) => role.name.endsWith(' - President'));
@@ -55,11 +100,24 @@ export function buildCommandPermissionOverwrites({ commandName, guildId, roles }
   ];
 }
 
-export async function syncCommandPermissions({ clientId, clientSecret, botToken, guildId, commands }) {
+export async function syncCommandPermissions({
+  clientId,
+  clientSecret,
+  botToken,
+  guildId,
+  commands,
+  allowUnsynced = false,
+}) {
   if (!clientSecret) {
+    if (!allowUnsynced) {
+      throw new Error(
+        'DISCORD_CLIENT_SECRET is required to synchronize board-only command visibility. ' +
+        'For local development or tests only, pass --allow-unsynced-visibility explicitly.',
+      );
+    }
     return {
       applied: 0,
-      skipped: 'DISCORD_CLIENT_SECRET is not configured.',
+      skipped: 'Command visibility sync explicitly disabled for local development or tests.',
     };
   }
 

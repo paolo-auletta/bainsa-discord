@@ -6,6 +6,7 @@ import { ApplicationCommandPermissionType } from 'discord.js';
 import {
   COMMAND_VISIBILITY,
   buildCommandPermissionOverwrites,
+  canDiscoverCommand,
   syncCommandPermissions,
   visibleRoleIds,
 } from '../src/runtime/command-permissions.mjs';
@@ -57,7 +58,18 @@ test('command overwrites deny everyone and explicitly allow only the selected ro
   );
 });
 
-test('visibility synchronization is explicitly skipped without a client secret', async () => {
+test('visibility synchronization fails without a client secret unless explicitly allowed for local work', async () => {
+  await assert.rejects(
+    syncCommandPermissions({
+      clientId: 'client',
+      clientSecret: null,
+      botToken: 'bot',
+      guildId: 'guild',
+      commands: [],
+    }),
+    /DISCORD_CLIENT_SECRET is required/,
+  );
+
   assert.deepEqual(
     await syncCommandPermissions({
       clientId: 'client',
@@ -65,8 +77,50 @@ test('visibility synchronization is explicitly skipped without a client secret',
       botToken: 'bot',
       guildId: 'guild',
       commands: [],
+      allowUnsynced: true,
     }),
-    { applied: 0, skipped: 'DISCORD_CLIENT_SECRET is not configured.' },
+    {
+      applied: 0,
+      skipped: 'Command visibility sync explicitly disabled for local development or tests.',
+    },
+  );
+});
+
+function memberWithRoles(names) {
+  return {
+    roles: {
+      cache: names.map((name) => ({ name })),
+    },
+  };
+}
+
+test('autocomplete visibility applies board tier and university command-channel scope', () => {
+  const scope = { kind: 'university', universityName: 'Bocconi' };
+  const globalPresident = memberWithRoles(['Global President']);
+  const president = memberWithRoles(['Bocconi - President']);
+  const vicePresident = memberWithRoles(['Bocconi - Vice President']);
+  const head = memberWithRoles(['Bocconi - Head of Projects']);
+  const ordinaryMember = memberWithRoles(['Researcher']);
+
+  assert.equal(canDiscoverCommand({ commandName: 'division-create', member: globalPresident, channelScope: scope }), true);
+  assert.equal(canDiscoverCommand({ commandName: 'division-create', member: president, channelScope: scope }), true);
+  assert.equal(canDiscoverCommand({ commandName: 'division-create', member: vicePresident, channelScope: scope }), false);
+  assert.equal(canDiscoverCommand({ commandName: 'division-create', member: head, channelScope: scope }), false);
+  assert.equal(canDiscoverCommand({ commandName: 'member-add', member: vicePresident, channelScope: scope }), true);
+  assert.equal(canDiscoverCommand({ commandName: 'member-add', member: head, channelScope: scope }), false);
+  assert.equal(canDiscoverCommand({ commandName: 'project-create', member: head, channelScope: scope }), true);
+  assert.equal(canDiscoverCommand({ commandName: 'project-create', member: ordinaryMember, channelScope: scope }), false);
+  assert.equal(
+    canDiscoverCommand({
+      commandName: 'project-create',
+      member: president,
+      channelScope: { kind: 'university', universityName: 'Sapienza' },
+    }),
+    false,
+  );
+  assert.equal(
+    canDiscoverCommand({ commandName: 'project-create', member: president, channelScope: { kind: 'global' } }),
+    false,
   );
 });
 
