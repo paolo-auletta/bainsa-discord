@@ -5,6 +5,7 @@ import { ONBOARDING_ACTIONS, onboardingId } from '../../src/onboarding/custom-id
 import { createOnboardingService } from '../../src/onboarding/service.mjs';
 import { ROLE_NAMES } from '../../src/constants.mjs';
 import { addMember, removeMember, updateMember } from '../../src/services/governance/service.mjs';
+import { lockMemberEligibilityRows } from '../../src/services/projects/eligibility.mjs';
 import { addProjectMember, createProject } from '../../src/services/projects/index.mjs';
 import { runMigrations } from '../../src/migrations/runner.mjs';
 import {
@@ -667,6 +668,34 @@ async function assertProjectWriteWinsMembershipRace(fixture, membershipWrite) {
   assert.equal(joined.rowCount, 1);
 }
 
+async function assertMembershipWriteWinsProjectRace(fixture, membershipWrite, projectWrite) {
+  const blockingDb = lockedTransactionDatabase();
+  const projectPreflight = deferred();
+  const projectDb = {
+    query: async (text, values) => {
+      const result = await database.query(text, values);
+      if (text.includes('FROM members')) projectPreflight.resolve();
+      return result;
+    },
+    transaction: database.transaction.bind(database),
+  };
+  const governanceWrite = membershipWrite(blockingDb);
+  await blockingDb.locked;
+  const projectWritePromise = projectWrite(projectDb);
+  await projectPreflight.promise;
+  const projectRejected = assert.rejects(projectWritePromise, /not (active researchers|accepted active members)/i);
+  blockingDb.release();
+  await governanceWrite;
+  await projectRejected;
+  assert.equal(
+    (await database.query(
+      'SELECT count(*)::int AS count FROM project_people WHERE project_id = $1 AND discord_user_id = $2',
+      [fixture.projectId, fixture.userId],
+    )).rows[0].count,
+    0,
+  );
+}
+
 test('project eligibility boundary serializes real PostgreSQL add/create races with membership changes', async () => {
   for (const change of ['type', 'university', 'division']) {
     const fixture = await seedEligibilityRace();
@@ -726,4 +755,109 @@ test('project eligibility boundary serializes real PostgreSQL add/create races w
   blockingDbForCreate.release();
   await creating;
   await changeRejected;
+});
+
+test('membership-first transactions make concurrent project writes fail their locked revalidation', async () => {
+  for (const change of ['type', 'university', 'division']) {
+    const fixture = await seedEligibilityRace();
+    await assertMembershipWriteWinsProjectRace(
+      fixture,
+      (db) => updateMember(
+        { guild: fixture.guild, user: { id: fixture.president.id }, member: fixture.president },
+        {
+          user: { id: fixture.userId },
+          ...(change === 'type' ? { memberType: 'alumni' } : {}),
+          ...(change === 'university' ? { university: 'Sapienza', divisionsText: 'Analysis' } : {}),
+          ...(change === 'division' ? { divisionsText: 'Culture' } : {}),
+        },
+        { db },
+      ),
+      (db) => addProjectMember(projectAddInput(fixture), { db }),
+    );
+  }
+
+  const removal = await seedEligibilityRace();
+  await assertMembershipWriteWinsProjectRace(
+    removal,
+    (db) => removeMember(
+      { guild: removal.guild, user: { id: removal.president.id }, member: removal.president },
+      { user: { id: removal.userId }, reason: 'race test' },
+      { db },
+    ),
+    (db) => addProjectMember(projectAddInput(removal), { db }),
+  );
+  assert.equal(
+    (await database.query('SELECT status FROM members WHERE discord_user_id = $1', [removal.userId])).rows[0].status,
+    'removed',
+  );
+
+  const createRace = await seedEligibilityRace();
+  await assertMembershipWriteWinsProjectRace(
+    createRace,
+    (db) => updateMember(
+      { guild: createRace.guild, user: { id: createRace.president.id }, member: createRace.president },
+      { user: { id: createRace.userId }, memberType: 'alumni' },
+      { db },
+    ),
+    (db) => createProject({
+      interaction: { guild: createRace.guild, user: { id: createRace.head.id }, member: createRace.head },
+      name: 'Membership First Signals',
+      university: 'Bocconi',
+      division: 'Analysis',
+      startDate: '2026-07-01',
+      expectedEnd: '2026-08-01',
+      members: createRace.userId,
+      supervisors: createRace.supervisorId,
+    }, { db }),
+  );
+  assert.equal((await database.query("SELECT count(*)::int AS count FROM projects WHERE name = 'Membership First Signals'"))
+    .rows[0].count, 0);
+});
+
+test('reversed multi-person project lock inputs serialize without a PostgreSQL deadlock', async () => {
+  const fixture = await seedEligibilityRace();
+  const firstLocked = deferred();
+  const releaseFirst = deferred();
+  const secondAttempted = deferred();
+  let firstLockSeen = false;
+  let secondLockSeen = false;
+
+  const first = database.transaction(async (client) => lockMemberEligibilityRows({
+    ...client,
+    async query(text, values = []) {
+      const result = await client.query(text, values);
+      if (!firstLockSeen && text.includes('FOR UPDATE')) {
+        firstLockSeen = true;
+        firstLocked.resolve();
+        await releaseFirst.promise;
+      }
+      return result;
+    },
+  }, [fixture.supervisorId, fixture.userId]));
+  await firstLocked.promise;
+
+  const second = database.transaction(async (client) => lockMemberEligibilityRows({
+    ...client,
+    async query(text, values = []) {
+      if (!secondLockSeen && text.includes('FOR UPDATE')) {
+        secondLockSeen = true;
+        secondAttempted.resolve();
+      }
+      return client.query(text, values);
+    },
+  }, [fixture.userId, fixture.supervisorId]));
+  await secondAttempted.promise;
+  releaseFirst.resolve();
+
+  let timeout;
+  try {
+    await Promise.race([
+      Promise.all([first, second]),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('reversed participant locks did not finish')), 3_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
 });
