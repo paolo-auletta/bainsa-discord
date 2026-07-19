@@ -93,7 +93,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function assertSubmitRaceLosesDraftMutation(action) {
+async function seedOnboardingRaceDraft() {
   await resetAndMigrate();
   const { universityId, divisionId } = await seedUniversityAndDivision();
   await database.query(
@@ -108,6 +108,23 @@ async function assertSubmitRaceLosesDraftMutation(action) {
     ['onboarding-race-user', universityId, divisionId],
   );
   const requestId = created.rows[0].id;
+  return { divisionId, requestId };
+}
+
+function reviewFields(payload) {
+  return payload.embeds[0].data.fields.map(({ name, value }) => ({ name, value }));
+}
+
+const expectedInitialReviewFields = [
+  { name: 'Applicant', value: 'Ada Lovelace' },
+  { name: 'Path', value: '🔬 Researcher' },
+  { name: 'University', value: 'Bocconi' },
+  { name: 'Division', value: '🟦 Analysis' },
+  { name: 'Review status', value: '🟡 Pending review' },
+];
+
+async function assertSubmitRaceLosesDraftMutation(action) {
+  const { divisionId, requestId } = await seedOnboardingRaceDraft();
   const reviewSendEntered = deferred();
   const releaseReviewSend = deferred();
   const mutationStarted = deferred();
@@ -187,16 +204,87 @@ async function assertSubmitRaceLosesDraftMutation(action) {
     division_ids: [String(divisionId)],
   });
   assert.equal(reviewMessageDeleted, false);
-  assert.deepEqual(
-    reviewPayload.embeds[0].data.fields.map(({ name, value }) => ({ name, value })),
-    [
-      { name: 'Applicant', value: 'Ada Lovelace' },
-      { name: 'Path', value: '🔬 Researcher' },
-      { name: 'University', value: 'Bocconi' },
-      { name: 'Division', value: '🟦 Analysis' },
-      { name: 'Review status', value: '🟡 Pending review' },
-    ],
+  assert.deepEqual(reviewFields(reviewPayload), expectedInitialReviewFields);
+}
+
+async function assertDraftMutationWinsBeforeSubmit(action) {
+  const { divisionId, requestId } = await seedOnboardingRaceDraft();
+  let reviewPayload;
+  let reviewSendCount = 0;
+  const guild = {
+    channels: {
+      async fetch(channelId) {
+        assert.equal(channelId, 'review-channel');
+        return {
+          isTextBased: () => true,
+          async send(payload) {
+            reviewSendCount += 1;
+            reviewPayload = payload;
+            return { id: 'review-message', async delete() {} };
+          },
+        };
+      },
+    },
+  };
+  const service = createOnboardingService({
+    db: database,
+    runTransaction: database.transaction.bind(database),
+  });
+  const mutationInteraction = action === 'edit'
+    ? {
+      customId: onboardingId(ONBOARDING_ACTIONS.NAME_MODAL, requestId),
+      user: { id: 'onboarding-race-user' },
+      fields: { getTextInputValue: () => 'Grace Hopper' },
+      async reply() {},
+    }
+    : {
+      customId: onboardingId(ONBOARDING_ACTIONS.CANCEL, requestId),
+      user: { id: 'onboarding-race-user' },
+      async update() {},
+    };
+  const submitInteraction = {
+    customId: onboardingId(ONBOARDING_ACTIONS.SUBMIT, requestId),
+    user: { id: 'onboarding-race-user' },
+    guild,
+    async update() {},
+  };
+
+  if (action === 'edit') {
+    await service.handleModalSubmit(mutationInteraction);
+  } else {
+    await service.handleButton(mutationInteraction);
+  }
+
+  if (action === 'cancel') {
+    await assert.rejects(
+      service.handleButton(submitInteraction),
+      /onboarding request is no longer editable/i,
+    );
+    assert.equal(reviewSendCount, 0);
+    assert.equal(
+      (await database.query('SELECT status FROM onboarding_requests WHERE id = $1', [requestId])).rows[0].status,
+      'cancelled',
+    );
+    return;
+  }
+
+  await service.handleButton(submitInteraction);
+  const persisted = await database.query(
+    `SELECT status, full_name, review_message_id, division_ids
+     FROM onboarding_requests WHERE id = $1`,
+    [requestId],
   );
+  assert.deepEqual(persisted.rows[0], {
+    status: 'pending',
+    full_name: 'Grace Hopper',
+    review_message_id: 'review-message',
+    division_ids: [String(divisionId)],
+  });
+  assert.equal(reviewSendCount, 1);
+  assert.deepEqual(reviewFields(reviewPayload), [
+    { ...expectedInitialReviewFields[0], value: 'Grace Hopper' },
+    ...expectedInitialReviewFields.slice(1),
+  ]);
 }
 
 test.after(async () => {
@@ -210,6 +298,14 @@ test('PostgreSQL submit wins over an interleaved draft edit without diverging fr
 
 test('PostgreSQL submit wins over an interleaved cancellation without leaving a cancelled pending request', async () => {
   await assertSubmitRaceLosesDraftMutation('cancel');
+});
+
+test('PostgreSQL edit commits before submit, which reviews and persists the edited draft', async () => {
+  await assertDraftMutationWinsBeforeSubmit('edit');
+});
+
+test('PostgreSQL cancellation commits before submit, which sends no review message', async () => {
+  await assertDraftMutationWinsBeforeSubmit('cancel');
 });
 
 test('onboarding approval rolls back its PostgreSQL transaction and Discord role changes when auditing fails', async () => {
