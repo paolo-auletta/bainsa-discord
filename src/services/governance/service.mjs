@@ -19,6 +19,7 @@ import {
   divisionLabel,
   DIVISION_COLORS,
   MEMBER_TYPES,
+  PROJECT_PERSON_ROLES,
   PROJECT_STATUSES,
   ROLE_NAMES,
   universityRoleColor,
@@ -710,6 +711,50 @@ async function assertNoActiveProjectAccessLoss(db, userId, division) {
   );
 }
 
+function projectEligibilityFailure(project, memberType, universityId, divisionIds) {
+  const sameUniversity = String(project.university_id) === String(universityId);
+
+  if (project.role === PROJECT_PERSON_ROLES.MEMBER) {
+    return (
+      memberType !== MEMBER_TYPES.RESEARCHER ||
+      !sameUniversity ||
+      !divisionIds.has(String(project.division_id))
+    );
+  }
+
+  if (
+    project.role === PROJECT_PERSON_ROLES.SUPERVISOR ||
+    project.role === PROJECT_PERSON_ROLES.BOARD_LIAISON
+  ) {
+    return !sameUniversity;
+  }
+
+  return true;
+}
+
+async function assertActiveProjectUpdateEligibility(db, userId, memberType, university, divisions) {
+  const result = await db.query(
+    `SELECT p.id, p.name, p.university_id, p.division_id, pp.role
+       FROM project_people pp
+       JOIN projects p ON p.id = pp.project_id
+      WHERE pp.discord_user_id = $1
+        AND p.status = ANY($2::text[])
+      ORDER BY p.name, p.id, pp.role`,
+    [String(userId), ACTIVE_PROJECT_STATUSES],
+  );
+  const divisionIds = new Set(divisions.map((division) => String(division.id)));
+  const incompatible = result.rows.filter((project) =>
+    projectEligibilityFailure(project, memberType, university.id, divisionIds),
+  );
+
+  assertUser(
+    incompatible.length === 0,
+    `Cannot update this member because it would make them ineligible for active projects: ${incompatible
+      .map((project) => `#${project.id} ${project.name}`)
+      .join(', ')}. Remove or reassign their project participation first.`,
+  );
+}
+
 async function applyMemberMembership(interaction, options, deps = {}) {
   const db = dbFrom(deps);
   const actor = actorMember(interaction);
@@ -736,6 +781,7 @@ async function applyMemberMembership(interaction, options, deps = {}) {
   }
 
   const divisions = await getDivisionRecords(db, university, divisionNames);
+  await assertActiveProjectUpdateEligibility(db, target.id, memberType, university, divisions);
   const desiredRoleNames = roleNamesForMember(university.name, memberType, divisions);
   const removableRoleNames = removableMembershipRoleNames(previousRecord, previousDivisions, university.name);
   const reason = `BAINSA governance: ${options.auditAction}`;

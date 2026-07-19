@@ -4,7 +4,7 @@ import test from 'node:test';
 import { ONBOARDING_ACTIONS, onboardingId } from '../../src/onboarding/custom-ids.mjs';
 import { createOnboardingService } from '../../src/onboarding/service.mjs';
 import { ROLE_NAMES } from '../../src/constants.mjs';
-import { addMember } from '../../src/services/governance/service.mjs';
+import { addMember, updateMember } from '../../src/services/governance/service.mjs';
 import { createProject } from '../../src/services/projects/index.mjs';
 import { runMigrations } from '../../src/migrations/runner.mjs';
 import {
@@ -35,6 +35,7 @@ function roleCache(roles = []) {
 
 function managedMember(id, guild, initialRoles = []) {
   const cache = roleCache(initialRoles);
+  let roleMutationCount = 0;
   return {
     id: String(id),
     user: { id: String(id) },
@@ -42,14 +43,19 @@ function managedMember(id, guild, initialRoles = []) {
     roles: {
       cache,
       async add(entries) {
+        roleMutationCount += 1;
         for (const entry of entries) {
           const resolved = typeof entry === 'string' ? guild.roles.cache.get(entry) : entry;
           cache.set(resolved.id, resolved);
         }
       },
       async remove(entries) {
+        roleMutationCount += 1;
         for (const entry of entries) cache.delete(typeof entry === 'string' ? entry : entry.id);
       },
+    },
+    roleMutationCount() {
+      return roleMutationCount;
     },
   };
 }
@@ -168,6 +174,73 @@ test('governance membership restores mocked Discord roles when its PostgreSQL tr
   assert.equal(target.roles.cache.has('bocconi-role'), false);
   assert.equal(target.roles.cache.has('analysis-role'), false);
   assert.equal((await database.query('SELECT count(*)::int AS count FROM members')).rows[0].count, 0);
+});
+
+test('member-update rejects an ineligible active PostgreSQL project assignment before Discord or transaction side effects', async () => {
+  await resetAndMigrate();
+  const { universityId, divisionId } = await seedUniversityAndDivision();
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type, status)
+     VALUES ($1, $2, 'researcher', 'active')`,
+    ['project-member', universityId],
+  );
+  await database.query(
+    'INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)',
+    ['project-member', divisionId],
+  );
+  const project = await database.query(
+    `INSERT INTO projects (name, university_id, division_id, start_date, expected_end, status)
+     VALUES ('Signals', $1, $2, '2026-07-01', '2026-08-01', 'active')
+     RETURNING id`,
+    [universityId, divisionId],
+  );
+  await database.query(
+    `INSERT INTO project_people (project_id, discord_user_id, role)
+     VALUES ($1, $2, 'member')`,
+    [project.rows[0].id, 'project-member'],
+  );
+
+  const guild = { id: 'guild' };
+  guild.roles = {
+    cache: roleCache([
+      role('researcher-role', ROLE_NAMES.RESEARCHER),
+      role('alumni-role', ROLE_NAMES.ALUMNI),
+      role('bocconi-role', 'Bocconi'),
+      role('analysis-role', 'Bocconi - Analysis'),
+      role('global-president', ROLE_NAMES.GLOBAL_PRESIDENT),
+    ]),
+  };
+  const target = managedMember('project-member', guild, [
+    role('researcher-role', ROLE_NAMES.RESEARCHER),
+    role('bocconi-role', 'Bocconi'),
+    role('analysis-role', 'Bocconi - Analysis'),
+  ]);
+  const actor = globalPresident('actor');
+  guild.members = { async fetch(id) { return String(id) === target.id ? target : null; } };
+  let transactionCalls = 0;
+  const trackedDatabase = {
+    query: database.query.bind(database),
+    async transaction(work) {
+      transactionCalls += 1;
+      return database.transaction(work);
+    },
+  };
+
+  await assert.rejects(
+    updateMember(
+      { guild, user: { id: actor.id }, member: actor },
+      { user: { id: target.id }, memberType: 'alumni' },
+      { db: trackedDatabase },
+    ),
+    new RegExp(`#${project.rows[0].id} Signals.*Remove or reassign their project participation first`, 'i'),
+  );
+  assert.equal(target.roleMutationCount(), 0);
+  assert.equal(transactionCalls, 0);
+  const member = await database.query(
+    'SELECT member_type FROM members WHERE discord_user_id = $1',
+    ['project-member'],
+  );
+  assert.equal(member.rows[0].member_type, 'researcher');
 });
 
 test('project creation archives its committed record when the mocked Discord channel create fails', async () => {
