@@ -77,8 +77,28 @@ export function createOnboardingService({ db = { query }, runTransaction = trans
     }
 
     if (parsed.action === ONBOARDING_ACTIONS.UNIVERSITY_PAGE) {
+      const request = await requireOwnedDraft(db, requestId, interaction.user.id);
       const universities = await listUniversities(db);
-      await interaction.update(universityPayload(requestId, universities, Number(value) || 0));
+      await interaction.update(universityPayload(request.id, universities, Number(value) || 0, request.university_id));
+      return;
+    }
+
+    if (parsed.action === ONBOARDING_ACTIONS.UNIVERSITY_DONE) {
+      let request = await requireOwnedDraft(db, requestId, interaction.user.id);
+      assertUser(request.university_id, 'Choose a university before continuing.');
+
+      const university = await getUniversity(db, request.university_id);
+      assertUser(university, 'That university is not available.');
+
+      if (request.member_type === MEMBER_TYPES.ALUMNI) {
+        request = await updateOwnedDraft(db, requestId, interaction.user.id, { division_ids: [] });
+        await showConfirmation(interaction, request);
+        return;
+      }
+
+      const divisions = await listDivisionsForUniversity(db, request.university_id);
+      assertUser(divisions.length > 0, 'No divisions are available for that university yet.');
+      await interaction.update(divisionPayload(request.id, divisions, request.division_ids, 0));
       return;
     }
 
@@ -127,22 +147,19 @@ export function createOnboardingService({ db = { query }, runTransaction = trans
 
     if (parsed.action === ONBOARDING_ACTIONS.UNIVERSITY) {
       const universityId = interaction.values[0];
-      let request = await updateOwnedDraft(db, requestId, interaction.user.id, {
+      const universities = await listUniversities(db);
+      const page = Number(pageValue) || 0;
+      const pageIds = universities.slice(page * 25, page * 25 + 25).map((university) => String(university.id));
+      assertUser(interaction.values.length === 1, 'Choose exactly one university.');
+      assertUser(pageIds.includes(String(universityId)), 'Choose a university from this page.');
+
+      const request = await updateOwnedDraft(db, requestId, interaction.user.id, {
         university_id: universityId,
         division_ids: [],
       });
       const university = await getUniversity(db, universityId);
       assertUser(university, 'That university is not available.');
-
-      if (request.member_type === MEMBER_TYPES.ALUMNI) {
-        request = await updateOwnedDraft(db, requestId, interaction.user.id, { division_ids: [] });
-        await showConfirmation(interaction, request);
-        return;
-      }
-
-      const divisions = await listDivisionsForUniversity(db, universityId);
-      assertUser(divisions.length > 0, 'No divisions are available for that university yet.');
-      await interaction.update(divisionPayload(request.id, divisions, request.division_ids, 0));
+      await interaction.update(universityPayload(request.id, universities, page, university.id));
       return;
     }
 

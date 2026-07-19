@@ -395,6 +395,64 @@ test('plain division channels are adopted into icon-prefixed names', async () =>
   assert.equal(provisioner.summary.channels.updated, 1);
 });
 
+test('retiring Start Here guidance only deletes the consolidated legacy channels', async () => {
+  const deleted = [];
+  const retiredRules = {
+    id: 'rules',
+    name: 'rules',
+    type: ChannelType.GuildText,
+    parentId: 'start-here',
+    delete: async (reason) => deleted.push(['rules', reason]),
+  };
+  const retiredStructure = {
+    id: 'structure',
+    name: 'discord-structure',
+    type: ChannelType.GuildText,
+    parentId: 'start-here',
+    delete: async (reason) => deleted.push(['discord-structure', reason]),
+  };
+  const keepOnboarding = {
+    id: 'onboarding',
+    name: 'onboarding',
+    type: ChannelType.GuildText,
+    parentId: 'start-here',
+    delete: async () => deleted.push(['onboarding']),
+  };
+  const sameNameElsewhere = {
+    id: 'other-rules',
+    name: 'rules',
+    type: ChannelType.GuildText,
+    parentId: 'other-category',
+    delete: async () => deleted.push(['other-rules']),
+  };
+  const guild = {
+    channels: {
+      cache: new Map([
+        [retiredRules.id, retiredRules],
+        [retiredStructure.id, retiredStructure],
+        [keepOnboarding.id, keepOnboarding],
+        [sameNameElsewhere.id, sameNameElsewhere],
+      ]),
+    },
+  };
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: {},
+    db: null,
+    dryRun: false,
+    plan: samplePlan,
+    logger: {},
+  });
+
+  await provisioner.retireStartHereChannels(guild, { id: 'start-here' });
+
+  assert.deepEqual(deleted, [
+    ['rules', 'BAINSA member guidance was consolidated into #welcome'],
+    ['discord-structure', 'BAINSA member guidance was consolidated into #welcome'],
+  ]);
+  assert.equal(provisioner.summary.channels.deleted, 2);
+});
+
 test('role alias adoption prefers university Member alias before Alumni alias', async () => {
   const spec = roleSpecs(samplePlan).find((role) => role.name === 'Bocconi');
   const alumniRole = fakeRole('1', 'Bocconi | Alumni');

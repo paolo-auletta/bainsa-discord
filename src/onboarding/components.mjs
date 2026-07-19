@@ -5,11 +5,11 @@ import {
   EmbedBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
-} from 'discord.js';
+} from "discord.js";
 
-import { divisionLabel, MEMBER_TYPES } from '../constants.mjs';
-import { onboardingId, ONBOARDING_ACTIONS } from './custom-ids.mjs';
-import { pageItems } from './state.mjs';
+import { divisionLabel, MEMBER_TYPES } from "../constants.mjs";
+import { onboardingId, ONBOARDING_ACTIONS } from "./custom-ids.mjs";
+import { pageItems } from "./state.mjs";
 
 const EMBED_COLORS = Object.freeze({
   BRAND: 0x5865f2,
@@ -20,13 +20,14 @@ const EMBED_COLORS = Object.freeze({
 
 export function onboardingStartPayload() {
   return {
-    content: 'Welcome to BAINSA. Begin your membership application here; the relevant university board will review your request.',
+    content:
+      "Welcome to BAINSA. Begin your membership application here; the relevant university board will review your request.",
     components: [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId('onboarding:start')
-          .setEmoji('🚀')
-          .setLabel('Begin onboarding')
+          .setCustomId("onboarding:start")
+          .setEmoji("🚀")
+          .setLabel("Begin onboarding")
           .setStyle(ButtonStyle.Primary),
       ),
     ],
@@ -36,77 +37,132 @@ export function onboardingStartPayload() {
 export function memberTypePayload(requestId) {
   return {
     embeds: [
-      onboardingEmbed('Step 2 of 4 · Choose your path')
-        .setDescription('Select the description that best reflects how you will participate in BAINSA.')
+      onboardingEmbed("Step 2 of 4 · Choose your path")
+        .setDescription(
+          "Select the description that best reflects how you will participate in BAINSA.",
+        )
         .addFields(
           {
-            name: '🔬 Researcher',
-            value: 'An active BAINSA member currently enrolled at one university. You will choose one division to contribute to.',
+            name: "🔬 Researcher",
+            value:
+              "An active BAINSA member currently enrolled at one university.",
           },
           {
-            name: '🎓 Alumni',
-            value: 'A former BAINSA member who remains part of the community. You will choose your university, but no division is required.',
+            name: "🎓 Alumni",
+            value: "A former BAINSA member who remains part of the community.",
           },
         )
-        .setFooter({ text: 'Your request will be reviewed by the relevant university board.' }),
+        .setFooter({
+          text: "Your request will be reviewed by the relevant university board.",
+        }),
     ],
     components: [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(onboardingId(ONBOARDING_ACTIONS.MEMBER_TYPE, requestId, MEMBER_TYPES.RESEARCHER))
-          .setEmoji('🔬')
-          .setLabel('Researcher')
+          .setCustomId(
+            onboardingId(
+              ONBOARDING_ACTIONS.MEMBER_TYPE,
+              requestId,
+              MEMBER_TYPES.RESEARCHER,
+            ),
+          )
+          .setEmoji("🔬")
+          .setLabel("Researcher")
           .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
-          .setCustomId(onboardingId(ONBOARDING_ACTIONS.MEMBER_TYPE, requestId, MEMBER_TYPES.ALUMNI))
-          .setEmoji('🎓')
-          .setLabel('Alumni')
-          .setStyle(ButtonStyle.Secondary),
+          .setCustomId(
+            onboardingId(
+              ONBOARDING_ACTIONS.MEMBER_TYPE,
+              requestId,
+              MEMBER_TYPES.ALUMNI,
+            ),
+          )
+          .setEmoji("🎓")
+          .setLabel("Alumni")
+          .setStyle(ButtonStyle.Primary),
         cancelButton(requestId),
       ),
     ],
   };
 }
 
-export function universityPayload(requestId, universities, page = 0) {
+export function universityPayload(
+  requestId,
+  universities,
+  page = 0,
+  selectedUniversityId = null,
+) {
   const slice = pageItems(universities, page);
+  const selectedId = selectedUniversityId == null ? null : String(selectedUniversityId);
+  const selectedUniversity = universities.find((university) => String(university.id) === selectedId);
   const menu = new StringSelectMenuBuilder()
-    .setCustomId(onboardingId(ONBOARDING_ACTIONS.UNIVERSITY, requestId, slice.page))
-    .setPlaceholder('Choose your university')
+    .setCustomId(
+      onboardingId(ONBOARDING_ACTIONS.UNIVERSITY, requestId, slice.page),
+    )
+    .setPlaceholder("Choose your university")
     .setMinValues(1)
     .setMaxValues(1)
     .addOptions(
       slice.items.map((university) =>
         new StringSelectMenuOptionBuilder()
           .setLabel(university.name)
-          .setValue(String(university.id)),
+          .setValue(String(university.id))
+          .setDefault(String(university.id) === selectedId),
       ),
     );
 
   return {
     embeds: [
-      onboardingEmbed('Step 3 of 4 · Choose your university')
-        .setDescription('Select the university you currently belong to, or the one you were part of as an Alumni.')
-        .setFooter({ text: `University list · Page ${slice.page + 1} of ${slice.totalPages}` }),
+      onboardingEmbed("Step 3 of 4 · Choose your university")
+        .setDescription(
+          selectedUniversity
+            ? `**Selected:** ${selectedUniversity.name}\n\nConfirm this choice to continue.`
+            : "Select the university you currently belong to, or the one you were part of as an Alumni.",
+        )
+        .setFooter({
+          text: `University list · Page ${slice.page + 1} of ${slice.totalPages} · Your choice is not submitted yet`,
+        }),
     ],
     components: [
       new ActionRowBuilder().addComponents(menu),
       paginationRow(
-        onboardingId(ONBOARDING_ACTIONS.UNIVERSITY_PAGE, requestId, slice.page - 1),
-        onboardingId(ONBOARDING_ACTIONS.UNIVERSITY_PAGE, requestId, slice.page + 1),
+        onboardingId(
+          ONBOARDING_ACTIONS.UNIVERSITY_PAGE,
+          requestId,
+          slice.page - 1,
+        ),
+        onboardingId(
+          ONBOARDING_ACTIONS.UNIVERSITY_PAGE,
+          requestId,
+          slice.page + 1,
+        ),
         slice,
       ),
-      cancelRow(requestId),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(onboardingId(ONBOARDING_ACTIONS.UNIVERSITY_DONE, requestId))
+          .setLabel("Confirm university")
+          .setStyle(ButtonStyle.Primary)
+          .setDisabled(!selectedUniversity),
+        cancelButton(requestId),
+      ),
     ].filter(Boolean),
   };
 }
 
-export function divisionPayload(requestId, divisions, selectedIds = [], page = 0) {
+export function divisionPayload(
+  requestId,
+  divisions,
+  selectedIds = [],
+  page = 0,
+) {
   const selected = new Set((selectedIds ?? []).map(String));
   const slice = pageItems(divisions, page);
   const menu = new StringSelectMenuBuilder()
-    .setCustomId(onboardingId(ONBOARDING_ACTIONS.DIVISIONS, requestId, slice.page))
-    .setPlaceholder('Choose your division')
+    .setCustomId(
+      onboardingId(ONBOARDING_ACTIONS.DIVISIONS, requestId, slice.page),
+    )
+    .setPlaceholder("Choose your division")
     .setMinValues(1)
     .setMaxValues(1)
     .addOptions(
@@ -120,21 +176,35 @@ export function divisionPayload(requestId, divisions, selectedIds = [], page = 0
 
   return {
     embeds: [
-      onboardingEmbed('Step 4 of 4 · Choose your division')
-        .setDescription('Choose the one division where you will contribute. You can update this later through the university board if your role changes.')
-        .setFooter({ text: `Division list · Page ${slice.page + 1} of ${slice.totalPages}` }),
+      onboardingEmbed("Step 4 of 4 · Choose your division")
+        .setDescription(
+          "Choose the one division where you will contribute. You can update this later through the university board if your role changes.",
+        )
+        .setFooter({
+          text: `Division list · Page ${slice.page + 1} of ${slice.totalPages}`,
+        }),
     ],
     components: [
       new ActionRowBuilder().addComponents(menu),
       paginationRow(
-        onboardingId(ONBOARDING_ACTIONS.DIVISIONS_PAGE, requestId, slice.page - 1),
-        onboardingId(ONBOARDING_ACTIONS.DIVISIONS_PAGE, requestId, slice.page + 1),
+        onboardingId(
+          ONBOARDING_ACTIONS.DIVISIONS_PAGE,
+          requestId,
+          slice.page - 1,
+        ),
+        onboardingId(
+          ONBOARDING_ACTIONS.DIVISIONS_PAGE,
+          requestId,
+          slice.page + 1,
+        ),
         slice,
       ),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(onboardingId(ONBOARDING_ACTIONS.DIVISIONS_DONE, requestId))
-          .setLabel('Continue')
+          .setCustomId(
+            onboardingId(ONBOARDING_ACTIONS.DIVISIONS_DONE, requestId),
+          )
+          .setLabel("Continue")
           .setStyle(ButtonStyle.Primary),
         cancelButton(requestId),
       ),
@@ -143,27 +213,42 @@ export function divisionPayload(requestId, divisions, selectedIds = [], page = 0
 }
 
 export function confirmPayload(requestId, draft, university, divisions) {
-  const divisionNames = divisions.length > 0
-    ? divisions.map((division) => divisionLabel(division.name, division.color)).join(', ')
-    : 'None';
+  const divisionNames =
+    divisions.length > 0
+      ? divisions
+          .map((division) => divisionLabel(division.name, division.color))
+          .join(", ")
+      : "None";
   return {
     embeds: [
-      onboardingEmbed('Ready to submit?')
-        .setDescription('Please review your details. Once submitted, the relevant university board will review your request.')
-        .addFields(
-          { name: 'Applicant', value: draft.full_name ?? 'Not provided', inline: true },
-          { name: 'Path', value: memberTypeLabel(draft.member_type), inline: true },
-          { name: 'University', value: university.name, inline: true },
-          { name: 'Division', value: divisionNames },
+      onboardingEmbed("Ready to submit?")
+        .setDescription(
+          "Please review your details. Once submitted, the relevant university board will review your request.",
         )
-        .setFooter({ text: 'You can cancel now and restart whenever you are ready.' }),
+        .addFields(
+          {
+            name: "Applicant",
+            value: draft.full_name ?? "Not provided",
+            inline: true,
+          },
+          {
+            name: "Path",
+            value: memberTypeLabel(draft.member_type),
+            inline: true,
+          },
+          { name: "University", value: university.name, inline: true },
+          { name: "Division", value: divisionNames },
+        )
+        .setFooter({
+          text: "You can cancel now and restart whenever you are ready.",
+        }),
     ],
     components: [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(onboardingId(ONBOARDING_ACTIONS.SUBMIT, requestId))
-          .setEmoji('📨')
-          .setLabel('Submit')
+          .setEmoji("📨")
+          .setLabel("Submit")
           .setStyle(ButtonStyle.Success),
         cancelButton(requestId),
       ),
@@ -172,58 +257,87 @@ export function confirmPayload(requestId, draft, university, divisions) {
 }
 
 export function reviewPayload(request, university, divisions) {
-  const divisionNames = divisions.length > 0
-    ? divisions.map((division) => divisionLabel(division.name, division.color)).join(', ')
-    : 'None';
+  const divisionNames =
+    divisions.length > 0
+      ? divisions
+          .map((division) => divisionLabel(division.name, division.color))
+          .join(", ")
+      : "None";
   return {
     embeds: [
       new EmbedBuilder()
         .setColor(EMBED_COLORS.PENDING)
-        .setAuthor({ name: 'BAINSA · Onboarding review' })
-        .setTitle('New access request')
-        .setDescription(`**<@${request.discord_user_id}>** is waiting for a review.`)
-        .addFields(
-          { name: 'Applicant', value: request.full_name ?? 'Not provided', inline: true },
-          { name: 'Path', value: memberTypeLabel(request.member_type), inline: true },
-          { name: 'University', value: university.name, inline: true },
-          { name: 'Division', value: divisionNames, inline: true },
-          { name: 'Review status', value: '🟡 Pending review', inline: true },
+        .setAuthor({ name: "BAINSA · Onboarding review" })
+        .setTitle("New access request")
+        .setDescription(
+          `**<@${request.discord_user_id}>** is waiting for a review.`,
         )
-        .setFooter({ text: 'Confirm the applicant’s member status, university, and division before deciding.' })
+        .addFields(
+          {
+            name: "Applicant",
+            value: request.full_name ?? "Not provided",
+            inline: true,
+          },
+          {
+            name: "Path",
+            value: memberTypeLabel(request.member_type),
+            inline: true,
+          },
+          { name: "University", value: university.name, inline: true },
+          { name: "Division", value: divisionNames, inline: true },
+          { name: "Review status", value: "🟡 Pending review", inline: true },
+        )
+        .setFooter({
+          text: "Confirm the applicant’s member status, university, and division before deciding.",
+        })
         .setTimestamp(new Date()),
     ],
     components: [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(onboardingId(ONBOARDING_ACTIONS.APPROVE, request.id))
-          .setEmoji('✓')
-          .setLabel('Approve')
+          .setLabel("Approve")
           .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
           .setCustomId(onboardingId(ONBOARDING_ACTIONS.REJECT, request.id))
-          .setEmoji('✕')
-          .setLabel('Reject')
+          .setLabel("Reject")
           .setStyle(ButtonStyle.Danger),
       ),
     ],
   };
 }
 
-export function reviewedPayload(request, university, divisions, reviewerId, reason = null) {
+export function reviewedPayload(
+  request,
+  university,
+  divisions,
+  reviewerId,
+  reason = null,
+) {
   const base = reviewPayload(request, university, divisions);
-  const isApproved = request.status === 'approved';
+  const isApproved = request.status === "approved";
   const embed = EmbedBuilder.from(base.embeds[0])
     .setColor(isApproved ? EMBED_COLORS.SUCCESS : EMBED_COLORS.DANGER)
-    .setTitle(isApproved ? 'Access request approved' : 'Access request declined')
-    .setDescription(`**<@${request.discord_user_id}>** has been ${isApproved ? 'approved' : 'declined'}.`)
-    .setFields(
-      ...base.embeds[0].data.fields.filter((field) => field.name !== 'Review status'),
-      { name: 'Review status', value: isApproved ? '🟢 Approved' : '🔴 Declined', inline: true },
-      { name: 'Reviewed by', value: `<@${reviewerId}>`, inline: true },
+    .setTitle(
+      isApproved ? "Access request approved" : "Access request declined",
     )
-    .setFooter({ text: 'This request has been closed.' });
+    .setDescription(
+      `**<@${request.discord_user_id}>** has been ${isApproved ? "approved" : "declined"}.`,
+    )
+    .setFields(
+      ...base.embeds[0].data.fields.filter(
+        (field) => field.name !== "Review status",
+      ),
+      {
+        name: "Review status",
+        value: isApproved ? "🟢 Approved" : "🔴 Declined",
+        inline: true,
+      },
+      { name: "Reviewed by", value: `<@${reviewerId}>`, inline: true },
+    )
+    .setFooter({ text: "This request has been closed." });
 
-  if (reason) embed.addFields({ name: 'Reason', value: reason });
+  if (reason) embed.addFields({ name: "Reason", value: reason });
 
   return { embeds: [embed], components: [] };
 }
@@ -231,23 +345,19 @@ export function reviewedPayload(request, university, divisions, reviewerId, reas
 function onboardingEmbed(title) {
   return new EmbedBuilder()
     .setColor(EMBED_COLORS.BRAND)
-    .setAuthor({ name: 'BAINSA · Membership application' })
+    .setAuthor({ name: "BAINSA · Membership application" })
     .setTitle(title);
 }
 
 function memberTypeLabel(memberType) {
-  return memberType === MEMBER_TYPES.ALUMNI ? '🎓 Alumni' : '🔬 Researcher';
+  return memberType === MEMBER_TYPES.ALUMNI ? "🎓 Alumni" : "🔬 Researcher";
 }
 
 function cancelButton(requestId) {
   return new ButtonBuilder()
     .setCustomId(onboardingId(ONBOARDING_ACTIONS.CANCEL, requestId))
-    .setLabel('Cancel')
+    .setLabel("Cancel")
     .setStyle(ButtonStyle.Secondary);
-}
-
-function cancelRow(requestId) {
-  return new ActionRowBuilder().addComponents(cancelButton(requestId));
 }
 
 function paginationRow(previousId, nextId, slice) {
@@ -255,12 +365,12 @@ function paginationRow(previousId, nextId, slice) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(previousId)
-      .setLabel('Previous')
+      .setLabel("Previous")
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!slice.hasPrevious),
     new ButtonBuilder()
       .setCustomId(nextId)
-      .setLabel('Next')
+      .setLabel("Next")
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!slice.hasNext),
   );

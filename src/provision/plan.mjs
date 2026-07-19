@@ -35,8 +35,6 @@ export const GLOBAL_CHANNELS = Object.freeze({
 
 export const START_CHANNELS = Object.freeze({
   WELCOME: 'welcome',
-  RULES: 'rules',
-  STRUCTURE: 'discord-structure',
   ONBOARDING: 'onboarding',
 });
 

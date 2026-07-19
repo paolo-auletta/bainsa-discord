@@ -8,6 +8,7 @@ export const ONBOARDING_ACTIONS = Object.freeze({
   MEMBER_TYPE: 'mt',
   UNIVERSITY: 'uni',
   UNIVERSITY_PAGE: 'up',
+  UNIVERSITY_DONE: 'ud',
   DIVISIONS: 'div',
   DIVISIONS_PAGE: 'dp',
   DIVISIONS_DONE: 'dd',

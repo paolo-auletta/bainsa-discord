@@ -93,7 +93,7 @@ export class DiscordProvisioner {
     this.summary = {
       dryRun,
       roles: { created: 0, adopted: 0, updated: 0, unchanged: 0 },
-      channels: { created: 0, adopted: 0, updated: 0, unchanged: 0 },
+      channels: { created: 0, adopted: 0, updated: 0, deleted: 0, unchanged: 0 },
       seeds: { created: 0, updated: 0, unchanged: 0 },
       database: null,
       warnings: [],
@@ -378,25 +378,15 @@ export class DiscordProvisioner {
       parent: startCategory,
       overwrites: startHereOverwrites(roleIds),
     });
-    const rules = await this.ensureTextChannel(guild, START_CHANNELS.RULES, {
-      parent: startCategory,
-      overwrites: startHereOverwrites(roleIds),
-    });
-    const structure = await this.ensureTextChannel(guild, START_CHANNELS.STRUCTURE, {
-      parent: startCategory,
-      aliases: ['how-discord-works'],
-      overwrites: startHereOverwrites(roleIds),
-    });
     const onboarding = await this.ensureTextChannel(guild, START_CHANNELS.ONBOARDING, {
       parent: startCategory,
       overwrites: startHereOverwrites(roleIds),
     });
     await this.seedMessage(welcome, 'start:welcome', startSeeds.welcome);
-    await this.seedMessage(rules, 'start:rules', startSeeds.rules);
-    await this.seedMessage(structure, 'start:structure', startSeeds.structure);
     await this.seedMessage(onboarding, 'start:onboarding', startSeeds.onboarding, {
       components: [onboardingButtonRow()],
     });
+    await this.retireStartHereChannels(guild, startCategory);
 
     const globalCategory = await this.ensureCategory(guild, CATEGORY_NAMES.GLOBAL, {
       overwrites: privateBaseOverwrites(roleIds),
@@ -591,6 +581,23 @@ export class DiscordProvisioner {
       overwrites,
       aliases,
     });
+  }
+
+  async retireStartHereChannels(guild, startCategory) {
+    const retiredNames = new Set(['rules', 'discord-structure', 'how-discord-works']);
+    const retiredChannels = [...guild.channels.cache.values()].filter(
+      (channel) =>
+        channel.type === ChannelType.GuildText &&
+        channel.parentId === startCategory.id &&
+        retiredNames.has(channel.name),
+    );
+
+    for (const channel of retiredChannels) {
+      this.record('channels', 'deleted', `channel:${channel.name}`);
+      if (!this.dryRun) {
+        await channel.delete('BAINSA member guidance was consolidated into #welcome');
+      }
+    }
   }
 
   async ensureForumChannel(guild, name, { parent, overwrites = [], aliases = [], tags = [] } = {}) {
