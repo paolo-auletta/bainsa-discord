@@ -107,7 +107,7 @@ test('runs every migration against a fresh database and keeps the final contract
     database.query(
       `INSERT INTO onboarding_requests (discord_user_id, member_type, university_id, division_ids, status)
        VALUES ($1, $2, $3, $4::bigint[], $5)`,
-      ['onboarding-1', 'researcher', universityId, [division.rows[0].id, otherDivision.rows[0].id], 'pending'],
+      ['onboarding-1', 'researcher', universityId, [otherDivision.rows[0].id], 'pending'],
     ),
     /onboarding division_ids must belong to the selected university/i,
   );

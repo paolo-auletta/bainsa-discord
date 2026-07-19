@@ -468,7 +468,7 @@ export async function createProject(input, deps = {}) {
     await db.transaction(async (client) => {
       await client.query(
         `UPDATE projects
-         SET status = $1, notes = concat(coalesce(notes, ''), E'\\nProvisioning failed: ', $2), updated_at = now()
+         SET status = $1, notes = concat(coalesce(notes, ''), E'\\nProvisioning failed: ', $2::text), updated_at = now()
          WHERE id = $3`,
         [PROJECT_STATUSES.ARCHIVED, error.message, project.id],
       );

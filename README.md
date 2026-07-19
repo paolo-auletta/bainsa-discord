@@ -151,6 +151,8 @@ TEST_DATABASE_URL=postgres://localhost/bainsa_discord_test npm run test:integrat
 ```
 
 The CI workflow supplies the same disposable database through a PostgreSQL service container.
+This coverage also guards the project-create Discord failure path; its archival update explicitly
+casts the diagnostic parameter to text for PostgreSQL. No reconciliation behavior is changed here.
 
 The bot logs structural actions in `audit_log` and sends operational messages to the configured log channels. Seeded channel messages contain no internal marker comments; their Discord message IDs are tracked in `provisioned_messages` for safe future updates. Project close operations preserve history; v1 has no project delete or separate archive command.
 
