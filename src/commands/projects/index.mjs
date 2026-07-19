@@ -8,6 +8,7 @@ import {
   closeProject,
   createProject,
   findProjectDivisions,
+  findProjectPeople,
   findProjectUniversities,
   getProjectInfo,
   projectInfoMessage,
@@ -70,7 +71,8 @@ async function autocompleteProjectCreate(interaction) {
       return;
     }
     if (['members', 'supervisors'].includes(focused.name)) {
-      await respondAutocomplete(interaction, await memberChoices(interaction, focused.value));
+      const role = focused.name === 'members' ? PROJECT_PERSON_ROLES.MEMBER : PROJECT_PERSON_ROLES.SUPERVISOR;
+      await respondAutocomplete(interaction, await memberChoices(interaction, role, focused.value));
       return;
     }
     await respondAutocomplete(interaction, []);
@@ -91,23 +93,18 @@ function memberSearchPrefix(value) {
   return raw.slice(0, raw.length - lastToken.length);
 }
 
-async function memberChoices(interaction, value) {
-  const guild = interaction.guild;
-  if (!guild?.members) return [];
-
+async function memberChoices(interaction, role, value) {
   const term = memberSearchTerm(value);
-  const members = term
-    ? await guild.members.fetch({ query: term, limit: 25 })
-    : guild.members.cache;
   const prefix = memberSearchPrefix(value);
+  const universityName = interaction.options.getString('university') ?? '';
+  const divisionName = interaction.options.getString('division') ?? '';
+  const people = await findProjectPeople({ universityName, divisionName, role, term });
 
-  return [...members.values()]
-    .filter((member) => member.user && !member.user.bot)
-    .sort((left, right) => left.displayName.localeCompare(right.displayName))
+  return people
     .slice(0, 25)
-    .map((member) => ({
-      name: `${member.displayName} (@${member.user.username})`.slice(0, 100),
-      value: `${prefix}<@${member.id}>`.slice(0, 100),
+    .map((person) => ({
+      name: `${person.full_name || `Member ${person.discord_user_id}`} (<@${person.discord_user_id}>)`.slice(0, 100),
+      value: `${prefix}<@${person.discord_user_id}>`.slice(0, 100),
     }));
 }
 

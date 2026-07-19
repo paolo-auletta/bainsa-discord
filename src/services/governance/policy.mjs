@@ -80,12 +80,20 @@ export function assertCanManageMember(actorMember, targetUniversityName, targetM
   const isVicePresident = isUniversityVicePresident(actorMember, targetUniversityName);
   assertUser(
     isPresident || isVicePresident,
-    `You can only manage members in ${targetUniversityName}.`,
+    `You can only manage members in ${memberManagementUniversityName(actorMember, targetUniversityName)}.`,
   );
   assertUser(
     !(isVicePresident && isUniversityPresident(targetMember, targetUniversityName)),
     'A Vice President cannot manage their university President.',
   );
+}
+
+function memberManagementUniversityName(member, fallbackUniversityName) {
+  const boardRole = member.roles.cache.find?.((role) =>
+    /^(?<university>.+) - (?:President|Vice President)$/.test(role.name),
+  );
+  const match = boardRole?.name.match(/^(?<university>.+) - (?:President|Vice President)$/);
+  return match?.groups?.university ?? fallbackUniversityName;
 }
 
 export function assertCanRemoveMember(actorMember, targetUniversityName, targetMember) {

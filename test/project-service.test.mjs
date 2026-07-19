@@ -19,6 +19,7 @@ import {
   removeProjectMember,
   searchVisibleProjects,
   updateProject,
+  warmProjectAutocompleteCache,
 } from '../src/services/projects/index.mjs';
 import { UserFacingError } from '../src/errors.mjs';
 import { sortedDiscordUserIds } from '../src/services/projects/eligibility.mjs';
@@ -142,6 +143,7 @@ test('project setup autocomplete scopes universities, divisions, and people corr
   }, { db });
   await findProjectPeople({
     universityName: 'Bocconi',
+    divisionName: 'Projects',
     role: 'supervisor',
     term: 'ada',
   }, { db });
@@ -150,8 +152,44 @@ test('project setup autocomplete scopes universities, divisions, and people corr
   assert.match(calls[1].text, /JOIN universities/);
   assert.match(calls[2].text, /member_divisions/);
   assert.deepEqual(calls[2].values.slice(0, 3), ['Bocconi', 'Projects', 'researcher']);
-  assert.equal(calls[3].values[1], null);
+  assert.equal(calls[3].values[1], 'Projects');
   assert.equal(calls[3].values[2], null);
+});
+
+test('cached project people are scoped to the selected university and division for members and supervisors', async () => {
+  await warmProjectAutocompleteCache({
+    db: {
+      async query(text) {
+        if (text.includes('FROM universities')) return { rows: [] };
+        if (text.includes('FROM divisions')) return { rows: [] };
+        return {
+          rows: [
+            { discord_user_id: '1', full_name: 'Ada', member_type: 'researcher', university_name: 'Bocconi', division_name: 'Projects' },
+            { discord_user_id: '2', full_name: 'Beatrice', member_type: 'alumni', university_name: 'Bocconi', division_name: 'Projects' },
+            { discord_user_id: '3', full_name: 'Carlo', member_type: 'researcher', university_name: 'Bocconi', division_name: 'Analysis' },
+            { discord_user_id: '4', full_name: 'Daria', member_type: 'researcher', university_name: 'Sapienza', division_name: 'Projects' },
+          ],
+        };
+      },
+    },
+  });
+
+  const scoped = { universityName: 'Bocconi', divisionName: 'Projects', term: '' };
+  assert.deepEqual(
+    await findProjectPeople({ ...scoped, role: 'member' }),
+    [{ discord_user_id: '1', full_name: 'Ada' }],
+  );
+  assert.deepEqual(
+    await findProjectPeople({ ...scoped, role: 'supervisor' }),
+    [
+      { discord_user_id: '1', full_name: 'Ada' },
+      { discord_user_id: '2', full_name: 'Beatrice' },
+    ],
+  );
+  assert.deepEqual(
+    await findProjectPeople({ universityName: 'Bocconi', role: 'supervisor', term: '' }),
+    [],
+  );
 });
 
 test('member eligibility is division-scoped for project members', async () => {

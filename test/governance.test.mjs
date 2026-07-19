@@ -33,6 +33,7 @@ function fakeMember(roleNames) {
   return {
     roles: {
       cache: {
+        find: (predicate) => roleNames.map((name) => ({ name })).find(predicate),
         some: (predicate) => roleNames.some((name) => predicate({ name })),
       },
     },
@@ -187,6 +188,16 @@ test('member management policy blocks a VP from changing their President', () =>
   const president = fakeMember(['Bocconi - President']);
 
   assert.throws(() => assertCanManageMember(vp, 'Bocconi', president), UserFacingError);
+});
+
+test('member management policy reports the actor university when the selected university is out of scope', () => {
+  const bocconiVicePresident = fakeMember(['Bocconi - Vice President']);
+  const sapienzaMember = fakeMember(['Sapienza']);
+
+  assert.throws(
+    () => assertCanManageMember(bocconiVicePresident, 'Sapienza', sapienzaMember),
+    (error) => error instanceof UserFacingError && error.message === 'You can only manage members in Bocconi.',
+  );
 });
 
 test('board Head division rules differ for assign and remove', () => {

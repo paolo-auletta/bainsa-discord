@@ -108,7 +108,7 @@ export async function findProjectDivisions(universityName, term = '', deps = {})
 
 export async function findProjectPeople({ universityName, divisionName, role, term = '' }, deps = {}) {
   if (!universityName?.trim()) return [];
-  if (role === PROJECT_PERSON_ROLES.MEMBER && !divisionName?.trim()) return [];
+  if (!divisionName?.trim()) return [];
   if (projectAutocompleteCache.loadedAt) {
     refreshProjectAutocompleteCacheInBackground(deps);
     const normalizedUniversity = universityName.trim().toLowerCase();
@@ -117,7 +117,7 @@ export async function findProjectPeople({ universityName, divisionName, role, te
     return projectAutocompleteCache.people
       .filter((row) =>
         row.university_name.toLowerCase() === normalizedUniversity &&
-        (role !== PROJECT_PERSON_ROLES.MEMBER || row.division_name?.toLowerCase() === normalizedDivision) &&
+        row.division_name?.toLowerCase() === normalizedDivision &&
         (role !== PROJECT_PERSON_ROLES.MEMBER || row.member_type === MEMBER_TYPES.RESEARCHER) &&
         (!normalizedTerm || row.full_name?.toLowerCase().includes(normalizedTerm) || row.discord_user_id.includes(normalizedTerm)),
       )
@@ -142,7 +142,7 @@ export async function findProjectPeople({ universityName, divisionName, role, te
       LIMIT 25`,
     [
       universityName.trim(),
-      role === PROJECT_PERSON_ROLES.MEMBER ? divisionName.trim() : null,
+      divisionName.trim(),
       role === PROJECT_PERSON_ROLES.MEMBER ? MEMBER_TYPES.RESEARCHER : null,
       normalizedTerm,
       `%${normalizedTerm}%`,

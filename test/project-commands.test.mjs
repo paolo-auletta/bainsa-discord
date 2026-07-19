@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { projectCommands } from '../src/commands/projects/index.mjs';
+import { warmProjectAutocompleteCache } from '../src/services/projects/index.mjs';
 
 test('exports the v1 project command set', () => {
   assert.deepEqual(
@@ -43,36 +44,45 @@ test('project-create autocompletes its scoped setup fields', () => {
   assert.equal(typeof command.autocomplete, 'function');
 });
 
-test('project-create member fields search guild members and exclude the Bot account', async () => {
+test('project-create person fields use the cached university and division membership lists', async () => {
   const command = projectCommands.find((candidate) => candidate.data.name === 'project-create');
-  let choices;
-  const members = new Map([
-    ['1', { id: '1', displayName: 'Ada Lovelace', user: { username: 'ada', bot: false } }],
-    ['2', { id: '2', displayName: 'BAINSA Bot', user: { username: 'bainsa', bot: true } }],
-  ]);
-  const interaction = {
-    commandName: 'project-create',
-    guild: {
-      members: {
-        cache: members,
-        async fetch(options) {
-          assert.deepEqual(options, { query: 'ad', limit: 25 });
-          return members;
-        },
+  await warmProjectAutocompleteCache({
+    db: {
+      async query(text) {
+        if (text.includes('FROM universities')) return { rows: [{ name: 'Bocconi' }, { name: 'Sapienza' }] };
+        if (text.includes('FROM divisions')) return { rows: [{ university_name: 'Bocconi', name: 'Projects', color: 'blue' }] };
+        return {
+          rows: [
+            { discord_user_id: '1', full_name: 'Ada Lovelace', member_type: 'researcher', university_name: 'Bocconi', division_name: 'Projects' },
+            { discord_user_id: '2', full_name: 'Beatrice Bianchi', member_type: 'alumni', university_name: 'Bocconi', division_name: 'Projects' },
+            { discord_user_id: '3', full_name: 'Carlo Conti', member_type: 'researcher', university_name: 'Bocconi', division_name: 'Analysis' },
+            { discord_user_id: '4', full_name: 'Daria De Luca', member_type: 'researcher', university_name: 'Sapienza', division_name: 'Projects' },
+          ],
+        };
       },
     },
-    options: {
-      getFocused: () => ({ name: 'members', value: 'ad' }),
-      getString: () => 'Bocconi',
-    },
-    async respond(nextChoices) {
-      choices = nextChoices;
-    },
-  };
+  });
 
-  await command.autocomplete(interaction);
+  async function autocomplete(focusedName) {
+    let choices;
+    await command.autocomplete({
+      commandName: 'project-create',
+      options: {
+        getFocused: () => ({ name: focusedName, value: '' }),
+        getString: (name) => ({ university: 'Bocconi', division: 'Projects' })[name] ?? null,
+      },
+      async respond(nextChoices) {
+        choices = nextChoices;
+      },
+    });
+    return choices;
+  }
 
-  assert.deepEqual(choices, [{ name: 'Ada Lovelace (@ada)', value: '<@1>' }]);
+  assert.deepEqual(await autocomplete('members'), [{ name: 'Ada Lovelace (<@1>)', value: '<@1>' }]);
+  assert.deepEqual(await autocomplete('supervisors'), [
+    { name: 'Ada Lovelace (<@1>)', value: '<@1>' },
+    { name: 'Beatrice Bianchi (<@2>)', value: '<@2>' },
+  ]);
 });
 
 test('project selection commands expose autocomplete', () => {
