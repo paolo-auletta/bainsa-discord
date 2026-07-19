@@ -1,9 +1,20 @@
-import { BOARD_ROLES, MEMBER_TYPES, ROLE_NAMES } from '../constants.mjs';
+import {
+  BOARD_ROLES,
+  MEMBER_TYPES,
+  PROJECT_PERSON_ROLES,
+  ROLE_NAMES,
+} from '../constants.mjs';
+import { assertUser } from '../errors.mjs';
 import { divisionHeadRoleName, divisionRoleName } from '../naming.mjs';
 import {
-  assertMemberProjectAssignmentEligibility,
+  ACTIVE_PROJECT_STATUSES,
   lockMemberEligibilityRows,
 } from '../services/projects/eligibility.mjs';
+
+// Discord rate limits role mutations independently from the database work. Keep
+// this deliberately small; callers can lower it for constrained guilds/tests.
+export const MEMBER_RECONCILIATION_DISCORD_CONCURRENCY = 3;
+const DATABASE_WRITE_BATCH_SIZE = 1_000;
 
 export async function reconcileExistingMembers({
   guild,
@@ -12,60 +23,100 @@ export async function reconcileExistingMembers({
   db,
   resources,
   dryRun = false,
+  discordConcurrency = MEMBER_RECONCILIATION_DISCORD_CONCURRENCY,
 }) {
   const members = await guild.members.fetch();
-  const resourceIndex = buildResourceIndex(resources);
-  const summaries = [];
+  const reconciliations = planMemberReconciliation({ members, rolesByName, plan, resources });
+  const summaries = reconciliations.map(({ summary }) => summary);
 
-  for (const member of members.values()) {
-    if (member.user?.bot) continue;
-    const recognition = recognizeMemberFromRoles(member, plan);
-    if (!recognition) continue;
-
-    const memberType = recognition.alumni ? MEMBER_TYPES.ALUMNI : MEMBER_TYPES.RESEARCHER;
-    const desiredTypeRole = rolesByName.get(
-      memberType === MEMBER_TYPES.ALUMNI ? ROLE_NAMES.ALUMNI : ROLE_NAMES.RESEARCHER,
-    );
-    const otherTypeRole = rolesByName.get(
-      memberType === MEMBER_TYPES.ALUMNI ? ROLE_NAMES.RESEARCHER : ROLE_NAMES.ALUMNI,
-    );
-    const roleChanges = plannedMemberTypeRoleChanges(member, desiredTypeRole, otherTypeRole);
-    const primaryUniversity = recognition.universities[0];
-
-    const summary = {
-      discordUserId: member.id,
-      memberType,
-      university: primaryUniversity?.name ?? null,
-      divisions: recognition.divisions.map((division) => division.name),
-      boardAssignments: recognition.boardAssignments.map((assignment) => ({
-        role: assignment.role,
-        university: assignment.university?.name ?? null,
-        division: assignment.division?.name ?? null,
-      })),
-      roleChanges,
-    };
-    summaries.push(summary);
-
-    if (!dryRun) {
-      await applyMemberTypeRoleChanges(member, desiredTypeRole, otherTypeRole);
-      if (db && primaryUniversity) {
-        await upsertRecognizedMember(db, {
-          discordUserId: member.id,
-          memberType,
-          primaryUniversity,
-          recognition,
-          resourceIndex,
-        });
-      }
-    }
-  }
-
-  return {
+  const result = {
     planned: summaries.length,
     changedRoleCount: summaries.filter((summary) => summary.roleChanges.length > 0).length,
     members: summaries,
     skippedDatabase: dryRun || !db,
   };
+
+  if (dryRun) return result;
+
+  const roleResults = await applyRoleChangesBounded(reconciliations, discordConcurrency);
+  const roleFailures = roleResults.filter((outcome) => outcome.error);
+  const databaseRecords = roleResults
+    .filter((outcome) => !outcome.error)
+    .map((outcome) => outcome.reconciliation.databaseRecord)
+    .filter(Boolean);
+
+  let databaseError = null;
+  if (db && databaseRecords.length > 0) {
+    try {
+      await reconcileRecognizedMembers(db, databaseRecords);
+    } catch (error) {
+      databaseError = error;
+    }
+  }
+
+  if (roleFailures.length > 0 || databaseError) {
+    const errors = [
+      ...roleFailures.map((outcome) => outcome.error),
+      ...(databaseError ? [databaseError] : []),
+    ];
+    const error = new AggregateError(errors, 'Existing member reconciliation completed with failures.');
+    // The public success summary stays unchanged. On failure, callers can
+    // inspect exactly which Discord mutations succeeded and retry only errors.
+    error.reconciliation = {
+      ...result,
+      roleResults: roleResults.map(({ reconciliation, error: roleError }) => ({
+        discordUserId: reconciliation.summary.discordUserId,
+        status: roleError ? 'failed' : 'applied',
+        error: roleError ?? null,
+      })),
+      databaseError,
+    };
+    throw error;
+  }
+
+  return result;
+}
+
+export function planMemberReconciliation({ members, rolesByName, plan, resources }) {
+  const resourceIndex = buildResourceIndex(resources);
+  return [...members.values()]
+    .filter((member) => !member.user?.bot)
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)))
+    .flatMap((member) => {
+      const recognition = recognizeMemberFromRoles(member, plan);
+      if (!recognition) return [];
+
+      const memberType = recognition.alumni ? MEMBER_TYPES.ALUMNI : MEMBER_TYPES.RESEARCHER;
+      const desiredTypeRole = rolesByName.get(
+        memberType === MEMBER_TYPES.ALUMNI ? ROLE_NAMES.ALUMNI : ROLE_NAMES.RESEARCHER,
+      );
+      const otherTypeRole = rolesByName.get(
+        memberType === MEMBER_TYPES.ALUMNI ? ROLE_NAMES.RESEARCHER : ROLE_NAMES.ALUMNI,
+      );
+      const primaryUniversity = recognition.universities[0];
+      const summary = {
+        discordUserId: member.id,
+        memberType,
+        university: primaryUniversity?.name ?? null,
+        divisions: recognition.divisions.map((division) => division.name),
+        boardAssignments: recognition.boardAssignments.map((assignment) => ({
+          role: assignment.role,
+          university: assignment.university?.name ?? null,
+          division: assignment.division?.name ?? null,
+        })),
+        roleChanges: plannedMemberTypeRoleChanges(member, desiredTypeRole, otherTypeRole),
+      };
+      const databaseRecord = primaryUniversity
+        ? recognizedMemberDatabaseRecord({
+          discordUserId: member.id,
+          memberType,
+          primaryUniversity,
+          recognition,
+          resourceIndex,
+        })
+        : null;
+      return [{ member, desiredTypeRole, otherTypeRole, summary, databaseRecord }];
+    });
 }
 
 export function recognizeMemberFromRoles(member, plan) {
@@ -164,6 +215,40 @@ async function applyMemberTypeRoleChanges(member, desiredTypeRole, otherTypeRole
   }
 }
 
+async function applyRoleChangesBounded(reconciliations, concurrency) {
+  const results = new Array(reconciliations.length);
+  const workerCount = Math.min(reconciliations.length, normalizedConcurrency(concurrency));
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < reconciliations.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const reconciliation = reconciliations[index];
+      try {
+        await applyMemberTypeRoleChanges(
+          reconciliation.member,
+          reconciliation.desiredTypeRole,
+          reconciliation.otherTypeRole,
+        );
+        results[index] = { reconciliation, error: null };
+      } catch (error) {
+        results[index] = { reconciliation, error };
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return results;
+}
+
+function normalizedConcurrency(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0
+    ? parsed
+    : MEMBER_RECONCILIATION_DISCORD_CONCURRENCY;
+}
+
 function buildResourceIndex(resources) {
   const universities = new Map();
   const divisions = new Map();
@@ -176,7 +261,7 @@ function buildResourceIndex(resources) {
   return { universities, divisions };
 }
 
-async function upsertRecognizedMember(db, {
+function recognizedMemberDatabaseRecord({
   discordUserId,
   memberType,
   primaryUniversity,
@@ -184,79 +269,143 @@ async function upsertRecognizedMember(db, {
   resourceIndex,
 }) {
   const universityRecord = resourceIndex.universities.get(primaryUniversity.slug);
-  if (!universityRecord?.id) return;
+  if (!universityRecord?.id) return null;
   const divisionIds = memberType === MEMBER_TYPES.RESEARCHER
     ? recognition.divisions
       .map(({ university, division }) => resourceIndex.divisions.get(`${university.slug}:${division.slug}`)?.id)
       .filter(Boolean)
     : [];
 
-  await membershipTransaction(db, async (q) => {
-    await lockMemberEligibilityRows(q, [discordUserId]);
-    await assertMemberProjectAssignmentEligibility(q, {
-      userId: discordUserId,
-      memberType,
-      universityId: universityRecord.id,
-      divisionIds,
-    });
-    await q.query(
-      `INSERT INTO members
-        (discord_user_id, university_id, member_type, status, joined_at, updated_at)
-       VALUES ($1, $2, $3, 'active', NOW(), NOW())
-       ON CONFLICT (discord_user_id)
-       DO UPDATE SET
-         university_id = EXCLUDED.university_id,
-         member_type = EXCLUDED.member_type,
-         status = 'active',
-         removed_at = NULL,
-         updated_at = NOW()`,
-      [String(discordUserId), universityRecord.id, memberType],
-    );
+  return {
+    discordUserId: String(discordUserId),
+    memberType,
+    universityId: universityRecord.id,
+    divisionIds,
+    boardAssignments: recognition.boardAssignments
+      .map((assignment) => ({
+        universityId: assignment.university
+          ? resourceIndex.universities.get(assignment.university.slug)?.id ?? null
+          : null,
+        divisionId: assignment.division
+          ? resourceIndex.divisions.get(`${assignment.university.slug}:${assignment.division.slug}`)?.id ?? null
+          : null,
+        role: assignment.role,
+      })),
+  };
+}
 
+async function reconcileRecognizedMembers(db, records) {
+  await membershipTransaction(db, async (q) => {
+    await lockMemberEligibilityRows(q, records.map((record) => record.discordUserId));
+    await assertRecognizedMembersProjectEligibility(q, records);
+    await insertMembers(q, records);
     await q.query(
-      'DELETE FROM member_divisions WHERE discord_user_id = $1',
-      [String(discordUserId)],
+      'DELETE FROM member_divisions WHERE discord_user_id = ANY($1::text[])',
+      [records.map((record) => record.discordUserId)],
     );
     await q.query(
       `UPDATE board_assignments
-        SET active = false,
-            updated_at = NOW()
-      WHERE discord_user_id = $1
-        AND active = true`,
-      [String(discordUserId)],
+         SET active = false,
+             updated_at = NOW()
+       WHERE discord_user_id = ANY($1::text[])
+         AND active = true`,
+      [records.map((record) => record.discordUserId)],
     );
-
-    for (const { university, division } of recognition.divisions) {
-      const divisionRecord = resourceIndex.divisions.get(`${university.slug}:${division.slug}`);
-      if (!divisionRecord?.id) continue;
-      await q.query(
-        `INSERT INTO member_divisions (discord_user_id, division_id)
-         VALUES ($1, $2)
-         ON CONFLICT DO NOTHING`,
-        [String(discordUserId), divisionRecord.id],
-      );
-    }
-
-    for (const assignment of recognition.boardAssignments) {
-      const assignmentUniversity = assignment.university
-        ? resourceIndex.universities.get(assignment.university.slug)
-        : null;
-      const assignmentDivision = assignment.division
-        ? resourceIndex.divisions.get(`${assignment.university.slug}:${assignment.division.slug}`)
-        : null;
-      await q.query(
-        `INSERT INTO board_assignments (discord_user_id, university_id, role, division_id, active)
-         VALUES ($1, $2, $3, $4, true)
-         ON CONFLICT DO NOTHING`,
-        [
-          String(discordUserId),
-          assignmentUniversity?.id ?? null,
-          assignment.role,
-          assignmentDivision?.id ?? null,
-        ],
-      );
-    }
+    await insertRows(q, 'member_divisions', ['discord_user_id', 'division_id'], records.flatMap((record) =>
+      record.divisionIds.map((divisionId) => [record.discordUserId, divisionId])),
+    );
+    await insertRows(
+      q,
+      'board_assignments',
+      ['discord_user_id', 'university_id', 'role', 'division_id', 'active'],
+      records.flatMap((record) => record.boardAssignments.map((assignment) => [
+        record.discordUserId,
+        assignment.universityId,
+        assignment.role,
+        assignment.divisionId,
+        true,
+      ])),
+    );
   });
+}
+
+async function assertRecognizedMembersProjectEligibility(q, records) {
+  const result = await q.query(
+    `SELECT pp.discord_user_id, p.id, p.name, p.university_id, p.division_id, pp.role
+       FROM project_people pp
+       JOIN projects p ON p.id = pp.project_id
+      WHERE pp.discord_user_id = ANY($1::text[])
+        AND p.status = ANY($2::text[])
+      ORDER BY pp.discord_user_id, p.name, p.id, pp.role`,
+    [records.map((record) => record.discordUserId), ACTIVE_PROJECT_STATUSES],
+  );
+  const projectsByUser = new Map();
+  for (const project of result.rows) {
+    const userId = String(project.discord_user_id);
+    const projects = projectsByUser.get(userId) ?? [];
+    projects.push(project);
+    projectsByUser.set(userId, projects);
+  }
+
+  for (const record of records) {
+    const allowedDivisions = new Set(record.divisionIds.map((divisionId) => String(divisionId)));
+    const incompatible = (projectsByUser.get(record.discordUserId) ?? []).filter((project) => {
+      if (String(project.university_id) !== String(record.universityId)) return true;
+      if (project.role !== PROJECT_PERSON_ROLES.MEMBER) return false;
+      return record.memberType !== MEMBER_TYPES.RESEARCHER
+        || !allowedDivisions.has(String(project.division_id));
+    });
+    assertUser(
+      incompatible.length === 0,
+      `Cannot update this member because it would make them ineligible for active projects: ${incompatible
+        .map((project) => `#${project.id} ${project.name}`)
+        .join(', ')}. Remove or reassign their project participation first.`,
+    );
+  }
+}
+
+async function insertMembers(q, records) {
+  await insertRows(
+    q,
+    'members',
+    ['discord_user_id', 'university_id', 'member_type', 'status', 'joined_at', 'updated_at'],
+    records.map((record) => [record.discordUserId, record.universityId, record.memberType, 'active', 'NOW()', 'NOW()']),
+    {
+      literalColumns: new Set(['joined_at', 'updated_at']),
+      conflictClause: ` ON CONFLICT (discord_user_id)
+        DO UPDATE SET
+          university_id = EXCLUDED.university_id,
+          member_type = EXCLUDED.member_type,
+          status = 'active',
+          removed_at = NULL,
+          updated_at = NOW()`,
+    },
+  );
+}
+
+async function insertRows(q, tableName, columns, rows, {
+  literalColumns = new Set(),
+  conflictClause = ' ON CONFLICT DO NOTHING',
+} = {}) {
+  for (const rowBatch of chunk(rows, DATABASE_WRITE_BATCH_SIZE)) {
+    if (rowBatch.length === 0) continue;
+    const values = [];
+    const placeholders = rowBatch.map((row) => `(${row.map((value, index) => {
+      if (literalColumns.has(columns[index])) return value;
+      values.push(value);
+      return `$${values.length}`;
+    }).join(', ')})`);
+    await q.query(
+      `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES ${placeholders.join(', ')}${conflictClause}`,
+      values,
+    );
+  }
+}
+
+function* chunk(values, size) {
+  for (let index = 0; index < values.length; index += size) {
+    yield values.slice(index, index + size);
+  }
 }
 
 async function membershipTransaction(db, work) {

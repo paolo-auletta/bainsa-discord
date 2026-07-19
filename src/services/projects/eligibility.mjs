@@ -19,15 +19,15 @@ export function sortedDiscordUserIds(userIds) {
 
 export async function lockMemberEligibilityRows(q, userIds) {
   const ids = sortedDiscordUserIds(userIds);
-  for (const userId of ids) {
-    await q.query(
-      `SELECT discord_user_id
-         FROM members
-        WHERE discord_user_id = $1
-        FOR UPDATE`,
-      [userId],
-    );
-  }
+  if (ids.length === 0) return ids;
+  await q.query(
+    `SELECT discord_user_id
+       FROM members
+      WHERE discord_user_id = ANY($1::text[])
+      ORDER BY discord_user_id
+      FOR UPDATE`,
+    [ids],
+  );
   return ids;
 }
 
