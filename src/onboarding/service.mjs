@@ -193,27 +193,34 @@ export function createOnboardingService({ db = { query }, runTransaction = trans
   }
 
   async function submitForReview(interaction, request) {
-    const university = await getUniversity(db, request.university_id);
-    assertUser(university, 'That university is not available.');
-    const divisions = await listDivisionsByIds(db, request.university_id, request.division_ids);
-    const reviewChannel = await resolveReviewChannel(interaction.guild, university);
-    const message = await reviewChannel.send(
-      reviewPayload({ ...request, status: ONBOARDING_STATUSES.PENDING }, university, divisions),
-    );
+    let message = null;
 
     try {
       await runTransaction(async (client) => {
         const locked = await lockRequest(client, request.id);
-        assertUser(locked, 'This onboarding request was not found.');
-        assertUser(locked.discord_user_id === interaction.user.id, 'This onboarding request belongs to another user.');
+        assertUser(
+          locked?.discord_user_id === interaction.user.id,
+          'This onboarding request was not found.',
+        );
         assertUser(locked.status === ONBOARDING_STATUSES.DRAFT, 'This onboarding request is no longer editable.');
-        await updateDraft(client, request.id, interaction.user.id, {
+        assertUser(canSubmitOnboardingRequest(locked), 'The onboarding request is incomplete.');
+
+        const university = await getUniversity(client, locked.university_id);
+        assertUser(university, 'That university is not available.');
+        const divisions = await listDivisionsByIds(client, locked.university_id, locked.division_ids);
+        const reviewChannel = await resolveReviewChannel(interaction.guild, university);
+        message = await reviewChannel.send(
+          reviewPayload({ ...locked, status: ONBOARDING_STATUSES.PENDING }, university, divisions),
+        );
+
+        const updated = await updateDraft(client, locked.id, interaction.user.id, {
           status: ONBOARDING_STATUSES.PENDING,
           review_message_id: message.id,
         });
+        await assertDraftWriteSucceeded(client, locked.id, interaction.user.id, updated);
       });
     } catch (error) {
-      await message.delete().catch(() => undefined);
+      await message?.delete().catch(() => undefined);
       throw error;
     }
 
@@ -379,10 +386,17 @@ async function requireOwnedDraft(db, requestId, userId) {
 }
 
 async function updateOwnedDraft(db, requestId, userId, patch) {
-  await requireOwnedDraft(db, requestId, userId);
   const request = await updateDraft(db, requestId, userId, patch);
-  assertUser(request, 'This onboarding request was not found.');
-  return request;
+  return assertDraftWriteSucceeded(db, requestId, userId, request);
+}
+
+async function assertDraftWriteSucceeded(db, requestId, userId, request) {
+  if (request) return request;
+
+  const current = await getRequestForUser(db, requestId, userId);
+  assertUser(current, 'This onboarding request was not found.');
+  assertUser(current.status === ONBOARDING_STATUSES.DRAFT, 'This onboarding request is no longer editable.');
+  throw new Error('Conditional onboarding draft update did not return a row.');
 }
 
 function assertMemberType(memberType) {

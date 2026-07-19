@@ -89,6 +89,8 @@ test('repository uses canonical onboarding and resource columns', async () => {
   assert.match(db.calls[2].sql, /division_ids = \$1::bigint\[\]/);
   assert.match(db.calls[2].sql, /full_name = \$2/);
   assert.match(db.calls[2].sql, /review_message_id/);
+  assert.match(db.calls[2].sql, /AND status = \$\d+/);
+  assert.equal(db.calls[2].values.at(-1), 'draft');
   assert.doesNotMatch(db.calls[2].sql, /review_channel_id|jsonb/);
   assert.match(db.calls[3].sql, /reviewed_by = \$3/);
   assert.match(db.calls[3].sql, /review_reason = \$4/);
@@ -175,6 +177,17 @@ test('submit sends review message before marking request pending', async () => {
         status: 'draft',
       }],
     },
+    {
+      rows: [{
+        id: '10',
+        discord_user_id: '100',
+        member_type: 'alumni',
+        full_name: 'Ada Lovelace',
+        university_id: '1',
+        division_ids: [],
+        status: 'draft',
+      }],
+    },
     { rows: [{ id: '1', name: 'Bocconi', discord_role_id: 'role-u', onboarding_review_channel_id: 'review-channel' }] },
     { rows: [] },
   ]);
@@ -199,6 +212,38 @@ test('submit sends review message before marking request pending', async () => {
 
   await assert.rejects(() => service.handleButton(interaction), /Discord send failed/);
   assert.equal(db.calls.some((call) => /SET .*status/.test(call.sql)), false);
+});
+
+test('draft updates report a conditional status miss without disclosing another user request', async () => {
+  process.env.DISCORD_TOKEN ??= 'test-token';
+  process.env.DISCORD_CLIENT_ID ??= 'test-client';
+  process.env.DISCORD_GUILD_ID ??= 'test-guild';
+  process.env.DATABASE_URL ??= 'postgres://localhost/test';
+  const { createOnboardingService } = await import('../src/onboarding/service.mjs');
+  const pendingDb = fakeDb([
+    { rows: [] },
+    { rows: [{ id: '10', discord_user_id: '100', status: 'pending' }] },
+  ]);
+  const pendingService = createOnboardingService({ db: pendingDb });
+  const interaction = {
+    customId: onboardingId(ONBOARDING_ACTIONS.NAME_MODAL, '10'),
+    user: { id: '100' },
+    fields: { getTextInputValue: () => 'Ada Lovelace' },
+  };
+
+  await assert.rejects(
+    pendingService.handleModalSubmit(interaction),
+    /onboarding request is no longer editable/i,
+  );
+  assert.match(pendingDb.calls[0].sql, /UPDATE onboarding_requests/);
+  assert.match(pendingDb.calls[0].sql, /AND status = \$\d+/);
+
+  const missingDb = fakeDb([{ rows: [] }, { rows: [] }]);
+  const missingService = createOnboardingService({ db: missingDb });
+  await assert.rejects(
+    missingService.handleModalSubmit(interaction),
+    /onboarding request was not found/i,
+  );
 });
 
 test('roleRestorePlan restores previous roles without touching everyone role', async () => {

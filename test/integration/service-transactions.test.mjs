@@ -85,9 +85,131 @@ async function seedUniversityAndDivision() {
   return { universityId: university.rows[0].id, divisionId: division.rows[0].id };
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
+async function assertSubmitRaceLosesDraftMutation(action) {
+  await resetAndMigrate();
+  const { universityId, divisionId } = await seedUniversityAndDivision();
+  await database.query(
+    'UPDATE universities SET onboarding_review_channel_id = $2 WHERE id = $1',
+    [universityId, 'review-channel'],
+  );
+  const created = await database.query(
+    `INSERT INTO onboarding_requests
+      (discord_user_id, member_type, university_id, division_ids, status, full_name, full_name_required)
+     VALUES ($1, 'researcher', $2, ARRAY[$3]::bigint[], 'draft', 'Ada Lovelace', true)
+     RETURNING id`,
+    ['onboarding-race-user', universityId, divisionId],
+  );
+  const requestId = created.rows[0].id;
+  const reviewSendEntered = deferred();
+  const releaseReviewSend = deferred();
+  const mutationStarted = deferred();
+  let reviewPayload;
+  let reviewMessageDeleted = false;
+
+  const guild = {
+    channels: {
+      async fetch(channelId) {
+        assert.equal(channelId, 'review-channel');
+        return {
+          isTextBased: () => true,
+          async send(payload) {
+            reviewPayload = payload;
+            reviewSendEntered.resolve();
+            await releaseReviewSend.promise;
+            return {
+              id: 'review-message',
+              async delete() {
+                reviewMessageDeleted = true;
+              },
+            };
+          },
+        };
+      },
+    },
+  };
+  const submitService = createOnboardingService({
+    db: database,
+    runTransaction: database.transaction.bind(database),
+  });
+  const racingDb = {
+    query(text, values) {
+      if (text.includes('UPDATE onboarding_requests')) mutationStarted.resolve();
+      return database.query(text, values);
+    },
+  };
+  const racingService = createOnboardingService({ db: racingDb });
+  const submitInteraction = {
+    customId: onboardingId(ONBOARDING_ACTIONS.SUBMIT, requestId),
+    user: { id: 'onboarding-race-user' },
+    guild,
+    async update() {},
+  };
+  const racingInteraction = action === 'edit'
+    ? {
+      customId: onboardingId(ONBOARDING_ACTIONS.NAME_MODAL, requestId),
+      user: { id: 'onboarding-race-user' },
+      fields: { getTextInputValue: () => 'Grace Hopper' },
+    }
+    : {
+      customId: onboardingId(ONBOARDING_ACTIONS.CANCEL, requestId),
+      user: { id: 'onboarding-race-user' },
+      async update() {},
+    };
+
+  const submitting = submitService.handleButton(submitInteraction);
+  await reviewSendEntered.promise;
+  const racing = action === 'edit'
+    ? racingService.handleModalSubmit(racingInteraction)
+    : racingService.handleButton(racingInteraction);
+  await mutationStarted.promise;
+  releaseReviewSend.resolve();
+
+  await submitting;
+  await assert.rejects(racing, /onboarding request is no longer editable/i);
+
+  const persisted = await database.query(
+    `SELECT status, full_name, review_message_id, division_ids
+     FROM onboarding_requests WHERE id = $1`,
+    [requestId],
+  );
+  assert.deepEqual(persisted.rows[0], {
+    status: 'pending',
+    full_name: 'Ada Lovelace',
+    review_message_id: 'review-message',
+    division_ids: [String(divisionId)],
+  });
+  assert.equal(reviewMessageDeleted, false);
+  assert.deepEqual(
+    reviewPayload.embeds[0].data.fields.map(({ name, value }) => ({ name, value })),
+    [
+      { name: 'Applicant', value: 'Ada Lovelace' },
+      { name: 'Path', value: '🔬 Researcher' },
+      { name: 'University', value: 'Bocconi' },
+      { name: 'Division', value: '🟦 Analysis' },
+      { name: 'Review status', value: '🟡 Pending review' },
+    ],
+  );
+}
+
 test.after(async () => {
   await database.resetPublicSchema();
   await database.close();
+});
+
+test('PostgreSQL submit wins over an interleaved draft edit without diverging from the review payload', async () => {
+  await assertSubmitRaceLosesDraftMutation('edit');
+});
+
+test('PostgreSQL submit wins over an interleaved cancellation without leaving a cancelled pending request', async () => {
+  await assertSubmitRaceLosesDraftMutation('cancel');
 });
 
 test('onboarding approval rolls back its PostgreSQL transaction and Discord role changes when auditing fails', async () => {

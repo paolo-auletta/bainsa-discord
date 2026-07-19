@@ -114,13 +114,24 @@ export async function updateDraft(db, requestId, discordUserId, patch) {
     sets.push(`${column} = $${values.length}${column === 'division_ids' ? '::bigint[]' : ''}`);
   }
 
-  if (sets.length === 0) return getRequestForUser(db, requestId, discordUserId);
+  if (sets.length === 0) {
+    const { rows } = await db.query(
+      `SELECT * FROM onboarding_requests
+       WHERE id::text = $1
+         AND discord_user_id = $2
+         AND status = $3`,
+      [String(requestId), discordUserId, ONBOARDING_STATUSES.DRAFT],
+    );
+    return rows[0] ?? null;
+  }
 
-  values.push(String(requestId), discordUserId);
+  values.push(String(requestId), discordUserId, ONBOARDING_STATUSES.DRAFT);
   const { rows } = await db.query(
     `UPDATE onboarding_requests
      SET ${sets.join(', ')}, updated_at = NOW()
-     WHERE id::text = $${values.length - 1} AND discord_user_id = $${values.length}
+     WHERE id::text = $${values.length - 2}
+       AND discord_user_id = $${values.length - 1}
+       AND status = $${values.length}
      RETURNING *`,
     values,
   );
