@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 import pg from 'pg';
 
+import { buildPostgresConnectionOptions } from '../database-options.mjs';
+
 const { Pool } = pg;
 
 const LOCK_KEY = 'bainsa-discord:migrations';
@@ -134,10 +136,9 @@ function buildStatus(migrations, applied) {
   );
 }
 
-function makePool(databaseUrl) {
+function makePool(databaseUrl, databaseSslCa) {
   return new Pool({
-    connectionString: databaseUrl,
-    ssl: databaseUrl.includes('localhost') ? false : { rejectUnauthorized: false },
+    ...buildPostgresConnectionOptions({ databaseUrl, databaseSslCa }),
     max: 1,
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 10_000,
@@ -176,6 +177,7 @@ async function applyMigration(client, migration) {
 
 export async function runMigrations({
   databaseUrl = process.env.DATABASE_URL,
+  databaseSslCa = process.env.DATABASE_SSL_CA?.trim() || null,
   migrationsDir = DEFAULT_MIGRATIONS_DIR,
   statusOnly = false,
 } = {}) {
@@ -184,7 +186,7 @@ export async function runMigrations({
   }
 
   const migrations = await discoverMigrations(migrationsDir);
-  const pool = makePool(databaseUrl);
+  const pool = makePool(databaseUrl, databaseSslCa);
   const client = await pool.connect();
   let lockAcquired = false;
 

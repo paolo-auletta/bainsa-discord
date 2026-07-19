@@ -15,6 +15,15 @@ Cross-university projects are intentionally outside v1. Every project belongs to
 
 The real `.env` is ignored by Git and must never be committed.
 
+## Database TLS
+
+Database connections to remote hosts use TLS with certificate verification enabled. Localhost,
+`127.0.0.1`, and `::1` connections do not use TLS for local development. For a remote database
+that uses a private certificate authority, set `DATABASE_SSL_CA` to that CA certificate through
+your secret manager or local `.env`; do not commit the certificate contents. There is no
+production setting to disable certificate verification; TLS options in `DATABASE_URL` do not
+override this policy.
+
 ## Fresh deployment
 
 ```bash

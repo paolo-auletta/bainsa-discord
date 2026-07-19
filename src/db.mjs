@@ -1,12 +1,15 @@
 import pg from 'pg';
 
 import { config } from './config.mjs';
+import { buildPostgresConnectionOptions } from './database-options.mjs';
 
 const { Pool } = pg;
 
 export const pool = new Pool({
-  connectionString: config.databaseUrl,
-  ssl: config.databaseUrl.includes('localhost') ? false : { rejectUnauthorized: false },
+  ...buildPostgresConnectionOptions({
+    databaseUrl: config.databaseUrl,
+    databaseSslCa: config.databaseSslCa,
+  }),
   max: 10,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,

@@ -17,6 +17,7 @@ export function loadConfig(env = process.env) {
     discordClientSecret: env.DISCORD_CLIENT_SECRET?.trim() || null,
     discordGuildId: env.DISCORD_GUILD_ID,
     databaseUrl: env.DATABASE_URL,
+    databaseSslCa: env.DATABASE_SSL_CA?.trim() || null,
     anonymousFeedbackUrl: env.ANONYMOUS_FEEDBACK_URL?.trim() || null,
     logLevel: env.LOG_LEVEL?.trim() || 'info',
   });
