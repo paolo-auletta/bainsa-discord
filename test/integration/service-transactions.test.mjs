@@ -5,7 +5,7 @@ import { ChannelType } from 'discord.js';
 
 import { ONBOARDING_ACTIONS, onboardingId } from '../../src/onboarding/custom-ids.mjs';
 import { createOnboardingService } from '../../src/onboarding/service.mjs';
-import { ROLE_NAMES } from '../../src/constants.mjs';
+import { MAX_PROJECT_PARTICIPANTS, ROLE_NAMES } from '../../src/constants.mjs';
 import { addMember, removeMember, updateMember } from '../../src/services/governance/service.mjs';
 import { lockMemberEligibilityRows } from '../../src/services/projects/eligibility.mjs';
 import { addProjectMember, closeProject, createProject, updateProject } from '../../src/services/projects/index.mjs';
@@ -708,6 +708,92 @@ function projectAddInput(fixture) {
   };
 }
 
+async function seedProjectParticipantCapacity(participantCount) {
+  await resetAndMigrate();
+  const { universityId, divisionId } = await seedUniversityAndDivision();
+  const participantIds = Array.from(
+    { length: participantCount },
+    (_, index) => String(100000000000000 + index),
+  );
+  const additionalIds = ['999999999999990', '999999999999991', '999999999999992'];
+  const allIds = [...participantIds, ...additionalIds];
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type, status)
+     SELECT user_ids.discord_user_id, $2, 'researcher', 'active'
+     FROM unnest($1::text[]) AS user_ids(discord_user_id)`,
+    [allIds, universityId],
+  );
+  await database.query(
+    `INSERT INTO member_divisions (discord_user_id, division_id)
+     SELECT user_ids.discord_user_id, $2
+     FROM unnest($1::text[]) AS user_ids(discord_user_id)`,
+    [allIds, divisionId],
+  );
+  const project = await database.query(
+    `INSERT INTO projects (name, university_id, division_id, start_date, expected_end, status)
+     VALUES ('Capacity Signals', $1, $2, '2026-07-01', '2026-08-01', 'active')
+     RETURNING id`,
+    [universityId, divisionId],
+  );
+  await database.query(
+    `INSERT INTO project_people (project_id, discord_user_id, role)
+     SELECT $1, user_ids.discord_user_id, 'member'
+     FROM unnest($2::text[]) AS user_ids(discord_user_id)`,
+    [project.rows[0].id, participantIds],
+  );
+
+  const channels = new Map();
+  let channelCreates = 0;
+  const guild = { id: 'guild' };
+  const headRole = role('head-role', 'Bocconi - Head of Analysis');
+  guild.roles = { cache: roleCache([headRole]) };
+  guild.members = {
+    async fetch(id) {
+      if (allIds.includes(String(id))) return { id: String(id) };
+      throw new Error(`Unknown mock member ${id}`);
+    },
+  };
+  guild.channels = {
+    cache: { has: () => false, find: () => null },
+    async fetch(id) {
+      return id == null ? channels : channels.get(String(id)) ?? null;
+    },
+    async create(options) {
+      channelCreates += 1;
+      const channel = {
+        id: `capacity-channel-${channelCreates}`,
+        guild,
+        name: options.name,
+        parentId: null,
+        permissionOverwrites: { async set() {} },
+        async setName() {},
+        async setParent() {},
+        async send() {},
+      };
+      channels.set(channel.id, channel);
+      return channel;
+    },
+  };
+  const head = { id: 'head', roles: { cache: roleCache([headRole]) } };
+  return {
+    additionalIds,
+    guild,
+    head,
+    participantIds,
+    projectId: project.rows[0].id,
+    channelCreates: () => channelCreates,
+  };
+}
+
+function projectCapacityAddInput(fixture, userId, role = 'member') {
+  return {
+    interaction: { guild: fixture.guild, user: { id: fixture.head.id }, member: fixture.head },
+    project: String(fixture.projectId),
+    user: { id: userId },
+    role,
+  };
+}
+
 async function assertProjectWriteWinsMembershipRace(fixture, membershipWrite) {
   const blockingDb = lockedTransactionDatabase();
   const membershipPreflight = deferred();
@@ -878,6 +964,67 @@ test('membership-first transactions make concurrent project writes fail their lo
   );
   assert.equal((await database.query("SELECT count(*)::int AS count FROM projects WHERE name = 'Membership First Signals'"))
     .rows[0].count, 0);
+});
+
+test('project add-member enforces the participant cap while allowing role updates at capacity', async () => {
+  const fixture = await seedProjectParticipantCapacity(MAX_PROJECT_PARTICIPANTS);
+  const newUserId = fixture.additionalIds[0];
+
+  await assert.rejects(
+    () => addProjectMember(projectCapacityAddInput(fixture, newUserId), { db: database }),
+    new RegExp(`at most ${MAX_PROJECT_PARTICIPANTS} unique participants`, 'i'),
+  );
+  assert.equal(
+    (await database.query('SELECT count(*)::int AS count FROM project_people WHERE project_id = $1', [fixture.projectId]))
+      .rows[0].count,
+    MAX_PROJECT_PARTICIPANTS,
+  );
+  assert.equal(
+    (await database.query(
+      'SELECT count(*)::int AS count FROM project_people WHERE project_id = $1 AND discord_user_id = $2',
+      [fixture.projectId, newUserId],
+    )).rows[0].count,
+    0,
+  );
+  assert.equal(
+    (await database.query('SELECT count(*)::int AS count FROM project_reconciliation WHERE project_id = $1', [fixture.projectId]))
+      .rows[0].count,
+    0,
+  );
+  assert.equal(fixture.channelCreates(), 0);
+
+  const existingUserId = fixture.participantIds[0];
+  await addProjectMember(projectCapacityAddInput(fixture, existingUserId, 'supervisor'), { db: database });
+  assert.equal(
+    (await database.query('SELECT role FROM project_people WHERE project_id = $1 AND discord_user_id = $2', [
+      fixture.projectId,
+      existingUserId,
+    ])).rows[0].role,
+    'supervisor',
+  );
+  assert.equal(
+    (await database.query('SELECT count(*)::int AS count FROM project_people WHERE project_id = $1', [fixture.projectId]))
+      .rows[0].count,
+    MAX_PROJECT_PARTICIPANTS,
+  );
+  assert.equal(fixture.channelCreates(), 1);
+});
+
+test('concurrent project add-member requests serialize at the participant cap', async () => {
+  const fixture = await seedProjectParticipantCapacity(MAX_PROJECT_PARTICIPANTS - 1);
+  const results = await Promise.allSettled([
+    addProjectMember(projectCapacityAddInput(fixture, fixture.additionalIds[0]), { db: database }),
+    addProjectMember(projectCapacityAddInput(fixture, fixture.additionalIds[1]), { db: database }),
+  ]);
+
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  const rejected = results.find((result) => result.status === 'rejected');
+  assert.match(rejected.reason.message, new RegExp(`at most ${MAX_PROJECT_PARTICIPANTS} unique participants`, 'i'));
+  assert.equal(
+    (await database.query('SELECT count(*)::int AS count FROM project_people WHERE project_id = $1', [fixture.projectId]))
+      .rows[0].count,
+    MAX_PROJECT_PARTICIPANTS,
+  );
 });
 
 test('reversed multi-person project lock inputs serialize without a PostgreSQL deadlock', async () => {
