@@ -6,7 +6,8 @@ Cross-university projects are intentionally outside v1. Every project belongs to
 
 ## Requirements
 
-- Node.js 22 or newer.
+- Node.js 22 (the supported runtime line; see `.nvmrc`).
+- npm 10.9.2 (pinned in `package.json`).
 - A Discord bot with `Administrator` while provisioning and operating v1.
 - `DISCORD_CLIENT_SECRET` in `.env` to synchronize role-specific slash-command visibility.
 - The bot's highest role above every role it assigns or removes.
@@ -27,7 +28,7 @@ override this policy.
 ## Fresh deployment
 
 ```bash
-npm install
+npm ci
 npm run db:migrate
 npm run commands:register
 npm run provision:dry-run
@@ -42,7 +43,7 @@ Run `npm run provision:dry-run` before every live provisioning pass. Provisionin
 When replacing an existing BAINSA installation, reset Discord and Postgres before applying migrations or provisioning:
 
 ```bash
-npm install
+npm ci
 npm run discord:reset -- --confirm-reset
 npm run db:reset -- --confirm-reset
 npm run db:migrate
@@ -124,10 +125,17 @@ New members can only see the read-only `START HERE` area. The onboarding flow co
 ## Operations
 
 ```bash
+npm ci
 npm test
 npm run check
+npm run lint
+npm run format:check
+npm audit --omit=dev --audit-level=high
 npm run test:connections
 ```
+
+Use `npm ci` for all reproducible installs, including CI. `npm install` is reserved for intentionally updating dependencies and the lockfile.
+`npm test` uses inert local test values and does not require or read `.env`.
 
 The bot logs structural actions in `audit_log` and sends operational messages to the configured log channels. Seeded channel messages contain no internal marker comments; their Discord message IDs are tracked in `provisioned_messages` for safe future updates. Project close operations preserve history; v1 has no project delete or separate archive command.
 
