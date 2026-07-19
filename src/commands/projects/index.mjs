@@ -126,14 +126,14 @@ const projectCreate = {
       .addStringOption((option) =>
         option
           .setName('members')
-          .setDescription('Server members as comma-separated mentions')
+          .setDescription('Member mentions; 994 total project participants max')
           .setRequired(true)
           .setAutocomplete(true),
       )
       .addStringOption((option) =>
         option
           .setName('supervisors')
-          .setDescription('Server members as comma-separated mentions')
+          .setDescription('Supervisor mentions; 994 total participants max')
           .setRequired(true)
           .setAutocomplete(true),
       )

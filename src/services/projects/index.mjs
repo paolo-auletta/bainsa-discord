@@ -14,6 +14,7 @@ import {
   BOARD_ROLES,
   divisionLabel,
   MEMBER_TYPES,
+  PROJECT_MEMBER_FETCH_CONCURRENCY,
   PROJECT_PERSON_ROLES,
   PROJECT_STATUSES,
 } from '../../constants.mjs';
@@ -21,9 +22,13 @@ import { query, transaction } from '../../db.mjs';
 import { UserFacingError, assertUser } from '../../errors.mjs';
 import { projectChannelName, universityCategoryName } from '../../naming.mjs';
 import { uniqueIds } from './permissions.mjs';
+import { mapWithConcurrency } from './concurrency.mjs';
+import { insertProjectPeople, lockProjectAndCountPeople } from './repository.mjs';
 import {
   assertProjectStatusChange,
   assertNoUserOverlap,
+  assertProjectParticipantCount,
+  assertProjectParticipantCapacity,
   assertProjectIsOpen,
   normalizeProjectName,
   normalizeProjectPersonRole,
@@ -81,9 +86,11 @@ async function fetchGuildMember(guild, userId) {
   }
 }
 
-async function assertGuildMembers(guild, userIds) {
+export async function assertGuildMembers(guild, userIds) {
   assertNoBotUserIds(guild, userIds);
-  const fetched = await Promise.all(userIds.map((id) => fetchGuildMember(guild, id)));
+  const fetched = await mapWithConcurrency(userIds, PROJECT_MEMBER_FETCH_CONCURRENCY, (id) =>
+    fetchGuildMember(guild, id),
+  );
   const missing = userIds.filter((_, index) => !fetched[index]);
   assertUser(missing.length === 0, `These users are not in the server: ${formatDiscordUserReferences(missing)}.`);
 }
@@ -305,6 +312,7 @@ export async function createProject(input, deps = {}) {
   const supervisorIds = parseDiscordUserIds(input.supervisors, 'supervisors');
   assertNoBotUserIds(guild, [...memberIds, ...supervisorIds]);
   assertNoUserOverlap(memberIds, supervisorIds, 'members', 'supervisors');
+  assertProjectParticipantCapacity([...memberIds, ...supervisorIds]);
   const people = [
     ...memberIds.map((id) => ({ discord_user_id: id, role: PROJECT_PERSON_ROLES.MEMBER })),
     ...supervisorIds.map((id) => ({ discord_user_id: id, role: PROJECT_PERSON_ROLES.SUPERVISOR })),
@@ -339,15 +347,7 @@ export async function createProject(input, deps = {}) {
       ],
     );
     const created = { ...result.rows[0], ...divisionRecord };
-    for (const person of people) {
-      await client.query(
-        `INSERT INTO project_people (project_id, discord_user_id, role)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (project_id, discord_user_id)
-         DO UPDATE SET role = EXCLUDED.role`,
-        [created.id, person.discord_user_id, person.role],
-      );
-    }
+    await insertProjectPeople(client, created.id, people);
     await enqueueProjectReconciliation(client, created.id);
     await writeAudit(client, {
       actorId: interaction.user.id, action: 'project.create', targetType: 'project', targetId: created.id,
@@ -382,16 +382,16 @@ export async function addProjectMember(input, deps = {}) {
   }
 
   await db.transaction(async (client) => {
+    const existingPeople = await lockProjectAndCountPeople(client, project.id);
+    const existingPerson = await client.query(
+      'SELECT 1 FROM project_people WHERE project_id = $1 AND discord_user_id = $2',
+      [project.id, input.user.id],
+    );
+    if (existingPerson.rowCount === 0) assertProjectParticipantCount(existingPeople + 1);
     await lockAndAssertProjectPeopleEligibility(client, project, [
       { discord_user_id: input.user.id, role },
     ]);
-    await client.query(
-      `INSERT INTO project_people (project_id, discord_user_id, role)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (project_id, discord_user_id)
-       DO UPDATE SET role = EXCLUDED.role`,
-      [project.id, input.user.id, role],
-    );
+    await insertProjectPeople(client, project.id, [{ discord_user_id: input.user.id, role }]);
     await enqueueProjectReconciliation(client, project.id);
     await writeAudit(client, {
       actorId: input.interaction.user.id,

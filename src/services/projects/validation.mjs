@@ -1,4 +1,4 @@
-import { PROJECT_PERSON_ROLES, PROJECT_STATUSES } from '../../constants.mjs';
+import { MAX_PROJECT_PARTICIPANTS, PROJECT_PERSON_ROLES, PROJECT_STATUSES } from '../../constants.mjs';
 import { UserFacingError, assertUser } from '../../errors.mjs';
 import { normalizeDisplayName } from '../../naming.mjs';
 import { assertDateOrder, parseIsoDate } from '../../validation.mjs';
@@ -56,6 +56,18 @@ export function assertNoUserOverlap(leftIds, rightIds, leftFieldName, rightField
   assertUser(
     overlap.length === 0,
     `${leftFieldName} and ${rightFieldName} cannot contain the same user: ${formatDiscordUserReferences(overlap)}.`,
+  );
+}
+
+export function assertProjectParticipantCapacity(userIds) {
+  const count = new Set(userIds.map((userId) => String(userId))).size;
+  assertProjectParticipantCount(count);
+}
+
+export function assertProjectParticipantCount(count) {
+  assertUser(
+    count <= MAX_PROJECT_PARTICIPANTS,
+    `Projects can include at most ${MAX_PROJECT_PARTICIPANTS} unique participants across members, supervisors, and board liaisons.`,
   );
 }
 

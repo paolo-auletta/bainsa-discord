@@ -23,6 +23,18 @@ export const PROJECT_STATUSES = Object.freeze({
   ARCHIVED: 'archived',
 });
 
+// Discord's official API error-code documentation defines error 30060 as
+// "Maximum number of channel permission overwrites reached (1000)":
+// https://discord.com/developers/topics/opcodes-and-status-codes
+export const DISCORD_CHANNEL_PERMISSION_OVERWRITE_LIMIT = 1_000;
+
+// Every project channel reserves one overwrite each for @everyone, the Bot,
+// Global President, and the scoped Head, Vice President, and President roles.
+export const PROJECT_RESERVED_PERMISSION_OVERWRITES = 6;
+export const MAX_PROJECT_PARTICIPANTS =
+  DISCORD_CHANNEL_PERMISSION_OVERWRITE_LIMIT - PROJECT_RESERVED_PERMISSION_OVERWRITES;
+export const PROJECT_MEMBER_FETCH_CONCURRENCY = 5;
+
 export const ROLE_NAMES = Object.freeze({
   RESEARCHER: 'Researcher',
   ALUMNI: 'Alumni',

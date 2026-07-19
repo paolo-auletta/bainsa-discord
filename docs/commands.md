@@ -213,7 +213,7 @@ All v1 projects are private, university-scoped, and division-scoped. Project cha
 | `expected_end` | Yes | Expected end date in `YYYY-MM-DD` format; must not precede the start date |
 | `notes` | No | Project notes |
 
-The member and supervisor suggestions search all non-bot Discord members. The selected university and division are still authoritative: the database rejects a person who does not meet the appropriate project eligibility rule, rejects duplicate people across the two lists, and rejects the Bot account.
+The member and supervisor suggestions search all non-bot Discord members. The selected university and division are still authoritative: the database rejects a person who does not meet the appropriate project eligibility rule, rejects duplicate people across the two lists, and rejects the Bot account. Duplicate mentions within one field are collapsed. A project has at most 994 unique direct participants across members, supervisors, and board liaisons. This reserves six of Discord's 1,000 permission overwrites for `@everyone`, the Bot, Global President, and the scoped Head, Vice President, and President roles. Discord documents this limit as error 30060, “Maximum number of channel permission overwrites reached (1000)”: [Discord API error codes](https://discord.com/developers/topics/opcodes-and-status-codes).
 
 When valid, the bot inserts the project and participant records in a transaction, creates a private project channel under the university category, grants access to the selected members and supervisors plus the scoped board roles, posts the project introduction, and records an audit entry. If a later step fails, it attempts to compensate the created Discord resources.
 

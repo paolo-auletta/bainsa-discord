@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 
 import { ChannelType } from 'discord.js';
 
-import { PROJECT_STATUSES } from '../src/constants.mjs';
+import { MAX_PROJECT_PARTICIPANTS, PROJECT_MEMBER_FETCH_CONCURRENCY, PROJECT_STATUSES } from '../src/constants.mjs';
 import {
   addProjectMember,
+  assertGuildMembers,
   assertActiveDivisionResearchers,
   assertActiveUniversityMembers,
   canViewProject,
   closeProject,
+  createProject,
   findProjectParentId,
   findProjectDivisions,
   findProjectPeople,
@@ -185,6 +187,70 @@ test('participant eligibility locks use one deterministic Discord user ID order'
     sortedDiscordUserIds(['333333333333333333', '111111111111111111', '333333333333333333', '222222222222222222']),
     ['111111111111111111', '222222222222222222', '333333333333333333'],
   );
+});
+
+test('project creation rejects capacity-incompatible participants before database or Discord work', async () => {
+  const participantIds = Array.from(
+    { length: MAX_PROJECT_PARTICIPANTS + 1 },
+    (_, index) => String(100000000000000 + index),
+  );
+  let databaseQueries = 0;
+  let memberFetches = 0;
+  const guild = {
+    members: {
+      async fetch() {
+        memberFetches += 1;
+        return null;
+      },
+    },
+  };
+  const db = {
+    async query() {
+      databaseQueries += 1;
+      throw new Error('capacity validation should run first');
+    },
+  };
+
+  await assert.rejects(
+    () => createProject({
+      interaction: { guild, member: {}, user: { id: 'actor' } },
+      name: 'Signals',
+      university: 'Bocconi',
+      division: 'Analysis',
+      startDate: '2026-07-01',
+      expectedEnd: '2026-08-01',
+      members: participantIds.join(','),
+      supervisors: '999999999999999',
+    }, { db }),
+    new RegExp(`at most ${MAX_PROJECT_PARTICIPANTS} unique participants`),
+  );
+  assert.equal(databaseQueries, 0);
+  assert.equal(memberFetches, 0);
+});
+
+test('project member fetches are bounded and report failed fetches as missing members', async () => {
+  const ids = Array.from({ length: PROJECT_MEMBER_FETCH_CONCURRENCY * 3 }, (_, index) => String(index + 1));
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const guild = {
+    members: {
+      async fetch(id) {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setImmediate(resolve));
+        inFlight -= 1;
+        if (id === ids.at(-1)) throw new Error('controlled fetch failure');
+        return { id };
+      },
+    },
+  };
+
+  await assert.rejects(
+    () => assertGuildMembers(guild, ids),
+    new RegExp(`These users are not in the server: <@${ids.at(-1)}>`),
+  );
+  assert.ok(maxInFlight <= PROJECT_MEMBER_FETCH_CONCURRENCY);
+  assert.equal(maxInFlight, PROJECT_MEMBER_FETCH_CONCURRENCY);
 });
 
 test('project-close completes the project and moves the channel to history', async () => {

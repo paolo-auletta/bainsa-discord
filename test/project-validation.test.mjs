@@ -8,6 +8,7 @@ import {
 } from '../src/services/projects/index.mjs';
 import {
   assertNoUserOverlap,
+  assertProjectParticipantCapacity,
   assertProjectIsOpen,
   formatDiscordUserReferences,
   assertProjectStatusChange,
@@ -15,7 +16,13 @@ import {
   normalizeProjectStatus,
   validateExpectedEndUpdate,
 } from '../src/services/projects/validation.mjs';
-import { PROJECT_PERSON_ROLES, PROJECT_STATUSES } from '../src/constants.mjs';
+import {
+  DISCORD_CHANNEL_PERMISSION_OVERWRITE_LIMIT,
+  MAX_PROJECT_PARTICIPANTS,
+  PROJECT_PERSON_ROLES,
+  PROJECT_RESERVED_PERMISSION_OVERWRITES,
+  PROJECT_STATUSES,
+} from '../src/constants.mjs';
 import { UserFacingError } from '../src/errors.mjs';
 
 test('parseDiscordUserIds accepts mentions, raw IDs, separators, and dedupes', () => {
@@ -53,6 +60,25 @@ test('project-create rejects users repeated as member and supervisor', () => {
   assert.throws(
     () => assertNoUserOverlap(['1', '2'], ['2', '3'], 'members', 'supervisors'),
     /cannot contain the same user: <@2>/,
+  );
+});
+
+test('project participant capacity accepts the limit after deduplicating input', () => {
+  const participantIds = Array.from(
+    { length: MAX_PROJECT_PARTICIPANTS },
+    (_, index) => String(100000000000000 + index),
+  );
+
+  assert.doesNotThrow(() => assertProjectParticipantCapacity(participantIds.slice(0, -1)));
+  assert.doesNotThrow(() => assertProjectParticipantCapacity(participantIds));
+  assert.doesNotThrow(() => assertProjectParticipantCapacity([...participantIds, participantIds.at(-1)]));
+  assert.throws(
+    () => assertProjectParticipantCapacity([...participantIds, '999999999999999']),
+    new RegExp(`at most ${MAX_PROJECT_PARTICIPANTS} unique participants`),
+  );
+  assert.equal(
+    MAX_PROJECT_PARTICIPANTS + PROJECT_RESERVED_PERMISSION_OVERWRITES,
+    DISCORD_CHANNEL_PERMISSION_OVERWRITE_LIMIT,
   );
 });
 
