@@ -9,7 +9,7 @@ export function installGracefulShutdown({ client, closeDatabase, stopWorkers = (
     logger.info('Shutting down bot', { signal });
 
     try {
-      stopWorkers();
+      await stopWorkers();
       client.destroy();
       await closeDatabase();
       process.exitCode = 0;

@@ -191,6 +191,7 @@ export async function retryProjectReconciliations({ guild, db, limit = REPAIR_LI
 export function createProjectReconciliationWorker({ guild, db, intervalMs = 60_000, limit = REPAIR_LIMIT }) {
   let running = false;
   let stopped = false;
+  let activeRun = null;
   const run = async () => {
     if (running || stopped) return [];
     running = true;
@@ -203,7 +204,22 @@ export function createProjectReconciliationWorker({ guild, db, intervalMs = 60_0
       running = false;
     }
   };
-  const timer = setInterval(() => void run(), intervalMs);
-  void run();
-  return { run, stop: () => { stopped = true; clearInterval(timer); } };
+  const scheduleRun = () => {
+    if (running) return activeRun ?? Promise.resolve([]);
+    activeRun = run().finally(() => {
+      activeRun = null;
+    });
+    return activeRun;
+  };
+  const timer = setInterval(() => void scheduleRun(), intervalMs);
+  timer.unref?.();
+  void scheduleRun();
+  return {
+    run: scheduleRun,
+    async stop() {
+      stopped = true;
+      clearInterval(timer);
+      await activeRun;
+    },
+  };
 }
