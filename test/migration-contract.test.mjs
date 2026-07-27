@@ -53,6 +53,8 @@ test('adds durable, generation-guarded project reconciliation state', async () =
   assertIncludes(sql, 'desired_generation bigint NOT NULL DEFAULT 0');
   assertIncludes(sql, "status IN ('pending', 'processing', 'succeeded', 'failed')");
   assertIncludes(sql, 'project_reconciliation_repair_idx');
+  assertIncludes(sql, "INSERT INTO project_reconciliation (project_id, desired_generation, status)");
+  assertIncludes(sql, 'ON CONFLICT (project_id) DO NOTHING');
 });
 
 test('preserves the legacy migration table shape', async () => {

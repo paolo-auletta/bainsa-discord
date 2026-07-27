@@ -87,6 +87,44 @@ async function createProjectHistory(guild, db, project, people) {
   }
 }
 
+async function reconcileCommittedProject({ projectId, guild, db }) {
+  const reconciliation = await reconcileProject({ projectId, guild, db });
+  if (reconciliation.status === 'failed') {
+    throw new UserFacingError(
+      `Project #${projectId} was committed to the database, but Discord reconciliation failed. It will retry automatically.`,
+    );
+  }
+  if (reconciliation.status === 'succeeded') return reconciliation;
+
+  // A worker may have claimed this generation after the write transaction
+  // committed. The mutation is valid; return its persisted state without
+  // attempting duplicate Discord work while that worker is in progress.
+  const [project, people] = await Promise.all([
+    getProject(db, projectId),
+    getProjectPeople(db, projectId),
+  ]);
+  const statusResult = await db.query(
+    'SELECT status FROM project_reconciliation WHERE project_id = $1',
+    [projectId],
+  );
+  const status = statusResult.rows[0]?.status;
+  if (status === 'failed') {
+    throw new UserFacingError(
+      `Project #${projectId} was committed to the database, but Discord reconciliation failed. It will retry automatically.`,
+    );
+  }
+  if (status === 'succeeded') return { status, project, people };
+  return { status: 'pending', project, people };
+}
+
+function projectResult(reconciliation) {
+  return {
+    ...reconciliation.project,
+    people: reconciliation.people,
+    reconciliation_pending: reconciliation.status === 'pending',
+  };
+}
+
 export function projectIdFromOption(value) {
   const projectId = String(value ?? '').trim();
   assertUser(/^[1-9]\d*$/.test(projectId), 'Choose a valid project.');
@@ -153,14 +191,11 @@ export async function createProject(input, deps = {}) {
     return created;
   });
 
-  const reconciliation = await reconcileProject({ projectId: project.id, guild, db });
-  if (reconciliation.status !== 'succeeded') {
-    throw new UserFacingError(
-      `Project #${project.id} was committed to the database, but Discord reconciliation is pending after a failure. It will retry automatically.`,
-    );
+  const reconciliation = await reconcileCommittedProject({ projectId: project.id, guild, db });
+  if (reconciliation.status === 'succeeded') {
+    await createProjectHistory(guild, db, reconciliation.project, reconciliation.people);
   }
-  await createProjectHistory(guild, db, reconciliation.project, reconciliation.people);
-  return { ...reconciliation.project, people: reconciliation.people };
+  return projectResult(reconciliation);
 }
 
 export async function addProjectMember(input, deps = {}) {
@@ -196,12 +231,11 @@ export async function addProjectMember(input, deps = {}) {
       after: { user_id: input.user.id, role },
     });
   });
-  const reconciliation = await reconcileProject({ projectId: project.id, guild: input.interaction.guild, db });
-  if (reconciliation.status !== 'succeeded') {
-    throw new UserFacingError(`Project #${project.id} was committed to the database, but Discord reconciliation is pending after a failure. It will retry automatically.`);
+  const reconciliation = await reconcileCommittedProject({ projectId: project.id, guild: input.interaction.guild, db });
+  if (reconciliation.status === 'succeeded') {
+    await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, `<@${input.user.id}> joined as **${role}**.`);
   }
-  await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, `<@${input.user.id}> joined as **${role}**.`);
-  return { project: reconciliation.project, people: reconciliation.people };
+  return { project: projectResult(reconciliation), people: reconciliation.people };
 }
 
 export async function removeProjectMember(input, deps = {}) {
@@ -229,12 +263,11 @@ export async function removeProjectMember(input, deps = {}) {
       reason: input.reason ?? null,
     });
   });
-  const reconciliation = await reconcileProject({ projectId: project.id, guild: input.interaction.guild, db });
-  if (reconciliation.status !== 'succeeded') {
-    throw new UserFacingError(`Project #${project.id} was committed to the database, but Discord reconciliation is pending after a failure. It will retry automatically.`);
+  const reconciliation = await reconcileCommittedProject({ projectId: project.id, guild: input.interaction.guild, db });
+  if (reconciliation.status === 'succeeded') {
+    await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, `<@${input.user.id}> was removed from the project.`);
   }
-  await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, `<@${input.user.id}> was removed from the project.`);
-  return { project: reconciliation.project, people: reconciliation.people };
+  return { project: projectResult(reconciliation), people: reconciliation.people };
 }
 
 export async function updateProject(input, deps = {}) {
@@ -269,13 +302,12 @@ export async function updateProject(input, deps = {}) {
       after: patch,
     });
   });
-  const reconciliation = await reconcileProject({ projectId: before.id, guild: input.interaction.guild, db });
-  if (reconciliation.status !== 'succeeded') {
-    throw new UserFacingError(`Project #${before.id} was committed to the database, but Discord reconciliation is pending after a failure. It will retry automatically.`);
+  const reconciliation = await reconcileCommittedProject({ projectId: before.id, guild: input.interaction.guild, db });
+  if (reconciliation.status === 'succeeded') {
+    await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, 'Project details were updated.');
+    await updateShowcaseThread(input.interaction.guild, reconciliation.project, reconciliation.people, 'Project details were updated.');
   }
-  await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, 'Project details were updated.');
-  await updateShowcaseThread(input.interaction.guild, reconciliation.project, reconciliation.people, 'Project details were updated.');
-  return { project: reconciliation.project, people: reconciliation.people };
+  return { project: projectResult(reconciliation), people: reconciliation.people };
 }
 
 export async function closeProject(input, deps = {}) {
@@ -306,13 +338,12 @@ export async function closeProject(input, deps = {}) {
       after: { status: PROJECT_STATUSES.COMPLETED, outcome, final_notes: finalNotes },
     });
   });
-  const reconciliation = await reconcileProject({ projectId: project.id, guild: input.interaction.guild, db });
-  if (reconciliation.status !== 'succeeded') {
-    throw new UserFacingError(`Project #${project.id} was committed to the database, but Discord reconciliation is pending after a failure. It will retry automatically.`);
+  const reconciliation = await reconcileCommittedProject({ projectId: project.id, guild: input.interaction.guild, db });
+  if (reconciliation.status === 'succeeded') {
+    await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, `**Outcome:** ${outcome}\n**Final notes:** ${finalNotes}`);
+    await updateShowcaseThread(input.interaction.guild, reconciliation.project, reconciliation.people, `Completed: ${outcome}`);
   }
-  await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, `**Outcome:** ${outcome}\n**Final notes:** ${finalNotes}`);
-  await updateShowcaseThread(input.interaction.guild, reconciliation.project, reconciliation.people, `Completed: ${outcome}`);
-  return { project: reconciliation.project, people: reconciliation.people };
+  return { project: projectResult(reconciliation), people: reconciliation.people };
 }
 
 export async function getProjectInfo(input, deps = {}) {

@@ -97,7 +97,8 @@ async function memberChoices(interaction, role, value) {
   const term = memberSearchTerm(value);
   const prefix = memberSearchPrefix(value);
   const universityName = interaction.options.getString('university') ?? '';
-  const divisionName = interaction.options.getString('division') ?? '';
+  const divisionName =
+    role === PROJECT_PERSON_ROLES.MEMBER ? interaction.options.getString('division') ?? '' : null;
   const people = await findProjectPeople({ universityName, divisionName, role, term });
 
   return people

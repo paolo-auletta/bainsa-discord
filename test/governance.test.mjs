@@ -28,6 +28,7 @@ import {
   resolveDivisionTextForMemberUpdate,
   warmGovernanceAutocompleteCache,
 } from '../src/services/governance/service.mjs';
+import { createDivisionChannel, renameChannelById } from '../src/services/governance/gateway.mjs';
 
 function fakeMember(roleNames) {
   return {
@@ -250,6 +251,67 @@ test('division channel names and overwrites match provisioner policy', () => {
   assert.equal(humanAllows.includes(PermissionFlagsBits.AttachFiles), true);
   assert.equal(humanAllows.includes(PermissionFlagsBits.EmbedLinks), true);
   assert.equal(humanAllows.includes(PermissionFlagsBits.SendMessagesInThreads), true);
+});
+
+test('reused division channels have their access overwrites repaired', async () => {
+  const existing = testChannel('existing', '🟦-projects', ChannelType.GuildText, 'category');
+  existing.permissionOverwrites = {
+    async set(overwrites, reason) {
+      existing.overwrites = overwrites;
+      existing.overwriteReason = reason;
+    },
+  };
+  const roles = {
+    accessRole: { id: 'division' },
+    headRole: { id: 'head' },
+    presidentRole: { id: 'president' },
+    vicePresidentRole: { id: 'vp' },
+    globalPresidentRole: { id: 'global' },
+    botRole: { id: 'bot' },
+  };
+  const guild = {
+    roles: { everyone: { id: 'everyone' } },
+    channels: {
+      cache: cacheFrom([existing]),
+      async create() {
+        throw new Error('existing channel should be reused');
+      },
+    },
+  };
+
+  const result = await createDivisionChannel(
+    guild,
+    'Projects',
+    'blue',
+    ChannelType.GuildText,
+    { id: 'category' },
+    roles,
+    'Create division',
+  );
+
+  assert.equal(result.channel, existing);
+  assert.equal(result.created, false);
+  assert.deepEqual(existing.overwrites.map((overwrite) => overwrite.id), ['everyone', 'division', 'head', 'president', 'vp', 'global', 'bot']);
+  assert.match(existing.overwriteReason, /repair existing channel access/);
+});
+
+test('division channel renames ignore confirmed absence but surface operational failures', async () => {
+  const guild = {
+    channels: {
+      async fetch() {
+        throw { code: 10_003 };
+      },
+    },
+  };
+  assert.equal(await renameChannelById(guild, 'missing', 'new-name', 'Rename division'), null);
+
+  guild.channels.fetch = async () => {
+    throw new Error('Discord API is unavailable');
+  };
+  await assert.rejects(
+    () => renameChannelById(guild, 'channel', 'new-name', 'Rename division'),
+    /Discord API is unavailable/,
+  );
 });
 
 test('division-create creates same-named text and voice channels in a different university category', async () => {

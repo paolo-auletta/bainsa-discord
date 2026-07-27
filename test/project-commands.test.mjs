@@ -82,6 +82,7 @@ test('project-create person fields use the cached university and division member
   assert.deepEqual(await autocomplete('supervisors'), [
     { name: 'Ada Lovelace (<@1>)', value: '<@1>' },
     { name: 'Beatrice Bianchi (<@2>)', value: '<@2>' },
+    { name: 'Carlo Conti (<@3>)', value: '<@3>' },
   ]);
 });
 

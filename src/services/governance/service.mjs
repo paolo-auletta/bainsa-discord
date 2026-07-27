@@ -1057,7 +1057,6 @@ export async function getBoardInfo(interaction, options, deps = {}) {
     const member = await interaction.guild.members.fetch(row.discord_user_id).catch(() => null);
     const expectedRoles = [ROLE_NAMES.RESEARCHER, universityAccessRoleName(university.name)];
     if (row.role === BOARD_ROLES.HEAD && row.division_name) {
-      expectedRoles.push(divisionRoleName(university.name, row.division_name));
       expectedRoles.push(divisionHeadRoleName(university.name, row.division_name));
     } else {
       expectedRoles.push(universityBoardRoleName(university.name, boardRoleLabel(row.role)));

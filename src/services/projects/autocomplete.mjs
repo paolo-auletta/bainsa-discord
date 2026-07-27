@@ -34,8 +34,7 @@ export async function searchVisibleProjects(input, deps = {}) {
       AND pp.discord_user_id = $2
      WHERE ($1 = '%%' OR p.name ILIKE $1 OR u.name ILIKE $1 OR d.name ILIKE $1 OR p.id::text ILIKE $1)
      GROUP BY p.id, p.name, p.status, u.name, d.name, d.color
-     ORDER BY p.updated_at DESC NULLS LAST, p.id DESC
-     LIMIT 100`,
+     ORDER BY p.updated_at DESC NULLS LAST, p.id DESC`,
     [term, input.interaction.user.id],
   );
   return result.rows
@@ -108,7 +107,7 @@ export async function findProjectDivisions(universityName, term = '', deps = {})
 
 export async function findProjectPeople({ universityName, divisionName, role, term = '' }, deps = {}) {
   if (!universityName?.trim()) return [];
-  if (!divisionName?.trim()) return [];
+  if (role === PROJECT_PERSON_ROLES.MEMBER && !divisionName?.trim()) return [];
   if (projectAutocompleteCache.loadedAt) {
     refreshProjectAutocompleteCacheInBackground(deps);
     const normalizedUniversity = universityName.trim().toLowerCase();
@@ -117,7 +116,7 @@ export async function findProjectPeople({ universityName, divisionName, role, te
     return projectAutocompleteCache.people
       .filter((row) =>
         row.university_name.toLowerCase() === normalizedUniversity &&
-        row.division_name?.toLowerCase() === normalizedDivision &&
+        (role !== PROJECT_PERSON_ROLES.MEMBER || row.division_name?.toLowerCase() === normalizedDivision) &&
         (role !== PROJECT_PERSON_ROLES.MEMBER || row.member_type === MEMBER_TYPES.RESEARCHER) &&
         (!normalizedTerm || row.full_name?.toLowerCase().includes(normalizedTerm) || row.discord_user_id.includes(normalizedTerm)),
       )
@@ -142,7 +141,7 @@ export async function findProjectPeople({ universityName, divisionName, role, te
       LIMIT 25`,
     [
       universityName.trim(),
-      divisionName.trim(),
+      role === PROJECT_PERSON_ROLES.MEMBER ? divisionName.trim() : null,
       role === PROJECT_PERSON_ROLES.MEMBER ? MEMBER_TYPES.RESEARCHER : null,
       normalizedTerm,
       `%${normalizedTerm}%`,

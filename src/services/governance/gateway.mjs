@@ -160,7 +160,13 @@ export async function createDivisionChannel(guild, divisionName, color, type, pa
       channel.type === type &&
       String(channel.parentId ?? channel.parent?.id ?? '') === parentId,
   );
-  if (existing) return { channel: existing, created: false };
+  if (existing) {
+    await existing.permissionOverwrites.set(
+      divisionChannelOverwrites(guild, overwriteRoles, type),
+      `${reason}: repair existing channel access`,
+    );
+    return { channel: existing, created: false };
+  }
   const channel = await guild.channels.create({
     name,
     type,
@@ -173,7 +179,13 @@ export async function createDivisionChannel(guild, divisionName, color, type, pa
 
 export async function renameChannelById(guild, channelId, newName, reason) {
   if (!channelId) return null;
-  const channel = await guild.channels.fetch(channelId).catch(() => null);
+  let channel;
+  try {
+    channel = await guild.channels.fetch(channelId);
+  } catch (error) {
+    if (Number(error?.code) === 10_003) return null;
+    throw error;
+  }
   if (!channel) return null;
   if (channel.name === newName) return channel;
   return channel.setName(newName, reason);

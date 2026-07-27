@@ -16,3 +16,10 @@ CREATE TABLE IF NOT EXISTS project_reconciliation (
 
 CREATE INDEX IF NOT EXISTS project_reconciliation_repair_idx
   ON project_reconciliation (status, requested_at, project_id);
+
+-- Existing projects predate this durable queue. Seed them so the repair worker
+-- reconciles their Discord state after an upgrade as well as after new writes.
+INSERT INTO project_reconciliation (project_id, desired_generation, status)
+SELECT id, 1, 'pending'
+FROM projects
+ON CONFLICT (project_id) DO NOTHING;

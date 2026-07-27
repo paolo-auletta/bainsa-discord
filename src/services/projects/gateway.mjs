@@ -11,8 +11,9 @@ import { formatDiscordUserReferences } from './validation.mjs';
 async function fetchGuildMember(guild, userId) {
   try {
     return await guild.members.fetch(userId);
-  } catch {
-    return null;
+  } catch (error) {
+    if (Number(error?.code) === 10_007) return null;
+    throw error;
   }
 }
 

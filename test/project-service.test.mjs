@@ -23,6 +23,7 @@ import {
 } from '../src/services/projects/index.mjs';
 import { UserFacingError } from '../src/errors.mjs';
 import { sortedDiscordUserIds } from '../src/services/projects/eligibility.mjs';
+import { formatProjectIntro, formatShowcasePost, projectInfoMessage } from '../src/services/projects/formatters.mjs';
 
 function memberWithRoles(id, roleNames) {
   return {
@@ -106,7 +107,13 @@ test('autocomplete only returns projects visible to the caller', async () => {
       actor_is_project_person: false,
     },
   ];
-  const db = { query: async () => ({ rows }) };
+  let sql;
+  const db = {
+    query: async (text) => {
+      sql = text;
+      return { rows };
+    },
+  };
   const choices = await searchVisibleProjects(
     {
       interaction: {
@@ -122,6 +129,7 @@ test('autocomplete only returns projects visible to the caller', async () => {
     choices.map((choice) => choice.value),
     ['1', '2'],
   );
+  assert.doesNotMatch(sql, /LIMIT 100/);
 });
 
 test('project setup autocomplete scopes universities, divisions, and people correctly', async () => {
@@ -152,11 +160,11 @@ test('project setup autocomplete scopes universities, divisions, and people corr
   assert.match(calls[1].text, /JOIN universities/);
   assert.match(calls[2].text, /member_divisions/);
   assert.deepEqual(calls[2].values.slice(0, 3), ['Bocconi', 'Projects', 'researcher']);
-  assert.equal(calls[3].values[1], 'Projects');
+  assert.equal(calls[3].values[1], null);
   assert.equal(calls[3].values[2], null);
 });
 
-test('cached project people are scoped to the selected university and division for members and supervisors', async () => {
+test('cached project people scope members to a division and supervisors to a university', async () => {
   await warmProjectAutocompleteCache({
     db: {
       async query(text) {
@@ -184,11 +192,16 @@ test('cached project people are scoped to the selected university and division f
     [
       { discord_user_id: '1', full_name: 'Ada' },
       { discord_user_id: '2', full_name: 'Beatrice' },
+      { discord_user_id: '3', full_name: 'Carlo' },
     ],
   );
   assert.deepEqual(
     await findProjectPeople({ universityName: 'Bocconi', role: 'supervisor', term: '' }),
-    [],
+    [
+      { discord_user_id: '1', full_name: 'Ada' },
+      { discord_user_id: '2', full_name: 'Beatrice' },
+      { discord_user_id: '3', full_name: 'Carlo' },
+    ],
   );
 });
 
@@ -266,7 +279,7 @@ test('project creation rejects capacity-incompatible participants before databas
   assert.equal(memberFetches, 0);
 });
 
-test('project member fetches are bounded and report failed fetches as missing members', async () => {
+test('project member fetches are bounded and surface transient fetch failures', async () => {
   const ids = Array.from({ length: PROJECT_MEMBER_FETCH_CONCURRENCY * 3 }, (_, index) => String(index + 1));
   let inFlight = 0;
   let maxInFlight = 0;
@@ -285,10 +298,54 @@ test('project member fetches are bounded and report failed fetches as missing me
 
   await assert.rejects(
     () => assertGuildMembers(guild, ids),
-    new RegExp(`These users are not in the server: <@${ids.at(-1)}>`),
+    /controlled fetch failure/,
   );
   assert.ok(maxInFlight <= PROJECT_MEMBER_FETCH_CONCURRENCY);
   assert.equal(maxInFlight, PROJECT_MEMBER_FETCH_CONCURRENCY);
+});
+
+test('project member fetches report only confirmed unknown members as absent', async () => {
+  const guild = {
+    members: {
+      async fetch() {
+        throw { code: 10_007 };
+      },
+    },
+  };
+
+  await assert.rejects(
+    () => assertGuildMembers(guild, ['123456789012345']),
+    /These users are not in the server: <@123456789012345>/,
+  );
+});
+
+test('project formatters cap participant lists and full messages at Discord\'s content limit', () => {
+  const people = Array.from({ length: MAX_PROJECT_PARTICIPANTS }, (_, index) => ({
+    discord_user_id: String(100000000000000 + index),
+    role: index % 3 === 0 ? 'member' : index % 3 === 1 ? 'supervisor' : 'board_liaison',
+  }));
+  const project = {
+    id: 42,
+    name: 'Signals',
+    university_name: 'Bocconi',
+    division_name: 'Projects',
+    division_color: 'blue',
+    status: 'active',
+    start_date: '2026-07-01',
+    expected_end: '2026-08-01',
+    discord_channel_id: 'channel',
+    notes: 'x'.repeat(4_000),
+  };
+
+  for (const message of [
+    formatProjectIntro(project, people, 'y'.repeat(4_000)),
+    formatShowcasePost(project, people, 'y'.repeat(4_000)),
+    projectInfoMessage(project, people),
+  ]) {
+    assert.ok(message.length <= 2_000);
+    assert.match(message, /\(\+\d+ more\)/);
+    assert.doesNotMatch(message, /<@\d{0,14}(?:$|[^\d>])/);
+  }
 });
 
 test('project-close completes the project and moves the channel to history', async () => {
