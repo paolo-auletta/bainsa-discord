@@ -395,6 +395,108 @@ test('plain division channels are adopted into icon-prefixed names', async () =>
   assert.equal(provisioner.summary.channels.updated, 1);
 });
 
+test('seed messages adopt an untracked matching bot message instead of sending a duplicate', async () => {
+  const seedContent = '# Bocconi General\n\nUse this channel for member coordination.';
+  const existingMessage = {
+    id: 'existing-seed',
+    content: seedContent,
+    author: { id: 'bot' },
+    components: [],
+    createdTimestamp: 1,
+    async edit() {
+      throw new Error('An unchanged seed should not be edited.');
+    },
+  };
+  const trackedMessages = [];
+  const channel = {
+    id: 'general',
+    messages: {
+      async fetch(query) {
+        if (typeof query === 'string') return null;
+        return new Map([[existingMessage.id, existingMessage]]);
+      },
+    },
+    async send() {
+      throw new Error('An existing seed must not be sent again.');
+    },
+  };
+  const db = {
+    async query(sql, values) {
+      if (sql.includes('SELECT message_id')) return { rows: [] };
+      if (sql.includes('INSERT INTO provisioned_messages')) {
+        trackedMessages.push(values);
+        return { rows: [] };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+  };
+  const provisioner = new DiscordProvisioner({
+    client: { user: { id: 'bot' } },
+    config: {},
+    db,
+    dryRun: false,
+    plan: samplePlan,
+    logger: {},
+  });
+  provisioner.guildId = 'guild';
+
+  const message = await provisioner.seedMessage(channel, 'university:Bocconi:general', seedContent);
+
+  assert.equal(message, existingMessage);
+  assert.equal(provisioner.summary.seeds.unchanged, 1);
+  assert.deepEqual(trackedMessages, [['guild', 'general', 'university:Bocconi:general', 'existing-seed']]);
+});
+
+test('seed messages adopt legacy bot messages with the same heading and update their content', async () => {
+  const seedContent = '# Bocconi General\n\nUse this channel for member coordination.';
+  const edited = [];
+  const existingMessage = {
+    id: 'legacy-seed',
+    content: '# Bocconi General\n\nOld guidance.',
+    author: { id: 'bot' },
+    components: [],
+    createdTimestamp: 1,
+    async edit(payload) {
+      edited.push(payload);
+      this.content = payload.content;
+      return this;
+    },
+  };
+  const channel = {
+    id: 'general',
+    messages: {
+      async fetch(query) {
+        if (typeof query === 'string') return null;
+        return new Map([[existingMessage.id, existingMessage]]);
+      },
+    },
+    async send() {
+      throw new Error('A legacy seed must be updated in place.');
+    },
+  };
+  const db = {
+    async query(sql) {
+      if (sql.includes('SELECT message_id')) return { rows: [] };
+      if (sql.includes('INSERT INTO provisioned_messages')) return { rows: [] };
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+  };
+  const provisioner = new DiscordProvisioner({
+    client: { user: { id: 'bot' } },
+    config: {},
+    db,
+    dryRun: false,
+    plan: samplePlan,
+    logger: {},
+  });
+  provisioner.guildId = 'guild';
+
+  await provisioner.seedMessage(channel, 'university:Bocconi:general', seedContent);
+
+  assert.equal(provisioner.summary.seeds.updated, 1);
+  assert.deepEqual(edited, [{ content: seedContent, components: [] }]);
+});
+
 test('retiring Start Here guidance only deletes the consolidated legacy channels', async () => {
   const deleted = [];
   const retiredRules = {

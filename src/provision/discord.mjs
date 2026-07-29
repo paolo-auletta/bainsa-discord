@@ -652,9 +652,8 @@ export class DiscordProvisioner {
 
   async seedMessage(channel, key, content, options = {}) {
     if (!channel?.messages?.fetch) return;
-    const marker = seedMarker(key);
     let message = await this.findTrackedSeedMessage(channel, key);
-    if (!message) message = await this.findSeedMessage(channel, marker);
+    if (!message) message = await this.findSeedMessage(channel, key, content);
     if (!message) {
       this.record('seeds', 'created', `seed:${key}`);
       if (this.dryRun) return null;
@@ -663,7 +662,10 @@ export class DiscordProvisioner {
       return message;
     }
     const sameContent = message.content === content;
-    const sameComponents = !options.components || message.components?.length > 0;
+    const desiredComponents = options.components ?? [];
+    const sameComponents = desiredComponents.length === 0
+      ? message.components?.length === 0
+      : message.components?.length > 0;
     if (sameContent && sameComponents) {
       this.record('seeds', 'unchanged', `seed:${key}`);
       await this.trackSeedMessage(channel, key, message);
@@ -694,9 +696,21 @@ export class DiscordProvisioner {
     });
   }
 
-  async findSeedMessage(channel, marker) {
-    const messages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
-    return messages?.find((message) => message.author?.id === this.client.user?.id && message.content.includes(marker));
+  async findSeedMessage(channel, key, content) {
+    const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+    if (!messages) return null;
+
+    const botMessages = [...messages.values()]
+      .filter((message) => message.author?.id === this.client.user?.id);
+    const marker = seedMarker(key);
+    const heading = content.split('\n', 1)[0];
+
+    return (
+      oldestMessage(botMessages.filter((message) => message.content === content))
+      ?? oldestMessage(botMessages.filter((message) => message.content.includes(marker)))
+      ?? oldestMessage(botMessages.filter((message) => message.content.startsWith(`${heading}\n`)))
+      ?? null
+    );
   }
 
   async findTrackedSeedMessage(channel, key) {
@@ -810,6 +824,15 @@ function findChannel(guild, { name, type, parent, aliases = [] }) {
 
 function channelTypeMatches(actualType, desiredType) {
   return actualType === desiredType;
+}
+
+function oldestMessage(messages) {
+  return messages.reduce((oldest, message) => {
+    if (!oldest) return message;
+    return (message.createdTimestamp ?? Number.MAX_SAFE_INTEGER) < (oldest.createdTimestamp ?? Number.MAX_SAFE_INTEGER)
+      ? message
+      : oldest;
+  }, null);
 }
 
 function normalizeForumTags(tags) {
