@@ -3,7 +3,10 @@ import test from 'node:test';
 
 import { ChannelType, PermissionFlagsBits } from 'discord.js';
 
-import { governanceCommands } from '../src/commands/governance/index.mjs';
+import {
+  divisionAutocompleteChoice,
+  governanceCommands,
+} from '../src/commands/governance/index.mjs';
 import { BOARD_ROLES, divisionColorDetails, MEMBER_TYPES, ROLE_NAMES } from '../src/constants.mjs';
 import { UserFacingError } from '../src/errors.mjs';
 import {
@@ -147,6 +150,18 @@ test('division colors accept both slash-command values and displayed choice labe
   assert.equal(divisionColorDetails('green').key, 'green');
   assert.equal(divisionColorDetails('Green 🟩').key, 'green');
   assert.equal(divisionColorDetails('🟩 Green').key, 'green');
+});
+
+test('single-division autocomplete displays the color while submitting the plain division name', () => {
+  assert.deepEqual(
+    divisionAutocompleteChoice({ id: 1, name: 'Projects', color: 'blue' }),
+    {
+      id: 1,
+      name: '🟦 Projects',
+      color: 'blue',
+      value: 'Projects',
+    },
+  );
 });
 
 test('division Heads receive only the scoped Head role, not the ordinary division role', () => {

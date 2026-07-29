@@ -2,6 +2,7 @@ import { Events } from 'discord.js';
 
 import { commands } from './commands/index.mjs';
 import { closeDatabase, query, transaction } from './db.mjs';
+import { guideInteractions } from './guide/service.mjs';
 import { logger } from './logger.mjs';
 import { createOnboardingService } from './onboarding/service.mjs';
 import { createBotClient } from './runtime/client.mjs';
@@ -14,7 +15,7 @@ import { createProjectReconciliationWorker } from './services/projects/reconcili
 
 const client = createBotClient();
 const onboarding = createOnboardingService();
-const dispatchInteraction = createInteractionDispatcher({ commands, onboarding });
+const dispatchInteraction = createInteractionDispatcher({ commands, onboarding, guide: guideInteractions });
 let projectReconciliationWorker = null;
 
 client.once(Events.ClientReady, (readyClient) => {

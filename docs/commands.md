@@ -17,7 +17,9 @@ Autocomplete is subject to the same command-channel, board-tier, and university 
 
 The bot checks the channel in the dispatcher before running a command. A command copied into another channel is rejected even if a Discord permission is changed manually.
 
-Successful command output is posted as a normal bot message in that `bot-log` channel so the result remains in channel history after refresh. The command actor receives a short ephemeral acknowledgement, and validation or failure messages remain ephemeral.
+Successful commands that change shared BAINSA state post a concise board-visible activity entry in that `bot-log` channel. The entry records the affected item, scope, meaningful state change, and command actor. Internal notes, removal reasons, and project final notes are never included.
+
+`/guide`, `/member-info`, `/board-info`, `/project-info`, validation errors, failures, and updates that change only private notes remain ephemeral and visible only to the command actor. They are not added to channel history. The PostgreSQL audit log remains the complete technical record.
 
 ### Who sees commands
 
@@ -32,6 +34,23 @@ Discord command visibility is synchronized by the bot when `DISCORD_CLIENT_SECRE
 | Researcher or Alumni | No bot commands |
 
 Visibility is only the user interface layer. Every command performs a second server-side authorization check when submitted.
+
+## Private Guide
+
+### `/guide`
+
+**Who can use it:** Global Presidents and university board members in a valid `bot-log`.
+
+The bot reads the caller's current board roles and command-channel scope, then shows a private guide containing only the commands and university/division scopes available to that person. Members with multiple roles see the union of their effective access.
+
+The guide is organised by workflow:
+
+- Manage members and divisions.
+- Manage projects.
+- Look up information.
+- Review role-specific rules and limits.
+
+Buttons and command selectors update the same ephemeral message in place. Every component interaction rechecks current roles, so an already-open guide cannot preserve access after a role changes. Running or navigating `/guide` never creates a board-visible activity entry.
 
 ### Scope rules
 
@@ -101,7 +120,7 @@ The bot validates authority, immediately kicks the member from Discord, deactiva
 | --- | --- | --- |
 | `user` | No | Member to inspect; when omitted, the command uses the command actor where supported |
 
-The bot posts the recorded full name, member type, university, divisions, board roles, and active project assignments to the command channel.
+The bot privately shows the recorded full name, member type, university, divisions, board roles, and active project assignments.
 
 ## Division Commands
 
@@ -194,7 +213,7 @@ The bot deactivates the matching board assignment and removes the managed board 
 | --- | --- | --- |
 | `university` | Yes | University board to inspect |
 
-The bot returns the active board roster and reports missing Discord roles or members so the board can identify synchronization problems.
+The bot privately returns the active board roster and reports missing Discord roles or members so the caller can identify synchronization problems.
 
 ## Project Commands
 
@@ -277,7 +296,7 @@ The bot marks the project `completed`, records the outcome and final notes, lock
 | --- | --- | --- |
 | `project` | Yes | Project selected through autocomplete; autocomplete only returns projects visible to the caller |
 
-The bot posts the project name, university, division, status, timeline, channel, notes, and participant lists to the command channel.
+The bot privately shows the project name, university, division, status, timeline, channel, notes, and participant lists.
 
 ## Channel-Only Operations
 
@@ -287,7 +306,9 @@ The bot also does not expose showcase/forum management commands or broad admin/m
 
 ## Common Failure Handling
 
-- Long-running commands defer an ephemeral acknowledgement immediately, then post successful output to the command channel.
+- Long-running commands defer an ephemeral acknowledgement immediately.
+- Successful shared-state changes post one formatted board-visible activity entry after the operation is accepted.
+- Guides, lookups, failures, validation messages, and private-note-only updates remain ephemeral.
 - Autocomplete handlers send at most one response and safely ignore expired or already-acknowledged interactions.
 - User-facing validation errors mention Discord members rather than exposing raw IDs.
 - Database writes and Discord role/channel changes are reconciled with compensation or audit logging where the operation spans both systems.

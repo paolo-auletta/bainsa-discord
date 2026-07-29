@@ -17,10 +17,10 @@ import {
   assertActiveUniversityMembers,
   findActiveDivision,
   getProject,
+  getProjectPerson,
   getProjectPeople,
   insertProjectPeople,
   lockProjectAndCountPeople,
-  projectPersonExists,
   setProjectShowcaseThreadId,
 } from './repository.mjs';
 import {
@@ -213,9 +213,11 @@ export async function addProjectMember(input, deps = {}) {
     await assertActiveUniversityMembers(db, project.university_id, [input.user.id], `${role}s`);
   }
 
+  let previousRole = null;
   await db.transaction(async (client) => {
     const existingPeople = await lockProjectAndCountPeople(client, project.id);
-    const existingPerson = await projectPersonExists(client, project.id, input.user.id);
+    const existingPerson = await getProjectPerson(client, project.id, input.user.id);
+    previousRole = existingPerson?.role ?? null;
     if (!existingPerson) assertProjectParticipantCount(existingPeople + 1);
     await lockAndAssertProjectPeopleEligibility(client, project, [
       { discord_user_id: input.user.id, role },
@@ -235,7 +237,11 @@ export async function addProjectMember(input, deps = {}) {
   if (reconciliation.status === 'succeeded') {
     await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, `<@${input.user.id}> joined as **${role}**.`);
   }
-  return { project: projectResult(reconciliation), people: reconciliation.people };
+  return {
+    project: projectResult(reconciliation),
+    people: reconciliation.people,
+    participant: { userId: input.user.id, role, previousRole },
+  };
 }
 
 export async function removeProjectMember(input, deps = {}) {
@@ -246,8 +252,12 @@ export async function removeProjectMember(input, deps = {}) {
   assertProjectAuthority(input.interaction.member, project);
   assertProjectIsOpen(project.status);
 
+  let previousRole = null;
   await db.transaction(async (client) => {
     await lockMemberEligibilityRows(client, [input.user.id]);
+    const existingPerson = await getProjectPerson(client, project.id, input.user.id);
+    assertUser(existingPerson, 'That user is not a project participant.');
+    previousRole = existingPerson?.role ?? null;
     await client.query('DELETE FROM project_people WHERE project_id = $1 AND discord_user_id = $2', [
       project.id,
       input.user.id,
@@ -267,7 +277,11 @@ export async function removeProjectMember(input, deps = {}) {
   if (reconciliation.status === 'succeeded') {
     await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, `<@${input.user.id}> was removed from the project.`);
   }
-  return { project: projectResult(reconciliation), people: reconciliation.people };
+  return {
+    project: projectResult(reconciliation),
+    people: reconciliation.people,
+    participant: { userId: input.user.id, role: previousRole },
+  };
 }
 
 export async function updateProject(input, deps = {}) {
@@ -307,7 +321,11 @@ export async function updateProject(input, deps = {}) {
     await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, 'Project details were updated.');
     await updateShowcaseThread(input.interaction.guild, reconciliation.project, reconciliation.people, 'Project details were updated.');
   }
-  return { project: projectResult(reconciliation), people: reconciliation.people };
+  return {
+    before,
+    project: projectResult(reconciliation),
+    people: reconciliation.people,
+  };
 }
 
 export async function closeProject(input, deps = {}) {
@@ -343,7 +361,11 @@ export async function closeProject(input, deps = {}) {
     await updateProjectChannel(input.interaction.guild, reconciliation.project, reconciliation.people, `**Outcome:** ${outcome}\n**Final notes:** ${finalNotes}`);
     await updateShowcaseThread(input.interaction.guild, reconciliation.project, reconciliation.people, `Completed: ${outcome}`);
   }
-  return { project: projectResult(reconciliation), people: reconciliation.people };
+  return {
+    project: projectResult(reconciliation),
+    people: reconciliation.people,
+    outcome,
+  };
 }
 
 export async function getProjectInfo(input, deps = {}) {

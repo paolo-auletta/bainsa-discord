@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { replyEphemeral, replyPersistent } from '../src/discord/reply.mjs';
+import { replyBoardActivity, replyEphemeral } from '../src/discord/reply.mjs';
 import { assertUniqueCommandNames, buildCommandMap, serializeCommands } from '../src/runtime/command-registry.mjs';
 import { createInteractionDispatcher, routeInteraction } from '../src/runtime/dispatcher.mjs';
 
@@ -186,10 +186,10 @@ test('deferred ephemeral replies edit the original response', async () => {
   assert.deepEqual(edited, { content: 'Completed.' });
 });
 
-test('persistent command replies are sent to the channel with an ephemeral acknowledgement', async () => {
+test('board activity replies are posted once with a private acknowledgement', async () => {
   let sent;
   let edited;
-  await replyPersistent({
+  await replyBoardActivity({
     deferred: true,
     replied: false,
     channel: {
@@ -200,13 +200,54 @@ test('persistent command replies are sent to the channel with an ephemeral ackno
     editReply: async (payload) => {
       edited = payload;
     },
-  }, 'Completed.');
+  }, { embeds: [{ title: 'Activity' }] });
 
   assert.deepEqual(sent, {
     allowedMentions: { parse: [] },
-    content: 'Completed.',
+    embeds: [{ title: 'Activity' }],
   });
-  assert.deepEqual(edited, { content: 'Command output posted in this channel.' });
+  assert.deepEqual(edited, { content: 'Activity posted in this channel.' });
+});
+
+test('private-only updates never send a board activity message', async () => {
+  let sent = false;
+  let edited;
+  await replyBoardActivity({
+    deferred: true,
+    replied: false,
+    channel: {
+      send: async () => {
+        sent = true;
+      },
+    },
+    editReply: async (payload) => {
+      edited = payload;
+    },
+  }, null);
+
+  assert.equal(sent, false);
+  assert.deepEqual(edited, { content: 'Update saved. No board-visible fields changed.' });
+});
+
+test('activity delivery failures report that the change was saved', async () => {
+  let edited;
+  await replyBoardActivity({
+    commandName: 'member-add',
+    user: { id: 'actor' },
+    deferred: true,
+    replied: false,
+    channel: {
+      send: async () => {
+        throw new Error('Discord unavailable');
+      },
+    },
+    editReply: async (payload) => {
+      edited = payload;
+    },
+  }, { embeds: [{ title: 'Activity' }] });
+
+  assert.match(edited.content, /change was saved/);
+  assert.match(edited.content, /could not be posted/);
 });
 
 test('dispatcher routes onboarding buttons by custom id', async () => {
@@ -232,6 +273,39 @@ test('dispatcher routes onboarding buttons by custom id', async () => {
   });
 
   assert.equal(handled, true);
+});
+
+test('dispatcher routes guide buttons and select menus by custom id', async () => {
+  const handled = [];
+  const dispatch = createInteractionDispatcher({
+    commands: [],
+    guide: {
+      canHandle: (customId) => customId.startsWith('guide:'),
+      handleComponent: async (interaction) => {
+        handled.push(interaction.customId);
+      },
+    },
+    onError: async () => assert.fail('unexpected error handler call'),
+  });
+
+  await dispatch({
+    customId: 'guide:button',
+    isChatInputCommand: () => false,
+    isAutocomplete: () => false,
+    isButton: () => true,
+    isStringSelectMenu: () => false,
+    isModalSubmit: () => false,
+  });
+  await dispatch({
+    customId: 'guide:select',
+    isChatInputCommand: () => false,
+    isAutocomplete: () => false,
+    isButton: () => false,
+    isStringSelectMenu: () => true,
+    isModalSubmit: () => false,
+  });
+
+  assert.deepEqual(handled, ['guide:button', 'guide:select']);
 });
 
 test('dispatcher sends unknown repliable interactions to error handler', async () => {

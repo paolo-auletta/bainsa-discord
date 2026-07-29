@@ -1,5 +1,9 @@
 # Plan 013: Board-visible activity log for successful changes
 
+## Status
+
+Implemented in the working tree on 2026-07-29.
+
 ## Purpose
 
 Make the university `#bot-log` a readable, shared record of meaningful changes made through the bot. Board members should be able to see what changed, where it changed, and who performed the action without the channel becoming a stream of private lookups, help screens, or validation errors.

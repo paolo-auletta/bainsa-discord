@@ -460,7 +460,7 @@ export class DiscordProvisioner {
       parent: logsCategory,
       overwrites: globalBotLogOverwrites(roleIds),
     });
-    await this.seedMessage(globalBotLog, 'global:bot-log', globalSeedContent.botLog);
+    await this.seedMessage(globalBotLog, 'global:bot-log', globalSeedContent.botLog, { pin: true });
 
     return resources;
   }
@@ -505,7 +505,12 @@ export class DiscordProvisioner {
     await this.seedMessage(general, `university:${university.name}:general`, seeds.general);
     await this.seedMessage(announcements, `university:${university.name}:announcements`, seeds.announcements);
     await this.seedMessage(board, `university:${university.name}:board`, seeds.board);
-    await this.seedMessage(botLog, `university:${university.name}:bot-log`, seeds.botLog);
+    await this.seedMessage(
+      botLog,
+      `university:${university.name}:bot-log`,
+      seeds.botLog,
+      { pin: true },
+    );
     await this.seedForumGuide(showcase, `university:${university.name}:showcase`, seeds.showcase);
     await this.seedMessage(
       onboardingReview,
@@ -658,6 +663,7 @@ export class DiscordProvisioner {
       this.record('seeds', 'created', `seed:${key}`);
       if (this.dryRun) return null;
       message = await channel.send({ content, components: options.components ?? [] });
+      await this.pinSeedMessage(message, key, options.pin);
       await this.trackSeedMessage(channel, key, message);
       return message;
     }
@@ -666,16 +672,33 @@ export class DiscordProvisioner {
     const sameComponents = desiredComponents.length === 0
       ? message.components?.length === 0
       : message.components?.length > 0;
-    if (sameContent && sameComponents) {
+    const samePin = !options.pin || message.pinned === true;
+    if (sameContent && sameComponents && samePin) {
       this.record('seeds', 'unchanged', `seed:${key}`);
       await this.trackSeedMessage(channel, key, message);
       return message;
     }
     this.record('seeds', 'updated', `seed:${key}`);
     if (this.dryRun) return message;
-    message = await message.edit({ content, components: options.components ?? [] });
+    if (!sameContent || !sameComponents) {
+      message = await message.edit({ content, components: options.components ?? [] });
+    }
+    await this.pinSeedMessage(message, key, options.pin);
     await this.trackSeedMessage(channel, key, message);
     return message;
+  }
+
+  async pinSeedMessage(message, key, shouldPin) {
+    if (!shouldPin || message?.pinned || typeof message?.pin !== 'function') return;
+    try {
+      await message.pin();
+    } catch (error) {
+      this.summary.warnings.push({
+        type: 'seed_pin_failed',
+        seed: key,
+        reason: error.message,
+      });
+    }
   }
 
   async seedForumGuide(forum, key, content) {

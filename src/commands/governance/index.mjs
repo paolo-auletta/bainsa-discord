@@ -1,14 +1,17 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 
+import { formatBoardActivity } from '../../activity/formatters.mjs';
 import { respondAutocomplete } from '../../discord/autocomplete.mjs';
-import { handleInteractionError, replyPersistent } from '../../discord/reply.mjs';
+import {
+  handleInteractionError,
+  replyBoardActivity,
+  replyEphemeral,
+} from '../../discord/reply.mjs';
 import { logger } from '../../logger.mjs';
-import { BOARD_ROLES, DIVISION_COLOR_CHOICES, divisionLabel } from '../../constants.mjs';
+import { DIVISION_COLOR_CHOICES, divisionLabel } from '../../constants.mjs';
 import {
   BOARD_ROLE_CHOICES,
   MEMBER_TYPE_CHOICES,
-  boardRoleLabel,
-  memberTypeLabel,
 } from '../../services/governance/policy.mjs';
 import {
   addDivisionMember,
@@ -83,11 +86,19 @@ function toAutocompleteChoice(name, value = name) {
   return { name, value };
 }
 
+export function divisionAutocompleteChoice(row) {
+  return {
+    ...row,
+    name: divisionLabel(row.name, row.color),
+    value: row.name,
+  };
+}
+
 async function findDivisionChoices(interaction, focusedName, value) {
   const university = interaction.options.getString('university');
   if (focusedName !== 'divisions') {
     const rows = await findDivisions(university, value);
-    return rows.map((row) => ({ ...row, name: divisionLabel(row.name, row.color) }));
+    return rows.map(divisionAutocompleteChoice);
   }
 
   const finalCommaIndex = value.lastIndexOf(',');
@@ -121,6 +132,16 @@ async function run(interaction, work) {
   } catch (error) {
     await handleInteractionError(interaction, error);
   }
+}
+
+async function postActivity(interaction, commandName, result) {
+  await replyBoardActivity(
+    interaction,
+    formatBoardActivity(commandName, {
+      actorId: interaction.user.id,
+      result,
+    }),
+  );
 }
 
 async function autocomplete(interaction) {
@@ -172,11 +193,7 @@ const memberAdd = {
         divisionsText: interaction.options.getString('divisions') ?? '',
         notes: interaction.options.getString('notes') ?? null,
       });
-      const divisionText = result.divisions.map((division) => division.name).join(', ') || 'no divisions';
-      await replyPersistent(
-        interaction,
-        `Added ${result.target} as ${memberTypeLabel(result.memberType)} in ${result.university.name} (${divisionText}).`,
-      );
+      await postActivity(interaction, 'member-add', result);
     }),
 };
 
@@ -203,11 +220,7 @@ const memberUpdate = {
         divisionsText: interaction.options.getString('divisions') ?? undefined,
         notes: interaction.options.getString('notes') ?? undefined,
       });
-      const divisionText = result.divisions.map((division) => division.name).join(', ') || 'no divisions';
-      await replyPersistent(
-        interaction,
-        `Updated ${result.target}: ${memberTypeLabel(result.memberType)} in ${result.university.name} (${divisionText}).`,
-      );
+      await postActivity(interaction, 'member-update', result);
     }),
 };
 
@@ -221,13 +234,7 @@ const memberRemove = {
         user: interaction.options.getUser('user', true),
         reason: interaction.options.getString('reason') ?? null,
       });
-      const cleanupWarning = result.overwriteCleanup.failures.length
-        ? ` Project overwrite cleanup failed for ${result.overwriteCleanup.failures.length} channel(s); check logs/audit for manual repair.`
-        : '';
-      await replyPersistent(
-        interaction,
-        `Removed ${result.target.user.tag} from ${result.universityName}.${cleanupWarning}`,
-      );
+      await postActivity(interaction, 'member-remove', result);
     }),
 };
 
@@ -239,7 +246,7 @@ const memberInfo = {
       const info = await getMemberInfo(interaction, {
         user: interaction.options.getUser('user') ?? undefined,
       });
-      await replyPersistent(interaction, formatMemberInfo(info));
+      await replyEphemeral(interaction, formatMemberInfo(info));
     }),
 };
 
@@ -274,10 +281,7 @@ const divisionCreate = {
         createTextChannel: interaction.options.getBoolean('create_text_channel', true),
         createVoiceChannel: interaction.options.getBoolean('create_voice_channel', true),
       });
-      await replyPersistent(
-        interaction,
-        `Created ${divisionLabel(result.divisionName, result.divisionColor)} at ${result.university.name} and assigned ${result.head} as Head.`,
-      );
+      await postActivity(interaction, 'division-create', result);
     }),
 };
 
@@ -296,10 +300,7 @@ const divisionRename = {
         currentName: interaction.options.getString('current_name', true),
         newName: interaction.options.getString('new_name', true),
       });
-      await replyPersistent(
-        interaction,
-        `Renamed ${result.oldName} to ${result.newName} at ${result.university.name}.`,
-      );
+      await postActivity(interaction, 'division-rename', result);
     }),
 };
 
@@ -316,7 +317,7 @@ const divisionAddMember = {
         university: interaction.options.getString('university', true),
         division: interaction.options.getString('division', true),
       });
-      await replyPersistent(interaction, `Added ${result.target} to ${result.university.name} - ${result.division.name}.`);
+      await postActivity(interaction, 'division-add-member', result);
     }),
 };
 
@@ -335,10 +336,7 @@ const divisionRemoveMember = {
         division: interaction.options.getString('division', true),
         reason: interaction.options.getString('reason') ?? null,
       });
-      await replyPersistent(
-        interaction,
-        `Removed ${result.target} from ${result.university.name} - ${result.division.name}.`,
-      );
+      await postActivity(interaction, 'division-remove-member', result);
     }),
 };
 
@@ -357,9 +355,7 @@ const boardAssign = {
         role: interaction.options.getString('role', true),
         division: interaction.options.getString('division') ?? null,
       });
-      const scope =
-        result.role === BOARD_ROLES.HEAD ? `Head of ${result.division.name}` : boardRoleLabel(result.role);
-      await replyPersistent(interaction, `Assigned ${result.target} as ${scope} at ${result.university.name}.`);
+      await postActivity(interaction, 'board-assign', result);
     }),
 };
 
@@ -380,13 +376,7 @@ const boardRemove = {
         division: interaction.options.getString('division') ?? null,
         reason: interaction.options.getString('reason') ?? null,
       });
-      const scope =
-        result.role === BOARD_ROLES.HEAD
-          ? result.division
-            ? `Head of ${result.division.name}`
-            : 'all Head roles'
-          : boardRoleLabel(result.role);
-      await replyPersistent(interaction, `Removed ${scope} from ${result.target} at ${result.university.name}.`);
+      await postActivity(interaction, 'board-remove', result);
     }),
 };
 
@@ -399,7 +389,7 @@ const boardInfo = {
       const info = await getBoardInfo(interaction, {
         university: interaction.options.getString('university', true),
       });
-      await replyPersistent(interaction, `**${info.university.name} board**\n${formatBoardInfo(info)}`);
+      await replyEphemeral(interaction, `**${info.university.name} board**\n${formatBoardInfo(info)}`);
     }),
 };
 

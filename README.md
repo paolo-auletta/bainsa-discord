@@ -118,6 +118,8 @@ Commands cannot target the Bot account, including user-list fields in project cr
 
 Slash commands are usable only in the global `LOGS / bot-log` channel or the matching university `bot-log` channel. University board roles can use their university bot log; Global Presidents can use the global bot log. The dispatcher enforces this even if a Discord permission is later changed manually. Command registration requires `DISCORD_CLIENT_SECRET` in production and synchronizes Discord's board-only command visibility: Presidents see president commands, VPs executive commands, and Heads board/project commands. Discord documents that this permission endpoint requires a Bearer token with the `applications.commands.permissions.update` scope: [Application Commands](https://discord.com/developers/interactions/application-commands#edit-application-command-permissions). The dispatcher independently applies the same channel, tier, and university scope policy before autocomplete performs any database or guild-member lookup; stale or unauthorized interactions receive no suggestions. Execution-time authorization still runs when a command is submitted.
 
+`/guide` renders one private, role-aware message and updates it in place as the caller navigates topics and command details. Read-only lookups, guide interactions, validation errors, and private-note-only updates stay ephemeral. Successful commands that change shared state post one structured board-visible activity entry to `bot-log`; private notes and reasons remain only in the durable audit record. Provisioning keeps the `bot-log` guidance message updated and pinned.
+
 For local development or tests only, you can intentionally skip the registration sync when no client secret is available:
 
 ```bash

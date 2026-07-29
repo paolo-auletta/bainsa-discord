@@ -1,5 +1,9 @@
 # Plan 012: Role-aware private `/guide` command
 
+## Status
+
+Implemented in the working tree on 2026-07-29.
+
 ## Purpose
 
 Give each board member a clear, personalised explanation of the bot commands they can currently use. A guide for a Bocconi Head of Culture must show only the workflows and scope available to that person; it must not expose President, Vice President, Global President, or another division's authority.

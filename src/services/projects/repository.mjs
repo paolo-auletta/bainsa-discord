@@ -110,11 +110,15 @@ export async function getProjectPeople(db, projectId) {
 }
 
 export async function projectPersonExists(db, projectId, userId) {
+  return Boolean(await getProjectPerson(db, projectId, userId));
+}
+
+export async function getProjectPerson(db, projectId, userId) {
   const result = await db.query(
-    'SELECT 1 FROM project_people WHERE project_id = $1 AND discord_user_id = $2',
+    'SELECT discord_user_id, role FROM project_people WHERE project_id = $1 AND discord_user_id = $2',
     [projectId, userId],
   );
-  return result.rowCount > 0;
+  return result.rows[0] ?? null;
 }
 
 export async function setProjectShowcaseThreadId(db, projectId, threadId) {

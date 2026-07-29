@@ -497,6 +497,31 @@ test('seed messages adopt legacy bot messages with the same heading and update t
   assert.deepEqual(edited, [{ content: seedContent, components: [] }]);
 });
 
+test('bot-log guide seeds are pinned when provisioning requests it', async () => {
+  let pins = 0;
+  const provisioner = new DiscordProvisioner({
+    client: { user: { id: 'bot' } },
+    config: {},
+    db: null,
+    dryRun: false,
+    plan: samplePlan,
+    logger: {},
+  });
+  const message = {
+    pinned: false,
+    async pin() {
+      pins += 1;
+      this.pinned = true;
+    },
+  };
+
+  await provisioner.pinSeedMessage(message, 'university:Bocconi:bot-log', true);
+  await provisioner.pinSeedMessage(message, 'university:Bocconi:bot-log', true);
+
+  assert.equal(pins, 1);
+  assert.equal(message.pinned, true);
+});
+
 test('retiring Start Here guidance only deletes the consolidated legacy channels', async () => {
   const deleted = [];
   const retiredRules = {

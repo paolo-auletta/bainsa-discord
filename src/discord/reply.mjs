@@ -11,16 +11,31 @@ export async function replyEphemeral(interaction, payload) {
   return interaction.reply(response);
 }
 
-export async function replyPersistent(interaction, payload) {
-  const body = typeof payload === 'string' ? { content: payload } : payload;
-  const message = { allowedMentions: { parse: [] }, ...body };
-
-  if (interaction.channel?.send) {
-    await interaction.channel.send(message);
-    return replyEphemeral(interaction, 'Command output posted in this channel.');
+export async function replyBoardActivity(interaction, payload) {
+  if (!payload) {
+    return replyEphemeral(interaction, 'Update saved. No board-visible fields changed.');
   }
 
-  return replyEphemeral(interaction, body);
+  const body = typeof payload === 'string' ? { content: payload } : payload;
+  const message = { allowedMentions: { parse: [] }, ...body };
+  if (interaction.channel?.send) {
+    try {
+      await interaction.channel.send(message);
+    } catch (error) {
+      logger.error('Board activity message could not be posted', {
+        command: interaction.commandName,
+        userId: interaction.user?.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return replyEphemeral(
+        interaction,
+        'The change was saved, but its board activity message could not be posted. Please notify a President.',
+      );
+    }
+    return replyEphemeral(interaction, 'Activity posted in this channel.');
+  }
+
+  return replyEphemeral(interaction, 'The change was saved, but the activity message could not be posted here.');
 }
 
 export async function handleInteractionError(interaction, error) {

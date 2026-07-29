@@ -394,6 +394,8 @@ async function applyMemberMembership(interaction, options, deps = {}) {
     university,
     memberType,
     divisions,
+    previousRecord,
+    previousDivisions,
   };
 }
 

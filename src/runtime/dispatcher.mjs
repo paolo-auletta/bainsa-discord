@@ -17,6 +17,7 @@ export function routeInteraction(interaction) {
 export function createInteractionDispatcher({
   commands,
   onboarding,
+  guide,
   onError = handleInteractionError,
 } = {}) {
   const commandMap = buildCommandMap(commands ?? []);
@@ -51,6 +52,14 @@ export function createInteractionDispatcher({
 
       if (route === 'button' && onboarding?.canHandle?.(interaction.customId)) {
         await onboarding.handleButton(interaction);
+        return;
+      }
+
+      if (
+        (route === 'button' || route === 'stringSelect') &&
+        guide?.canHandle?.(interaction.customId)
+      ) {
+        await guide.handleComponent(interaction);
         return;
       }
 

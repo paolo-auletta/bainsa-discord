@@ -5,6 +5,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_REQUEST_ATTEMPTS = 8;
 
 export const COMMAND_VISIBILITY = Object.freeze({
+  guide: 'board',
   'member-add': 'executive',
   'member-update': 'executive',
   'member-remove': 'executive',

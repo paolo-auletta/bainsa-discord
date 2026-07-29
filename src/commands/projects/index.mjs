@@ -1,8 +1,13 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 
+import { formatBoardActivity } from '../../activity/formatters.mjs';
 import { respondAutocomplete } from '../../discord/autocomplete.mjs';
 import { divisionLabel, PROJECT_PERSON_ROLES, PROJECT_STATUSES } from '../../constants.mjs';
-import { handleInteractionError, replyPersistent } from '../../discord/reply.mjs';
+import {
+  handleInteractionError,
+  replyBoardActivity,
+  replyEphemeral,
+} from '../../discord/reply.mjs';
 import {
   addProjectMember,
   closeProject,
@@ -12,7 +17,6 @@ import {
   findProjectUniversities,
   getProjectInfo,
   projectInfoMessage,
-  projectSuccessMessage,
   readProjectCreateOptions,
   removeProjectMember,
   searchVisibleProjects,
@@ -31,11 +35,26 @@ function withNoDm(builder) {
   return builder.setDMPermission(false);
 }
 
-async function runPersistentCommand(interaction, work) {
+async function runActivityCommand(interaction, commandName, work) {
   try {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const content = await work();
-    await replyPersistent(interaction, content);
+    const result = await work();
+    await replyBoardActivity(
+      interaction,
+      formatBoardActivity(commandName, {
+        actorId: interaction.user.id,
+        result,
+      }),
+    );
+  } catch (error) {
+    await handleInteractionError(interaction, error);
+  }
+}
+
+async function runPrivateCommand(interaction, work) {
+  try {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await replyEphemeral(interaction, await work());
   } catch (error) {
     await handleInteractionError(interaction, error);
   }
@@ -141,10 +160,11 @@ const projectCreate = {
   ),
   autocomplete: autocompleteProjectCreate,
   async execute(interaction) {
-    await runPersistentCommand(interaction, async () => {
-      const project = await createProject(readProjectCreateOptions(interaction));
-      return projectSuccessMessage('Created', project);
-    });
+    await runActivityCommand(
+      interaction,
+      'project-create',
+      () => createProject(readProjectCreateOptions(interaction)),
+    );
   },
 };
 
@@ -169,15 +189,16 @@ const projectAddMember = {
   ),
   autocomplete: autocompleteProjects,
   async execute(interaction) {
-    await runPersistentCommand(interaction, async () => {
-      const { project } = await addProjectMember({
+    await runActivityCommand(
+      interaction,
+      'project-add-member',
+      () => addProjectMember({
         interaction,
         project: interaction.options.getString('project', true),
         user: interaction.options.getUser('user', true),
         role: interaction.options.getString('role', true),
-      });
-      return projectSuccessMessage('Updated access for', project);
-    });
+      }),
+    );
   },
 };
 
@@ -192,15 +213,16 @@ const projectRemoveMember = {
   ),
   autocomplete: autocompleteProjects,
   async execute(interaction) {
-    await runPersistentCommand(interaction, async () => {
-      const { project } = await removeProjectMember({
+    await runActivityCommand(
+      interaction,
+      'project-remove-member',
+      () => removeProjectMember({
         interaction,
         project: interaction.options.getString('project', true),
         user: interaction.options.getUser('user', true),
         reason: interaction.options.getString('reason', false),
-      });
-      return projectSuccessMessage('Removed member from', project);
-    });
+      }),
+    );
   },
 };
 
@@ -226,17 +248,18 @@ const projectUpdate = {
   ),
   autocomplete: autocompleteProjects,
   async execute(interaction) {
-    await runPersistentCommand(interaction, async () => {
-      const { project } = await updateProject({
+    await runActivityCommand(
+      interaction,
+      'project-update',
+      () => updateProject({
         interaction,
         project: interaction.options.getString('project', true),
         name: interaction.options.getString('name', false),
         expectedEnd: interaction.options.getString('expected_end', false),
         notes: interaction.options.getString('notes', false),
         status: interaction.options.getString('status', false),
-      });
-      return projectSuccessMessage('Updated', project);
-    });
+      }),
+    );
   },
 };
 
@@ -251,15 +274,16 @@ const projectClose = {
   ),
   autocomplete: autocompleteProjects,
   async execute(interaction) {
-    await runPersistentCommand(interaction, async () => {
-      const { project } = await closeProject({
+    await runActivityCommand(
+      interaction,
+      'project-close',
+      () => closeProject({
         interaction,
         project: interaction.options.getString('project', true),
         outcome: interaction.options.getString('outcome', true),
         finalNotes: interaction.options.getString('final_notes', true),
-      });
-      return projectSuccessMessage('Closed', project);
-    });
+      }),
+    );
   },
 };
 
@@ -272,7 +296,7 @@ const projectInfo = {
   ),
   autocomplete: autocompleteProjects,
   async execute(interaction) {
-    await runPersistentCommand(interaction, async () => {
+    await runPrivateCommand(interaction, async () => {
       const { project, people } = await getProjectInfo({
         interaction,
         project: interaction.options.getString('project', true),

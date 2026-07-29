@@ -6,6 +6,7 @@ import { assertNoBotCommandTarget } from '../src/authorization.mjs';
 import { serializeCommands } from '../src/runtime/command-registry.mjs';
 
 const EXPECTED_COMMANDS = {
+  guide: [],
   'member-add': ['user', 'member_type', 'university', 'divisions', 'notes'],
   'member-update': ['user', 'member_type', 'university', 'divisions', 'notes'],
   'member-remove': ['user', 'reason'],

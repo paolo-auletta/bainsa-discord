@@ -93,7 +93,12 @@ export function globalSeeds({ anonymousFeedbackUrl } = {}) {
     botLog: buildSeedContent({
       key: 'global:bot-log',
       title: 'Global Bot Log',
-      body: 'Use this channel for BAINSA bot commands that operate across university scope. Only Global Presidents should use this command channel.',
+      body: [
+        'Use this channel for BAINSA bot commands that operate across university scope. Only Global Presidents should use this command channel.',
+        '',
+        'Successful shared-state changes are recorded here. Guides, lookups, and errors stay private.',
+        'Need help? Run `/guide` here. You will only see commands available to you.',
+      ].join('\n'),
     }),
     showcase: buildSeedContent({
       key: 'global:showcase',
@@ -140,7 +145,12 @@ export function universitySeeds(universityName) {
     botLog: buildSeedContent({
       key: `university:${universityName}:bot-log`,
       title: `${universityName} Bot Log`,
-      body: `Use this channel for BAINSA bot commands scoped to ${universityName}. University board members can use the commands here; ordinary discussion belongs in the other university channels.`,
+      body: [
+        `Use this channel for BAINSA bot commands scoped to ${universityName}. University board members can use the commands here; ordinary discussion belongs in the other university channels.`,
+        '',
+        'Successful shared-state changes are recorded here. Guides, lookups, and errors stay private.',
+        'Need help? Run `/guide` here. You will only see commands available to you.',
+      ].join('\n'),
     }),
     showcase: buildSeedContent({
       key: `university:${universityName}:showcase`,
