@@ -1,8 +1,13 @@
 import { defineConfig } from 'eslint/config';
+import tseslint from 'typescript-eslint';
 
 export default defineConfig([
   {
-    files: ['src/**/*.mjs', 'scripts/**/*.mjs', 'test/**/*.mjs'],
+    ignores: ['dist/**'],
+  },
+  ...tseslint.configs.recommended,
+  {
+    files: ['src/**/*.ts', 'scripts/**/*.ts', 'test/**/*.ts'],
     rules: {
       semi: ['error', 'always'],
       'no-constant-binary-expression': 'error',
@@ -13,7 +18,7 @@ export default defineConfig([
       'no-template-curly-in-string': 'error',
       'no-unreachable': 'error',
       'no-unsafe-finally': 'error',
-      'no-unsafe-negation': 'error'
-    }
-  }
+      'no-unsafe-negation': 'error',
+    },
+  },
 ]);

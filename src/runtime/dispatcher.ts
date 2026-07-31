@@ -1,0 +1,102 @@
+import { handleInteractionError } from '../discord/reply.js';
+import { UserFacingError } from '../errors.js';
+import { assertNoBotCommandTarget } from '../authorization.js';
+import { assertBotCommandChannel, botCommandChannelScope } from './command-channels.js';
+import { canDiscoverCommand } from './command-permissions.js';
+import { buildCommandMap, type CommandDefinition } from './command-registry.js';
+
+interface ComponentHandler {
+  canHandle: (customId: string) => boolean;
+  handleButton?: (interaction: unknown) => unknown;
+  handleStringSelect?: (interaction: unknown) => unknown;
+  handleModalSubmit?: (interaction: unknown) => unknown;
+  handleComponent?: (interaction: unknown) => unknown;
+}
+
+interface InteractionDispatcherOptions {
+  commands?: readonly CommandDefinition[];
+  onboarding?: ComponentHandler;
+  guide?: ComponentHandler;
+  onError?: (interaction: unknown, error: unknown) => Promise<void>;
+}
+
+export function routeInteraction(interaction) {
+  if (interaction.isChatInputCommand?.()) return 'chatInput';
+  if (interaction.isAutocomplete?.()) return 'autocomplete';
+  if (interaction.isButton?.()) return 'button';
+  if (interaction.isStringSelectMenu?.()) return 'stringSelect';
+  if (interaction.isModalSubmit?.()) return 'modalSubmit';
+  return 'unknown';
+}
+
+export function createInteractionDispatcher({
+  commands,
+  onboarding,
+  guide,
+  onError = handleInteractionError,
+}: InteractionDispatcherOptions = {}) {
+  const commandMap = buildCommandMap(commands ?? []);
+
+  return async function dispatchInteraction(interaction) {
+    try {
+      const route = routeInteraction(interaction);
+
+      if (route === 'chatInput') {
+        const command = commandMap.get(interaction.commandName);
+        if (!command) throw new UserFacingError(`Unknown command: ${interaction.commandName}`);
+        assertBotCommandChannel(interaction);
+        assertNoBotCommandTarget(interaction);
+        await command.execute(interaction);
+        return;
+      }
+
+      if (route === 'autocomplete') {
+        const command = commandMap.get(interaction.commandName);
+        if (!command?.autocomplete) return interaction.respond([]);
+        const allowed = canDiscoverCommand({
+          commandName: interaction.commandName,
+          member: interaction.member,
+          channelScope: botCommandChannelScope(interaction.channel),
+        });
+        // Do this before invoking a handler: autocomplete handlers may query
+        // Postgres or Discord's guild-member directory.
+        if (!allowed) return interaction.respond([]);
+        await command.autocomplete(interaction);
+        return;
+      }
+
+      if (route === 'button' && onboarding?.canHandle?.(interaction.customId)) {
+        await onboarding.handleButton?.(interaction);
+        return;
+      }
+
+      if (
+        (route === 'button' || route === 'stringSelect') &&
+        guide?.canHandle?.(interaction.customId)
+      ) {
+        await guide.handleComponent?.(interaction);
+        return;
+      }
+
+      if (route === 'stringSelect' && onboarding?.canHandle?.(interaction.customId)) {
+        await onboarding.handleStringSelect?.(interaction);
+        return;
+      }
+
+      if (route === 'modalSubmit' && onboarding?.canHandle?.(interaction.customId)) {
+        await onboarding.handleModalSubmit?.(interaction);
+        return;
+      }
+
+      if (route !== 'unknown' && interaction.isRepliable?.()) {
+        throw new UserFacingError('This interaction is no longer available.');
+      }
+    } catch (error) {
+      if (interaction.isRepliable?.()) {
+        await onError(interaction, error);
+        return;
+      }
+      throw error;
+    }
+  };
+}

@@ -4,11 +4,24 @@ This repository provisions and runs the BAINSA Discord server described by the a
 
 Cross-university projects are intentionally outside v1. Every project belongs to exactly one university and one division.
 
+## Technology
+
+- TypeScript 6 compiled as native Node.js ESM.
+- Node.js 22 and npm 10.
+- discord.js 14.27 for Gateway, REST, commands, and interactions.
+- PostgreSQL through pg 8.22, with explicit migrations and transactions.
+- ESLint 10 with TypeScript-ESLint and Node's built-in test runner.
+
+Application source, operational scripts, and tests are TypeScript. Production runs only the
+compiled JavaScript in `dist/`; source maps preserve TypeScript stack traces.
+
 ## Requirements
 
 - Node.js 22 (the supported runtime line; see `.nvmrc`).
 - npm 10.9.2 (pinned in `package.json`).
-- A Discord bot with `Administrator` while provisioning and operating v1.
+- A Discord application installed with the `bot` and `applications.commands` scopes.
+- The privileged **Server Members Intent** enabled in the Discord Developer Portal.
+- The explicit bot permissions defined by `BOT_ROLE_PERMISSIONS`; do not grant `Administrator`.
 - `DISCORD_CLIENT_SECRET` in `.env` to synchronize role-specific slash-command visibility.
 - The bot's highest role above every role it assigns or removes.
 - PostgreSQL or Supabase Postgres.
@@ -29,6 +42,7 @@ override this policy.
 
 ```bash
 npm ci
+npm run build
 npm run db:migrate
 npm run commands:register
 npm run provision:dry-run
@@ -44,6 +58,7 @@ When replacing an existing BAINSA installation, reset Discord and Postgres befor
 
 ```bash
 npm ci
+npm run build
 npm run discord:reset -- --confirm-reset
 npm run db:reset -- --confirm-reset
 npm run db:migrate
@@ -76,7 +91,7 @@ The initial plan contains:
 - Sapienza: Projects.
 - Polimi: Projects.
 
-Edit `INITIAL_SERVER_PLAN` in `src/constants.mjs` before provisioning a new university. Once a university exists, its President or a Global President can create further divisions with `/division-create`.
+Edit `INITIAL_SERVER_PLAN` in `src/constants.ts` before provisioning a new university. Once a university exists, its President or a Global President can create further divisions with `/division-create`.
 
 Member identity uses exactly one of `Researcher` or `Alumni`. University roles grant university-level visibility. Combined roles such as `Bocconi - Analysis` grant division access. Board roles carry scoped authority, while the bot performs structural changes and records them in Postgres.
 
@@ -130,12 +145,25 @@ Do not use this override in a production deployment: members could otherwise see
 
 ## Onboarding
 
-New members can only see the read-only `START HERE` area. The onboarding flow collects a full name, member type, university, and exactly one division for Researchers. Alumni choose no division. A university Vice President or President, or a Global President, must approve the request before roles are assigned. Board roles cannot be requested through onboarding.
+New members can only see the read-only `START HERE` area. The onboarding flow collects a full name, member type, university, and exactly one division for Researchers. Alumni choose no division. A Division Head, Vice President, or President from that university—or a Global President—must approve the request before roles are assigned. Board roles cannot be requested through onboarding.
+
+## Development
+
+```bash
+npm ci
+npm run build
+npm run dev
+```
+
+`npm run dev` performs an initial verified build, watches TypeScript for changes, and restarts the
+compiled bot when output changes. Do not edit `dist/`; it is generated and ignored by Git.
 
 ## Operations
 
 ```bash
 npm ci
+npm run build
+npm run typecheck
 npm test
 npm run check
 npm run lint
@@ -145,7 +173,8 @@ npm run test:connections
 ```
 
 Use `npm ci` for all reproducible installs, including CI. `npm install` is reserved for intentionally updating dependencies and the lockfile.
-`npm test` uses inert local test values and does not require or read `.env`.
+`npm run typecheck` validates production source and operational scripts. `npm test` compiles the
+complete project, uses inert local values, and does not require or read `.env`.
 
 ### Disposable PostgreSQL integration tests
 
