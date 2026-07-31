@@ -1,4 +1,4 @@
-import { PermissionFlagsBits } from 'discord.js';
+import { OverwriteType, PermissionFlagsBits } from 'discord.js';
 
 import { PROJECT_PERSON_ROLES } from '../../constants.mjs';
 
@@ -52,6 +52,7 @@ export function buildProjectPermissionOverwrites({
   const overwrites = [
     {
       id: guildId,
+      type: OverwriteType.Role,
       deny: archived ? [PermissionFlagsBits.ViewChannel, ...WRITE_PERMISSIONS] : [PermissionFlagsBits.ViewChannel],
     },
   ];
@@ -63,6 +64,7 @@ export function buildProjectPermissionOverwrites({
         : canSendMembers;
     overwrites.push({
       id,
+      type: OverwriteType.Member,
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.ReadMessageHistory,
@@ -79,6 +81,7 @@ export function buildProjectPermissionOverwrites({
   for (const id of uniqueIds([...boardRoleIds, globalPresidentRoleId ? [globalPresidentRoleId] : []])) {
     overwrites.push({
       id,
+      type: OverwriteType.Role,
       allow: archived ? PROJECT_BOARD_PERMISSIONS.filter((permission) => !WRITE_PERMISSIONS.includes(permission)) : PROJECT_BOARD_PERMISSIONS,
       deny: archived ? WRITE_PERMISSIONS : [],
     });
@@ -87,6 +90,7 @@ export function buildProjectPermissionOverwrites({
   if (botRoleId) {
     overwrites.push({
       id: botRoleId,
+      type: OverwriteType.Role,
       allow: PROJECT_BOARD_PERMISSIONS,
     });
   }

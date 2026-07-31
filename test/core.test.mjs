@@ -57,6 +57,13 @@ test('university and division authority stays scoped', () => {
 
   const head = memberWithRoles('Bocconi - Head of Analysis');
   assert.doesNotThrow(() =>
+    assertUniversityAuthority(head, 'Bocconi', [BOARD_ROLES.HEAD]),
+  );
+  assert.throws(
+    () => assertUniversityAuthority(head, 'Sapienza', [BOARD_ROLES.HEAD]),
+    UserFacingError,
+  );
+  assert.doesNotThrow(() =>
     assertDivisionAuthority(head, 'Bocconi', 'Analysis', [BOARD_ROLES.HEAD]),
   );
   assert.throws(

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { PermissionFlagsBits } from 'discord.js';
+import { OverwriteType, PermissionFlagsBits } from 'discord.js';
 
 import {
   buildProjectPermissionOverwrites,
@@ -25,6 +25,14 @@ test('project overwrites deny everyone and grant scoped people plus board roles'
   });
 
   assert.deepEqual(overwriteFor(overwrites, 'guild').deny, [PermissionFlagsBits.ViewChannel]);
+  assert.equal(overwriteFor(overwrites, 'guild').type, OverwriteType.Role);
+  assert.equal(overwriteFor(overwrites, 'member').type, OverwriteType.Member);
+  assert.equal(overwriteFor(overwrites, 'supervisor').type, OverwriteType.Member);
+  assert.equal(overwriteFor(overwrites, 'liaison').type, OverwriteType.Member);
+  assert.equal(overwriteFor(overwrites, 'head-role').type, OverwriteType.Role);
+  assert.equal(overwriteFor(overwrites, 'president-role').type, OverwriteType.Role);
+  assert.equal(overwriteFor(overwrites, 'global-role').type, OverwriteType.Role);
+  assert.equal(overwriteFor(overwrites, 'bot-role').type, OverwriteType.Role);
   assert.ok(overwriteFor(overwrites, 'member').allow.includes(PermissionFlagsBits.SendMessages));
   assert.ok(overwriteFor(overwrites, 'member').allow.includes(PermissionFlagsBits.SendMessagesInThreads));
   assert.ok(overwriteFor(overwrites, 'member').allow.includes(PermissionFlagsBits.EmbedLinks));
@@ -35,6 +43,21 @@ test('project overwrites deny everyone and grant scoped people plus board roles'
   assert.ok(overwriteFor(overwrites, 'head-role').allow.includes(PermissionFlagsBits.SendMessagesInThreads));
   assert.ok(overwriteFor(overwrites, 'global-role').allow.includes(PermissionFlagsBits.ViewChannel));
   assert.ok(overwriteFor(overwrites, 'bot-role').allow.includes(PermissionFlagsBits.SendMessages));
+});
+
+test('every project overwrite declares its target type so reconciliation never depends on Discord caches', () => {
+  const overwrites = buildProjectPermissionOverwrites({
+    guildId: 'guild',
+    memberIds: ['member'],
+    supervisorIds: ['supervisor'],
+    boardLiaisonIds: ['liaison'],
+    boardRoleIds: ['head-role', 'president-role'],
+    globalPresidentRoleId: 'global-role',
+    botRoleId: 'bot-role',
+  });
+
+  assert.ok(overwrites.length > 0);
+  assert.ok(overwrites.every((overwrite) => overwrite.type === OverwriteType.Role || overwrite.type === OverwriteType.Member));
 });
 
 test('locked projects block normal members from sending while supervisors can write', () => {

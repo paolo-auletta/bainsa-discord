@@ -277,7 +277,7 @@ test('anonymous feedback is read-only for normal member roles', () => {
   }
 });
 
-test('onboarding review excludes division heads from approval visibility', () => {
+test('onboarding review is visible to every university board role', () => {
   const [university] = normalizePlan(samplePlan).universities;
   const overwrites = universityExecutiveOverwrites(
     {
@@ -292,7 +292,7 @@ test('onboarding review excludes division heads from approval visibility', () =>
     },
     university,
   );
-  assert.equal(overwrites.some((overwrite) => overwrite.id === 'head'), false);
+  assert.ok(overwrites.some((overwrite) => overwrite.id === 'head'));
   assert.ok(overwrites.some((overwrite) => overwrite.id === 'president'));
   assert.ok(overwrites.some((overwrite) => overwrite.id === 'vp'));
   assert.ok(overwrites.some((overwrite) => overwrite.id === 'global'));

@@ -61,11 +61,16 @@ export function isDivisionHead(member, universityName, divisionName) {
   return hasRole(member, divisionHeadRoleName(universityName, divisionName));
 }
 
+export function isUniversityDivisionHead(member, universityName) {
+  return member.roles.cache.some((role) => role.name.startsWith(`${universityName} - Head of `));
+}
+
 export function assertUniversityAuthority(member, universityName, allowed) {
   if (isGlobalPresident(member)) return;
   const checks = {
     [BOARD_ROLES.PRESIDENT]: () => isUniversityPresident(member, universityName),
     [BOARD_ROLES.VICE_PRESIDENT]: () => isUniversityVicePresident(member, universityName),
+    [BOARD_ROLES.HEAD]: () => isUniversityDivisionHead(member, universityName),
   };
   assertUser(
     allowed.some((role) => checks[role]?.()),

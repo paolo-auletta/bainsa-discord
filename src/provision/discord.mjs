@@ -944,7 +944,10 @@ function dryRole(name) {
 
 function dryChannel(name, type, parentId) {
   const messages = {
-    fetch: async () => ({ find: () => null }),
+    // MessageManager#fetch returns a Collection, which is Map-like. Keep the
+    // dry-run stub shape-compatible with it because seed discovery iterates
+    // the collection through .values().
+    fetch: async () => new Map(),
   };
   const threads = {
     fetchActive: async () => ({ threads: { find: () => null } }),

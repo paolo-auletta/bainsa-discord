@@ -266,7 +266,7 @@ test('roleRestorePlan restores previous roles without touching everyone role', a
   );
 });
 
-test('approval rolls Discord roles back when a later DB write fails', async () => {
+test('a Division Head can approve, and Discord roles roll back when a later DB write fails', async () => {
   process.env.DISCORD_TOKEN ??= 'test-token';
   process.env.DISCORD_CLIENT_ID ??= 'test-client';
   process.env.DISCORD_GUILD_ID ??= 'test-guild';
@@ -306,7 +306,7 @@ test('approval rolls Discord roles back when a later DB write fails', async () =
     ['alumni-role', 'Alumni'],
     ['bocconi-role', 'Bocconi'],
     ['sapienza-role', 'Sapienza'],
-    ['bocconi-vp-role', 'Bocconi - Vice President'],
+    ['bocconi-head-role', 'Bocconi - Head of Projects'],
     ['bocconi-projects-role', 'Bocconi - Projects'],
     ['sapienza-projects-role', 'Sapienza - Projects'],
   ]);
@@ -315,7 +315,7 @@ test('approval rolls Discord roles back when a later DB write fails', async () =
   const reviewer = {
     roles: {
       cache: {
-        some: (predicate) => predicate({ id: 'bocconi-vp-role', name: 'Bocconi - Vice President' }),
+        some: (predicate) => predicate({ id: 'bocconi-head-role', name: 'Bocconi - Head of Projects' }),
       },
     },
   };

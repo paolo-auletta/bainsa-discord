@@ -410,7 +410,11 @@ function assertPendingRequest(request) {
 
 async function assertReviewer(interaction, universityName) {
   const member = await interaction.guild.members.fetch(interaction.user.id);
-  assertUniversityAuthority(member, universityName, [BOARD_ROLES.VICE_PRESIDENT, BOARD_ROLES.PRESIDENT]);
+  assertUniversityAuthority(member, universityName, [
+    BOARD_ROLES.HEAD,
+    BOARD_ROLES.VICE_PRESIDENT,
+    BOARD_ROLES.PRESIDENT,
+  ]);
 }
 
 async function resolveReviewChannel(guild, university) {

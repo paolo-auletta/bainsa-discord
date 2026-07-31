@@ -182,9 +182,7 @@ export function universityBotLogOverwrites(roleIds, university) {
 export function universityExecutiveOverwrites(roleIds, university) {
   return [
     overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
-    overwrite(roleIds.roles.get(university.presidentRole), { allow: TEXT_WRITE }),
-    overwrite(roleIds.roles.get(university.vicePresidentRole), { allow: TEXT_WRITE }),
-    overwrite(roleIds.globalPresident, { allow: TEXT_WRITE }),
+    ...universityBoardRoleIds(roleIds, university).map((id) => overwrite(id, { allow: TEXT_WRITE })),
     botOverwrite(roleIds),
   ];
 }
