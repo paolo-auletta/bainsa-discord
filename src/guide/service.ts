@@ -17,7 +17,7 @@ const GUIDE_PREFIX = 'guide:v1:';
 const GUIDE_COLOR = 0x5865f2;
 
 const TOPICS = Object.freeze([
-  Object.freeze({ id: GUIDE_TOPICS.MEMBERS, label: 'Manage members', emoji: '👥' }),
+  Object.freeze({ id: GUIDE_TOPICS.MEMBERS, label: 'Members and divisions', emoji: '👥' }),
   Object.freeze({ id: GUIDE_TOPICS.PROJECTS, label: 'Manage projects', emoji: '📁' }),
   Object.freeze({ id: GUIDE_TOPICS.LOOKUPS, label: 'Look up information', emoji: '🔎' }),
   Object.freeze({ id: GUIDE_TOPICS.RULES, label: 'Rules and limits', emoji: '📌' }),

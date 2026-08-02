@@ -14,24 +14,37 @@ export function memberRoleNames(member) {
   return roles(member).map((role) => role?.name).filter(Boolean);
 }
 
+function matchingRole(roleNames, expectedName) {
+  const expected = expectedName.toLowerCase();
+  return roleNames.find((roleName) => roleName.toLowerCase() === expected) ?? null;
+}
+
 export function buildGuideAccess({ member, channelScope }) {
   if (!member || !channelScope) return null;
   const roleNames = memberRoleNames(member);
-  const global = roleNames.includes(ROLE_NAMES.GLOBAL_PRESIDENT);
+  const global = Boolean(matchingRole(roleNames, ROLE_NAMES.GLOBAL_PRESIDENT));
   if (channelScope.kind === 'global' && !global) return null;
 
-  const universityName = channelScope.kind === 'university' ? channelScope.universityName : null;
-  const presidentRole = universityName ? `${universityName} - President` : null;
-  const vicePresidentRole = universityName ? `${universityName} - Vice President` : null;
-  const headPrefix = universityName ? `${universityName} - Head of ` : null;
-  const president = Boolean(presidentRole && roleNames.includes(presidentRole));
-  const vicePresident = Boolean(vicePresidentRole && roleNames.includes(vicePresidentRole));
-  const divisions = headPrefix
+  const channelUniversityName = channelScope.kind === 'university' ? channelScope.universityName : null;
+  const presidentRole = channelUniversityName
+    ? matchingRole(roleNames, `${channelUniversityName} - President`)
+    : null;
+  const vicePresidentRole = channelUniversityName
+    ? matchingRole(roleNames, `${channelUniversityName} - Vice President`)
+    : null;
+  const headPrefix = channelUniversityName ? `${channelUniversityName} - Head of ` : null;
+  const matchingHeadRoles = headPrefix
     ? roleNames
-        .filter((roleName) => roleName.startsWith(headPrefix))
-        .map((roleName) => roleName.slice(headPrefix.length).trim())
-        .filter(Boolean)
+        .filter((roleName) => roleName.toLowerCase().startsWith(headPrefix.toLowerCase()))
     : [];
+  const universityName = (presidentRole ?? vicePresidentRole ?? matchingHeadRoles[0])
+    ?.slice(0, channelUniversityName?.length)
+    .trim() ?? channelUniversityName;
+  const president = Boolean(presidentRole);
+  const vicePresident = Boolean(vicePresidentRole);
+  const divisions = matchingHeadRoles
+    .map((roleName) => roleName.slice(headPrefix.length).trim())
+    .filter(Boolean);
 
   if (!global && !president && !vicePresident && divisions.length === 0) return null;
 

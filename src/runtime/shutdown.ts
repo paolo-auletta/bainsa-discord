@@ -3,9 +3,18 @@ import { logger } from '../logger.js';
 export function installGracefulShutdown({ client, closeDatabase, stopWorkers = () => {} }) {
   let shuttingDown = false;
 
+  const onSigint = () => void shutdown('SIGINT');
+  const onSigterm = () => void shutdown('SIGTERM');
+
+  function removeSignalListeners() {
+    process.removeListener('SIGINT', onSigint);
+    process.removeListener('SIGTERM', onSigterm);
+  }
+
   async function shutdown(signal) {
     if (shuttingDown) return;
     shuttingDown = true;
+    removeSignalListeners();
     logger.info('Shutting down bot', { signal });
 
     try {
@@ -19,8 +28,12 @@ export function installGracefulShutdown({ client, closeDatabase, stopWorkers = (
     }
   }
 
-  process.once('SIGINT', () => void shutdown('SIGINT'));
-  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  process.once('SIGINT', onSigint);
+  process.once('SIGTERM', onSigterm);
 
-  return shutdown;
+  return {
+    shutdown,
+    isShuttingDown: () => shuttingDown,
+    dispose: removeSignalListeners,
+  };
 }

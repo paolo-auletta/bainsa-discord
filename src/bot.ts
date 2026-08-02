@@ -17,8 +17,14 @@ const client = createBotClient();
 const onboarding = createOnboardingService();
 const dispatchInteraction = createInteractionDispatcher({ commands, onboarding, guide: guideInteractions });
 let projectReconciliationWorker: ReturnType<typeof createProjectReconciliationWorker> | null = null;
+const lifecycle = installGracefulShutdown({
+  client,
+  closeDatabase,
+  stopWorkers: () => projectReconciliationWorker?.stop(),
+});
 
 client.once(Events.ClientReady, (readyClient) => {
+  if (lifecycle.isShuttingDown()) return;
   logger.info('BAINSA Discord bot is online', {
     botUserId: readyClient.user.id,
     guildId: config.discordGuildId,
@@ -42,6 +48,7 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, (interaction) => {
+  if (lifecycle.isShuttingDown()) return;
   void dispatchInteraction(interaction).catch((error) => {
     logger.error('Unhandled interaction dispatch failure', {
       error: error instanceof Error ? error.message : String(error),
@@ -51,13 +58,12 @@ client.on(Events.InteractionCreate, (interaction) => {
 });
 
 client.on(Events.GuildMemberAdd, (member) => {
+  if (lifecycle.isShuttingDown()) return;
   void onboarding.sendJoinDm(member);
 });
 
 client.on(Events.Error, (error) => {
   logger.error('Discord client error', { error: error instanceof Error ? error.message : String(error) });
 });
-
-installGracefulShutdown({ client, closeDatabase, stopWorkers: () => projectReconciliationWorker?.stop() });
 
 await client.login(config.discordToken);

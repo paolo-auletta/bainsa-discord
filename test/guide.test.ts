@@ -22,7 +22,7 @@ function memberWithRoles(names) {
   };
 }
 
-function universityScope(name = 'Bocconi') {
+function universityScope(name = 'BOCCONI') {
   return { kind: 'university', universityName: name };
 }
 
@@ -92,6 +92,10 @@ test('President and Global President guides expose the intended wider tiers', ()
   });
   assert.equal(global.availableCommands.size, GUIDE_CATALOG.length);
   assert.equal(guideScopeLabel(global), 'All universities');
+
+  const members = topicPayload({ user: { id: '42' } }, global, 'members');
+  assert.equal(members.embeds[0].toJSON().title, 'Members and divisions');
+  assert.match(members.embeds[0].toJSON().description, /\/division-create/);
 });
 
 test('guide access denies ordinary members and cross-university board roles', () => {
@@ -145,7 +149,7 @@ test('/guide defers an ephemeral response and never sends to the channel', async
     member: memberWithRoles(['Bocconi - Head of Culture']),
     channel: {
       name: 'bot-log',
-      parent: { name: 'BAINSA Bocconi' },
+      parent: { name: 'BAINSA BOCCONI' },
       send: async () => assert.fail('/guide must not send a channel message'),
     },
     async deferReply(options) {
@@ -162,12 +166,29 @@ test('/guide defers an ephemeral response and never sends to the channel', async
   assert.equal(edited.embeds[0].toJSON().title, 'BAINSA Bot Guide');
 });
 
+test('/guide accepts scoped board roles under provisioned uppercase university categories', async () => {
+  for (const roleName of ['Bocconi - Vice President', 'Bocconi - Head of Projects']) {
+    let edited;
+    await showGuide({
+      user: { id: '42' },
+      member: memberWithRoles([roleName]),
+      channel: { name: 'bot-log', parent: { name: 'BAINSA BOCCONI' } },
+      async deferReply() {},
+      async editReply(payload) {
+        edited = payload;
+      },
+    });
+
+    assert.equal(edited.embeds[0].toJSON().title, 'BAINSA Bot Guide');
+  }
+});
+
 test('guide component ids are bound to the initiating member and update in place', async () => {
   const interaction = {
     customId: 'guide:v1:42:topic:projects',
     user: { id: '42' },
     member: memberWithRoles(['Bocconi - Head of Culture']),
-    channel: { name: 'bot-log', parent: { name: 'BAINSA Bocconi' } },
+    channel: { name: 'bot-log', parent: { name: 'BAINSA BOCCONI' } },
     async update(payload) {
       this.updated = payload;
     },
