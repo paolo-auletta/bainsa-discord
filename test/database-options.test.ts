@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildPostgresConnectionOptions } from '../src/database-options.js';
+import {
+  buildPostgresConnectionOptions,
+  resolveDatabaseSslCa,
+} from '../src/database-options.js';
+
+const testCertificate = [
+  '-----BEGIN CERTIFICATE-----',
+  'dGVzdC1jZXJ0aWZpY2F0ZQ==',
+  '-----END CERTIFICATE-----',
+].join('\n');
 
 test('local PostgreSQL hosts disable TLS', () => {
   for (const databaseUrl of [
@@ -50,4 +59,24 @@ test('remote PostgreSQL hosts use a configured private CA while verifying certif
       ca: 'private-ca-certificate',
     },
   });
+});
+
+test('decodes a base64 CA for single-line environment variables', () => {
+  const encoded = Buffer.from(testCertificate, 'utf8').toString('base64');
+
+  assert.equal(
+    resolveDatabaseSslCa({ DATABASE_SSL_CA_B64: encoded }),
+    testCertificate,
+  );
+});
+
+test('rejects configuring both CA environment variables', () => {
+  assert.throws(
+    () =>
+      resolveDatabaseSslCa({
+        DATABASE_SSL_CA: testCertificate,
+        DATABASE_SSL_CA_B64: 'ignored',
+      }),
+    /Set only one/,
+  );
 });

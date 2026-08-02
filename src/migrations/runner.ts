@@ -4,7 +4,10 @@ import path from 'node:path';
 
 import pg from 'pg';
 
-import { buildPostgresConnectionOptions } from '../database-options.js';
+import {
+  buildPostgresConnectionOptions,
+  resolveDatabaseSslCa,
+} from '../database-options.js';
 import { projectPath } from '../project-paths.js';
 
 const { Pool } = pg;
@@ -175,7 +178,7 @@ async function applyMigration(client, migration) {
 
 export async function runMigrations({
   databaseUrl = process.env.DATABASE_URL,
-  databaseSslCa = process.env.DATABASE_SSL_CA?.trim() || null,
+  databaseSslCa = resolveDatabaseSslCa(),
   migrationsDir = DEFAULT_MIGRATIONS_DIR,
   statusOnly = false,
 } = {}) {
