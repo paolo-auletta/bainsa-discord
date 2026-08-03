@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { constants as osConstants } from 'node:os';
 
 const children: ChildProcess[] = [];
 let shuttingDown = false;
 let shutdownInitiator: ChildProcess | null = null;
 let bot: ChildProcess | null = null;
+
+function exitCodeForSignal(signal: NodeJS.Signals): number {
+  return 128 + (osConstants.signals[signal] ?? 1);
+}
 
 function start(command: string, args: string[]): ChildProcess {
   const child = spawn(command, args, {
@@ -27,7 +32,7 @@ function monitor(child: ChildProcess): void {
   child.once('exit', (code, signal) => {
     if (!shuttingDown) stop('SIGTERM', child);
     if (shutdownInitiator !== child) return;
-    if (signal) process.kill(process.pid, signal);
+    if (signal) process.exitCode = exitCodeForSignal(signal);
     else process.exitCode = code ?? 1;
   });
 }
