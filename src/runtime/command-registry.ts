@@ -9,15 +9,19 @@ export interface CommandDefinition {
   autocomplete?: (interaction: unknown) => unknown;
 }
 
-export function getCommandName(command: CommandDefinition) {
-  return command?.name ?? command?.data?.name ?? command?.data?.toJSON?.().name;
-}
-
-export function commandToJSON(command: CommandDefinition) {
+function resolveCommandJSON(command: CommandDefinition) {
   if (command?.data?.toJSON) return command.data.toJSON();
   if (command?.toJSON) return command.toJSON();
   if (command?.data) return command.data;
   return command;
+}
+
+export function getCommandName(command: CommandDefinition) {
+  return resolveCommandJSON(command)?.name;
+}
+
+export function commandToJSON(command: CommandDefinition) {
+  return resolveCommandJSON(command);
 }
 
 export function buildCommandMap<T extends CommandDefinition>(commands: readonly T[]) {

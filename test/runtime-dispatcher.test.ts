@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { replyBoardActivity, replyEphemeral } from '../src/discord/reply.js';
+import { UserFacingError } from '../src/errors.js';
 import { assertUniqueCommandNames, buildCommandMap, serializeCommands } from '../src/runtime/command-registry.js';
 import { createInteractionDispatcher, routeInteraction } from '../src/runtime/dispatcher.js';
 
@@ -25,6 +26,44 @@ test('command registry serializes builder-like command data', () => {
 
   assert.equal(buildCommandMap(commands).get('member-add'), commands[0]);
   assert.deepEqual(serializeCommands(commands), [{ name: 'member-add', description: 'Add member' }]);
+});
+
+test('command registry uses the serialized name for dispatch and uniqueness', () => {
+  const command = {
+    name: 'wrapper-name',
+    data: {
+      name: 'data-name',
+      toJSON: () => ({ name: 'serialized-name', description: 'Serialized command' }),
+    },
+    execute: async () => undefined,
+  };
+
+  assert.equal(buildCommandMap([command]).get('serialized-name'), command);
+  assert.equal(buildCommandMap([command]).has('wrapper-name'), false);
+  assert.deepEqual(serializeCommands([command]), [{ name: 'serialized-name', description: 'Serialized command' }]);
+  assert.throws(
+    () => assertUniqueCommandNames([
+      command,
+      {
+        name: 'another-wrapper-name',
+        data: {
+          toJSON: () => ({ name: 'serialized-name' }),
+        },
+        execute: async () => undefined,
+      },
+    ]),
+    /Duplicate slash command name: serialized-name/,
+  );
+});
+
+test('command registry accepts names exposed only by a top-level toJSON', () => {
+  const command = {
+    toJSON: () => ({ name: 'top-level-command', description: 'Top-level command' }),
+    execute: async () => undefined,
+  };
+
+  assert.equal(buildCommandMap([command]).get('top-level-command'), command);
+  assert.deepEqual(serializeCommands([command]), [{ name: 'top-level-command', description: 'Top-level command' }]);
 });
 
 test('dispatcher routes chat input commands', async () => {
@@ -306,6 +345,55 @@ test('dispatcher routes guide buttons and select menus by custom id', async () =
   });
 
   assert.deepEqual(handled, ['guide:button', 'guide:select']);
+});
+
+test('dispatcher reports matched component routes without handlers', async () => {
+  const cases = [
+    {
+      label: 'onboarding button',
+      component: { canHandle: () => true },
+      flags: { isButton: true },
+    },
+    {
+      label: 'guide component',
+      component: { canHandle: () => true },
+      flags: { isButton: true },
+      guide: true,
+    },
+    {
+      label: 'onboarding select',
+      component: { canHandle: () => true },
+      flags: { isStringSelectMenu: true },
+    },
+    {
+      label: 'onboarding modal',
+      component: { canHandle: () => true },
+      flags: { isModalSubmit: true },
+    },
+  ];
+
+  for (const testCase of cases) {
+    let captured;
+    const dispatch = createInteractionDispatcher({
+      commands: [],
+      ...(testCase.guide ? { guide: testCase.component } : { onboarding: testCase.component }),
+      onError: async (_interaction, error) => {
+        captured = error;
+      },
+    });
+
+    await dispatch({
+      customId: `missing:${testCase.label}`,
+      isChatInputCommand: () => false,
+      isAutocomplete: () => false,
+      isButton: () => Boolean(testCase.flags.isButton),
+      isStringSelectMenu: () => Boolean(testCase.flags.isStringSelectMenu),
+      isModalSubmit: () => Boolean(testCase.flags.isModalSubmit),
+      isRepliable: () => true,
+    });
+
+    assert.equal(captured instanceof UserFacingError, true, testCase.label);
+  }
 });
 
 test('dispatcher sends unknown repliable interactions to error handler', async () => {

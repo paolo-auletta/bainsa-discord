@@ -4,6 +4,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 
 const children: ChildProcess[] = [];
 let shuttingDown = false;
+let shutdownInitiator: ChildProcess | null = null;
 let bot: ChildProcess | null = null;
 
 function start(command: string, args: string[]): ChildProcess {
@@ -15,15 +16,17 @@ function start(command: string, args: string[]): ChildProcess {
   return child;
 }
 
-function stop(signal: NodeJS.Signals): void {
+function stop(signal: NodeJS.Signals, initiator: ChildProcess | null = null): void {
   if (shuttingDown) return;
   shuttingDown = true;
+  shutdownInitiator = initiator;
   for (const child of children) child.kill(signal);
 }
 
 function monitor(child: ChildProcess): void {
   child.once('exit', (code, signal) => {
-    if (!shuttingDown) stop('SIGTERM');
+    if (!shuttingDown) stop('SIGTERM', child);
+    if (shutdownInitiator !== child) return;
     if (signal) process.kill(process.pid, signal);
     else process.exitCode = code ?? 1;
   });
@@ -65,5 +68,9 @@ compiler.stdout.on('data', (chunk: string) => {
 compiler.stderr.pipe(process.stderr);
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.once(signal, () => stop(signal));
+  process.once(signal, () => {
+    if (shuttingDown) return;
+    stop(signal);
+    process.kill(process.pid, signal);
+  });
 }

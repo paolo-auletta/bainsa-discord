@@ -29,6 +29,11 @@ export function routeInteraction(interaction) {
   return 'unknown';
 }
 
+function requireComponentHandler(handler: ((interaction: unknown) => unknown) | undefined) {
+  if (!handler) throw new UserFacingError('This interaction is no longer available.');
+  return handler;
+}
+
 export function createInteractionDispatcher({
   commands,
   onboarding,
@@ -66,7 +71,7 @@ export function createInteractionDispatcher({
       }
 
       if (route === 'button' && onboarding?.canHandle?.(interaction.customId)) {
-        await onboarding.handleButton?.(interaction);
+        await requireComponentHandler(onboarding.handleButton)(interaction);
         return;
       }
 
@@ -74,17 +79,17 @@ export function createInteractionDispatcher({
         (route === 'button' || route === 'stringSelect') &&
         guide?.canHandle?.(interaction.customId)
       ) {
-        await guide.handleComponent?.(interaction);
+        await requireComponentHandler(guide.handleComponent)(interaction);
         return;
       }
 
       if (route === 'stringSelect' && onboarding?.canHandle?.(interaction.customId)) {
-        await onboarding.handleStringSelect?.(interaction);
+        await requireComponentHandler(onboarding.handleStringSelect)(interaction);
         return;
       }
 
       if (route === 'modalSubmit' && onboarding?.canHandle?.(interaction.customId)) {
-        await onboarding.handleModalSubmit?.(interaction);
+        await requireComponentHandler(onboarding.handleModalSubmit)(interaction);
         return;
       }
 
