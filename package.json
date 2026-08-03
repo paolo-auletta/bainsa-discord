@@ -10,30 +10,36 @@
   },
   "packageManager": "npm@10.9.2",
   "scripts": {
-    "start": "node --env-file=.env src/bot.mjs",
-    "dev": "node --env-file=.env --watch src/bot.mjs",
-    "commands:register": "node --env-file=.env scripts/register-commands.mjs",
-    "db:migrate": "node --env-file=.env scripts/migrate.mjs",
-    "db:reset": "node --env-file=.env scripts/reset-database.mjs",
-    "provision": "node --env-file=.env scripts/provision-discord.mjs",
-    "provision:dry-run": "node --env-file=.env scripts/provision-discord.mjs --dry-run",
-    "discord:reset": "node --env-file=.env scripts/reset-discord.mjs",
-    "discord:bootstrap": "node --env-file=.env scripts/bootstrap-member.mjs",
-    "check": "node scripts/check-syntax.mjs",
+    "build": "npm run typecheck && tsc --project tsconfig.test.json",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "start": "node --enable-source-maps --env-file=.env dist/src/bot.js",
+    "dev": "npm run build && node --enable-source-maps dist/scripts/dev.js",
+    "commands:register": "node --enable-source-maps --env-file=.env dist/scripts/register-commands.js",
+    "db:migrate": "node --enable-source-maps --env-file=.env dist/scripts/migrate.js",
+    "db:reset": "node --enable-source-maps --env-file=.env dist/scripts/reset-database.js",
+    "provision": "node --enable-source-maps --env-file=.env dist/scripts/provision-discord.js",
+    "provision:dry-run": "node --enable-source-maps --env-file=.env dist/scripts/provision-discord.js --dry-run",
+    "discord:reset": "node --enable-source-maps --env-file=.env dist/scripts/reset-discord.js",
+    "discord:bootstrap": "node --enable-source-maps --env-file=.env dist/scripts/bootstrap-member.js",
+    "check": "npm run typecheck",
     "lint": "eslint src scripts test",
-    "format:check": "node scripts/check-format.mjs",
-    "test": "DISCORD_TOKEN=test-token DISCORD_CLIENT_ID=test-client DISCORD_GUILD_ID=test-guild DATABASE_URL=postgres://localhost/test node --test test/*.test.mjs",
-    "test:integration": "node scripts/test-integration.mjs",
-    "test:connections": "node --env-file=.env scripts/test-connections.mjs"
+    "format:check": "npm run build && node dist/scripts/check-format.js",
+    "test": "npm run build && DISCORD_TOKEN=test-token DISCORD_CLIENT_ID=test-client DISCORD_GUILD_ID=test-guild DATABASE_URL=postgres://localhost/test node --enable-source-maps --test dist/test/*.test.js",
+    "test:integration": "npm run build && node --enable-source-maps dist/scripts/test-integration.js",
+    "test:connections": "node --enable-source-maps --env-file=.env dist/scripts/test-connections.js"
   },
   "dependencies": {
-    "discord.js": "^14.26.2",
-    "pg": "^8.16.3"
+    "discord.js": "^14.27.0",
+    "pg": "^8.22.0"
   },
   "overrides": {
     "undici": "6.27.0"
   },
   "devDependencies": {
-    "eslint": "9.39.3"
+    "@types/node": "^22.20.1",
+    "@types/pg": "^8.20.0",
+    "eslint": "^10.8.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.65.0"
   }
 }
