@@ -835,7 +835,10 @@ async function assertMembershipWriteWinsProjectRace(fixture, membershipWrite, pr
   await blockingDb.locked;
   const projectWritePromise = projectWrite(projectDb);
   await projectPreflight.promise;
-  const projectRejected = assert.rejects(projectWritePromise, /not (active researchers|accepted active members)/i);
+  const projectRejected = assert.rejects(
+    projectWritePromise,
+    /(not (active researchers|accepted active members)|neither active researchers)/i,
+  );
   blockingDb.release();
   await governanceWrite;
   await projectRejected;
