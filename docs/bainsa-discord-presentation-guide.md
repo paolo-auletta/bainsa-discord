@@ -52,6 +52,7 @@ START HERE — visible to every new arrival
 
 GLOBAL BAINSA — visible to approved members
 ├── #bainsa-general — whole-network conversation
+├── voice: bainsa-general-room — whole-network voice room
 ├── #bainsa-announcements — network-wide official updates and events
 ├── #bainsa-board — Global Presidents + University Presidents
 ├── forum: projects-showcase — selected cross-network project stories
@@ -61,6 +62,7 @@ GLOBAL BAINSA — visible to approved members
 
 BAINSA <UNIVERSITY> — visible only to that university
 ├── #general — local member discussion
+├── voice: general-room — local university voice room
 ├── #announcements — local official updates and events
 ├── #board — private local-board workspace
 ├── #bot-log — scoped commands and board-visible activity
@@ -217,6 +219,7 @@ The benefit is consistency: new members do not need an administrator to manually
 ```
 GLOBAL BAINSA — visible to approved members
 ├── #bainsa-general — whole-network conversation
+├── voice: bainsa-general-room — whole-network voice room
 ├── #bainsa-announcements — network-wide official updates and events
 ├── #bainsa-board — Global Presidents + University Presidents
 ├── forum: projects-showcase — selected cross-network project stories
@@ -230,6 +233,10 @@ GLOBAL BAINSA — visible to approved members
 This is the conversation space for subjects that genuinely concern the whole network: cross-university questions, introductions, shared opportunities, and discussions that benefit from broader participation.
 
 Local operational work should stay in the relevant university area.
+
+### Voice: `bainsa-general-room`
+
+This is the informal, whole-network meeting room. Approved Researchers, Alumni, and board roles can join; board roles can also create Discord events in the room.
 
 ### `#bainsa-announcements`
 
@@ -307,6 +314,7 @@ This channel is read-only and links to an external confidential form, such as Go
 ```
 BAINSA <UNIVERSITY> — visible only to that university
 ├── #general — local member discussion
+├── voice: general-room — local university voice room
 ├── #announcements — local official updates and events
 ├── #board — private local-board workspace
 ├── #bot-log — scoped commands and board-visible activity
@@ -321,6 +329,10 @@ Every university receives the same basic operating structure so members can move
 ### `#general`
 
 The local discussion room for questions, coordination, and updates relevant only to that university.
+
+### Voice: `general-room`
+
+This is the informal meeting room for members of the university. The university role can join, while the university board and Global President roles can also create Discord events in the room.
 
 ### `#announcements`
 

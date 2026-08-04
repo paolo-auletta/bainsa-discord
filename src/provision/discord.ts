@@ -48,6 +48,7 @@ import {
   globalBotLogOverwrites,
   globalBoardOverwrites,
   globalGeneralOverwrites,
+  globalVoiceOverwrites,
   globalReadOnlyOverwrites,
   logsOverwrites,
   memberForumOverwrites,
@@ -59,6 +60,7 @@ import {
   universityBotLogOverwrites,
   universityExecutiveOverwrites,
   universityGeneralOverwrites,
+  universityVoiceOverwrites,
   universityShowcaseOverwrites,
 } from './permissions.js';
 import { ignoredLegacyWarnings } from './legacy.js';
@@ -409,6 +411,10 @@ export class DiscordProvisioner {
       aliases: ['general'],
       overwrites: globalGeneralOverwrites(roleIds),
     });
+    await this.ensureVoiceChannel(guild, GLOBAL_CHANNELS.VOICE, {
+      parent: globalCategory,
+      overwrites: globalVoiceOverwrites(roleIds),
+    });
     const globalAnnouncements = await this.ensureTextChannel(guild, GLOBAL_CHANNELS.ANNOUNCEMENTS, {
       parent: globalCategory,
       type: ChannelType.GuildText,
@@ -498,6 +504,10 @@ export class DiscordProvisioner {
       aliases: aliases.general,
       overwrites: universityGeneralOverwrites(roleIds, university),
     });
+    const voice = await this.ensureVoiceChannel(guild, UNIVERSITY_CHANNELS.VOICE, {
+      parent: category,
+      overwrites: universityVoiceOverwrites(roleIds, university),
+    });
     const announcements = await this.ensureTextChannel(guild, UNIVERSITY_CHANNELS.ANNOUNCEMENTS, {
       parent: category,
       type: ChannelType.GuildText,
@@ -576,6 +586,7 @@ export class DiscordProvisioner {
       roleId: roleIds.roles.get(university.universityRole),
       categoryId: category.id,
       generalChannelId: general.id,
+      voiceChannelId: voice.id,
       announcementsChannelId: announcements.id,
       boardChannelId: board.id,
       showcaseChannelId: showcase.id,

@@ -83,6 +83,21 @@ export function globalGeneralOverwrites(roleIds) {
   ];
 }
 
+export function globalVoiceOverwrites(roleIds) {
+  return [
+    overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
+    overwrite(roleIds.researcher, { allow: VOICE_ACCESS }),
+    overwrite(roleIds.alumni, { allow: VOICE_ACCESS }),
+    overwrite(roleIds.globalPresident, {
+      allow: [...VOICE_ACCESS, PermissionFlagsBits.CreateEvents],
+    }),
+    ...roleIds.universityPresidents.map((id) =>
+      overwrite(id, { allow: [...VOICE_ACCESS, PermissionFlagsBits.CreateEvents] }),
+    ),
+    botOverwrite(roleIds),
+  ];
+}
+
 export function globalBotLogOverwrites(roleIds) {
   return [
     overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
@@ -152,6 +167,17 @@ export function universityGeneralOverwrites(roleIds, university) {
     overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
     overwrite(roleIds.roles.get(university.universityRole), { allow: TEXT_WRITE }),
     ...universityBoardRoleIds(roleIds, university).map((id) => overwrite(id, { allow: TEXT_WRITE })),
+    botOverwrite(roleIds),
+  ];
+}
+
+export function universityVoiceOverwrites(roleIds, university) {
+  return [
+    overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
+    overwrite(roleIds.roles.get(university.universityRole), { allow: VOICE_ACCESS }),
+    ...universityBoardRoleIds(roleIds, university).map((id) =>
+      overwrite(id, { allow: [...VOICE_ACCESS, PermissionFlagsBits.CreateEvents] }),
+    ),
     botOverwrite(roleIds),
   ];
 }

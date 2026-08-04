@@ -25,6 +25,7 @@ export const CATEGORY_NAMES = Object.freeze({
 
 export const GLOBAL_CHANNELS = Object.freeze({
   GENERAL: 'bainsa-general',
+  VOICE: 'bainsa-general-room',
   ANNOUNCEMENTS: 'bainsa-announcements',
   BOARD: 'bainsa-board',
   SHOWCASE: 'projects-showcase',
@@ -40,6 +41,7 @@ export const START_CHANNELS = Object.freeze({
 
 export const UNIVERSITY_CHANNELS = Object.freeze({
   GENERAL: 'general',
+  VOICE: 'general-room',
   ANNOUNCEMENTS: 'announcements',
   BOARD: 'board',
   BOT_LOG: 'bot-log',
