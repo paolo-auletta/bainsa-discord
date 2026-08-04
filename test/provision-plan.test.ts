@@ -11,7 +11,7 @@ import {
   globalBotLogOverwrites,
   globalGeneralOverwrites,
   globalAnnouncementOverwrites,
-  globalReadOnlyOverwrites,
+  GLOBAL_CHANNELS,
   legacyDivisionTextAliases,
   mergePersistedDivisionsIntoPlan,
   normalizeComparableName,
@@ -259,22 +259,46 @@ test('application commands are permitted only in global or university bot logs',
   );
 });
 
-test('anonymous feedback is read-only for normal member roles', () => {
-  const overwrites = globalReadOnlyOverwrites({
-    everyone: 'everyone',
-    bot: 'bot',
-    researcher: 'researcher',
-    alumni: 'alumni',
-    globalPresident: 'global',
-    universityPresidents: ['president'],
+test('global provisioning moves anonymous feedback guidance into announcements', async () => {
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: { anonymousFeedbackUrl: 'https://example.test/feedback' },
+    db: null,
+    dryRun: true,
+    plan: { universities: [] },
+    logger: {},
   });
-  for (const id of ['researcher', 'alumni']) {
-    const entry = overwrites.find((overwrite) => overwrite.id === id);
-    assert.ok(entry.allow.includes(PermissionFlagsBits.ViewChannel));
-    assert.ok(entry.deny.includes(PermissionFlagsBits.SendMessages));
-    assert.ok(entry.deny.includes(PermissionFlagsBits.CreatePublicThreads));
-    assert.ok(entry.deny.includes(PermissionFlagsBits.SendMessagesInThreads));
-  }
+  const createdChannels = [];
+  const seededMessages = [];
+  provisioner.ensureCategory = async (_guild, name) => ({ id: name });
+  provisioner.ensureTextChannel = async (_guild, name) => {
+    createdChannels.push(name);
+    return { id: name };
+  };
+  provisioner.ensureForumChannel = async (_guild, name) => ({ id: name });
+  provisioner.retireStartHereChannels = async () => {};
+  provisioner.seedForumGuide = async () => {};
+  provisioner.seedMessage = async (_channel, key, content) => seededMessages.push({ key, content });
+
+  await provisioner.ensureStructure(
+    { channels: { cache: new Map() } },
+    {
+      everyone: 'everyone',
+      bot: 'bot',
+      researcher: 'researcher',
+      alumni: 'alumni',
+      globalPresident: 'global',
+      universityPresidents: [],
+    },
+  );
+
+  assert.equal(Object.hasOwn(GLOBAL_CHANNELS, 'ANONYMOUS_FEEDBACK'), false);
+  assert.equal(createdChannels.includes('anonymous-feedback'), false);
+  assert.equal(seededMessages.some(({ key }) => key === 'global:anonymous-feedback'), false);
+  const announcements = seededMessages.find(({ key }) => key === 'global:announcements');
+  assert.ok(announcements);
+  assert.match(announcements.content, /\*\*Anonymous feedback\*\*/);
+  assert.match(announcements.content, /https:\/\/example\.test\/feedback/);
 });
 
 test('onboarding review is visible to every university board role', () => {

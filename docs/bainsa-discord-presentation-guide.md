@@ -56,8 +56,7 @@ GLOBAL BAINSA — visible to approved members
 ├── #bainsa-board — Global Presidents + University Presidents
 ├── forum: projects-showcase — selected cross-network project stories
 ├── forum: resources — shared knowledge base
-├── forum: topic-proposals — member-led ideas for common topics
-└── #anonymous-feedback — link to a confidential external form
+└── forum: topic-proposals — member-led ideas for common topics
 
 BAINSA <UNIVERSITY> — visible only to that university
 ├── #general — local member discussion
@@ -221,8 +220,7 @@ GLOBAL BAINSA — visible to approved members
 ├── #bainsa-board — Global Presidents + University Presidents
 ├── forum: projects-showcase — selected cross-network project stories
 ├── forum: resources — shared knowledge base
-├── forum: topic-proposals — member-led ideas for common topics
-└── #anonymous-feedback — link to a confidential external form
+└── forum: topic-proposals — member-led ideas for common topics
 ```
 
 ### `#bainsa-general`
@@ -236,6 +234,8 @@ Local operational work should stay in the relevant university area.
 This is the read-only official feed for network-wide news and events. Global Presidents and University Presidents can publish; ordinary members read.
 
 Announcements and scheduled events use Discord’s native tools in v1. There is no bot announcement command.
+
+The announcement guide also includes the configured anonymous feedback form and explains that submissions are routed privately to the right reviewers.
 
 ### `#bainsa-board`
 
@@ -295,10 +295,6 @@ Members show interest through emoji reactions. Reactions are evidence of demand,
 - Review new channels after a defined trial period and archive inactive ones.
 
 **Planned:** add a bot command to approve a proposal and create the resulting space. That command does not exist in v1.
-
-### `#anonymous-feedback`
-
-This channel is read-only and links to an external confidential form, such as Google Forms. The Discord channel explains who receives the feedback and how it will be handled, but anonymous submissions should not be collected publicly in Discord.
 
 ---
 

@@ -102,23 +102,6 @@ export function globalAnnouncementOverwrites(roleIds) {
   ];
 }
 
-export function globalReadOnlyOverwrites(roleIds) {
-  const denyWrite = [
-    PermissionFlagsBits.SendMessages,
-    PermissionFlagsBits.CreatePublicThreads,
-    PermissionFlagsBits.CreatePrivateThreads,
-    PermissionFlagsBits.SendMessagesInThreads,
-  ];
-  return [
-    overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
-    overwrite(roleIds.researcher, { allow: TEXT_READ, deny: denyWrite }),
-    overwrite(roleIds.alumni, { allow: TEXT_READ, deny: denyWrite }),
-    overwrite(roleIds.globalPresident, { allow: TEXT_READ, deny: denyWrite }),
-    ...roleIds.universityPresidents.map((id) => overwrite(id, { allow: TEXT_READ, deny: denyWrite })),
-    botOverwrite(roleIds),
-  ];
-}
-
 export function globalBoardOverwrites(roleIds) {
   return [
     overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
