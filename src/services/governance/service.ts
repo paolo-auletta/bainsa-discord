@@ -914,13 +914,26 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
       ? await getDivisionByName(db, university.id, university.name, divisionName)
       : null;
 
+  const currentDivisions =
+    role === BOARD_ROLES.HEAD ? [] : await getMemberDivisions(db, target.id);
+  const currentBoardRoles =
+    role === BOARD_ROLES.HEAD ? [] : await getBoardRoles(db, target.id);
+  if (role !== BOARD_ROLES.HEAD) {
+    await assertActiveProjectUpdateEligibility(
+      db,
+      target.id,
+      MEMBER_TYPES.RESEARCHER,
+      university,
+      [],
+    );
+  }
   const removableRoleNames =
     role === BOARD_ROLES.HEAD
       ? [divisionRoleName(university.name, division.name)]
       : removableDivisionRoleNamesForExecutivePromotion(
           university.name,
-          await getMemberDivisions(db, target.id),
-          await getBoardRoles(db, target.id),
+          currentDivisions,
+          currentBoardRoles,
         );
 
   const roleNames = [universityAccessRoleName(university.name)];

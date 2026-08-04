@@ -15,6 +15,11 @@ const executivePromotionMigrationUrl = projectPath(
   'migrations',
   '008_clear_division_roles_on_executive_promotion.sql',
 );
+const executiveExclusivityMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '009_enforce_executive_division_exclusivity.sql',
+);
 
 async function migrationSql() {
   return readFile(migrationUrl, 'utf8');
@@ -40,6 +45,10 @@ async function executivePromotionMigrationSql() {
   return readFile(executivePromotionMigrationUrl, 'utf8');
 }
 
+async function executiveExclusivityMigrationSql() {
+  return readFile(executiveExclusivityMigrationUrl, 'utf8');
+}
+
 function assertIncludes(sql, snippet) {
   assert.ok(sql.includes(snippet), `Expected migration to include: ${snippet}`);
 }
@@ -56,7 +65,18 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '006_expand_division_colors.sql',
     '007_project_reconciliation.sql',
     '008_clear_division_roles_on_executive_promotion.sql',
+    '009_enforce_executive_division_exclusivity.sql',
   ]);
+});
+
+test('defers and serializes executive division cleanup across all relevant writes', async () => {
+  const sql = await executiveExclusivityMigrationSql();
+
+  assertIncludes(sql, 'DROP TRIGGER IF EXISTS board_assignments_clear_division_roles_on_executive_promotion');
+  assertIncludes(sql, 'pg_advisory_xact_lock');
+  assertIncludes(sql, 'AFTER INSERT OR UPDATE OF active, role, university_id, discord_user_id ON board_assignments');
+  assertIncludes(sql, 'DEFERRABLE INITIALLY DEFERRED');
+  assertIncludes(sql, 'member_divisions_enforce_executive_division_exclusivity');
 });
 
 test('clears division assignments when an executive board role becomes active', async () => {

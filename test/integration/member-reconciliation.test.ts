@@ -88,7 +88,7 @@ test('reconciles a batch of recognized existing members in PostgreSQL', async ()
 
   assert.deepEqual(result.members.map((member) => member.discordUserId), ['10', '20']);
   assert.equal((await database.query('SELECT count(*)::int AS count FROM members')).rows[0].count, 2);
-  assert.equal((await database.query('SELECT count(*)::int AS count FROM member_divisions')).rows[0].count, 3);
+  assert.equal((await database.query('SELECT count(*)::int AS count FROM member_divisions')).rows[0].count, 0);
   assert.equal((await database.query('SELECT count(*)::int AS count FROM board_assignments WHERE active')).rows[0].count, 3);
 });
 
@@ -167,6 +167,6 @@ test('rolls back a failed reconciliation batch and exposes retryable Discord com
 
   assert.deepEqual(retry.members.map((member) => member.discordUserId), ['10', '20']);
   assert.equal((await database.query('SELECT count(*)::int AS count FROM members')).rows[0].count, 2);
-  assert.equal((await database.query('SELECT count(*)::int AS count FROM member_divisions')).rows[0].count, 2);
+  assert.equal((await database.query('SELECT count(*)::int AS count FROM member_divisions')).rows[0].count, 0);
   assert.equal((await database.query('SELECT count(*)::int AS count FROM board_assignments WHERE active')).rows[0].count, 2);
 });
