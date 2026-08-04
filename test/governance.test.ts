@@ -532,7 +532,7 @@ test('division-create keeps the requested color on the Head role after assignmen
   assert.equal(head.roles.cache.has(accessRole.id), false);
 });
 
-test('board Head assignment preserves an existing division Head role color', async () => {
+test('board Head assignment preserves an existing division membership role', async () => {
   const headRole = testRole('sapienza-head-robotics', 'Sapienza - Head of Robotics', divisionColorDetails('green').hex);
   const roleCache = cacheFrom([
     testRole('researcher-role', ROLE_NAMES.RESEARCHER),
@@ -540,7 +540,11 @@ test('board Head assignment preserves an existing division Head role color', asy
     testRole('sapienza-robotics-role', 'Sapienza - Robotics', divisionColorDetails('green').hex),
     headRole,
   ]);
-  const target = memberWithRoles();
+  const target = memberWithRoles([
+    roleCache.get('researcher-role'),
+    roleCache.get('sapienza-role'),
+    roleCache.get('sapienza-robotics-role'),
+  ]);
   const guild = {
     roles: {
       cache: roleCache,
@@ -598,6 +602,7 @@ test('board Head assignment preserves an existing division Head role color', asy
 
   assert.equal(headRole.hexColor, divisionColorDetails('green').hex);
   assert.equal(headRole.lastEdit, undefined);
+  assert.equal(target.roles.cache.has('sapienza-robotics-role'), true);
   assert.equal(target.roles.cache.has(headRole.id), true);
 });
 

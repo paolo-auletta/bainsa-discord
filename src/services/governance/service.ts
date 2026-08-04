@@ -912,10 +912,6 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
     interaction.guild,
     roleNames,
     reason,
-    {
-      removableRoleNames:
-        role === BOARD_ROLES.HEAD ? [divisionRoleName(university.name, division.name)] : [],
-    },
   );
 
   try {
