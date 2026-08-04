@@ -121,7 +121,7 @@ function rulesFor(access) {
   if (access.president) {
     return [
       `Your authority is limited to ${access.universityName}.`,
-      'Only a Global President can appoint or remove a university President.',
+      'You can appoint or remove university Presidents, including co-Presidents, within your university.',
       'Member and project eligibility rules still apply.',
       'Guides, lookups, and failures stay private; successful shared-state changes create a board-log entry.',
     ];
@@ -129,7 +129,7 @@ function rulesFor(access) {
   if (access.vicePresident) {
     return [
       `Your authority is limited to ${access.universityName}.`,
-      'You cannot manage your university President or appoint/remove board roles.',
+      'You cannot manage your university President or appoint/remove a university President.',
       'Member and project eligibility rules still apply.',
       'Guides, lookups, and failures stay private; successful shared-state changes create a board-log entry.',
     ];

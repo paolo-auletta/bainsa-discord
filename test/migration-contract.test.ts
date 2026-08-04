@@ -10,6 +10,7 @@ const onboardingMigrationUrl = projectPath('db', 'migrations', '004_onboarding_n
 const divisionColorMigrationUrl = projectPath('db', 'migrations', '005_division_colors.sql');
 const expandedDivisionColorMigrationUrl = projectPath('db', 'migrations', '006_expand_division_colors.sql');
 const reconciliationMigrationUrl = projectPath('db', 'migrations', '007_project_reconciliation.sql');
+const coPresidentsMigrationUrl = projectPath('db', 'migrations', '008_allow_co_presidents.sql');
 
 async function migrationSql() {
   return readFile(migrationUrl, 'utf8');
@@ -31,6 +32,10 @@ async function reconciliationMigrationSql() {
   return readFile(reconciliationMigrationUrl, 'utf8');
 }
 
+async function coPresidentsMigrationSql() {
+  return readFile(coPresidentsMigrationUrl, 'utf8');
+}
+
 function assertIncludes(sql, snippet) {
   assert.ok(sql.includes(snippet), `Expected migration to include: ${snippet}`);
 }
@@ -46,7 +51,14 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '005_division_colors.sql',
     '006_expand_division_colors.sql',
     '007_project_reconciliation.sql',
+    '008_allow_co_presidents.sql',
   ]);
+});
+
+test('allows multiple active university Presidents', async () => {
+  const sql = await coPresidentsMigrationSql();
+
+  assertIncludes(sql, 'DROP INDEX IF EXISTS board_assignments_active_president_per_university_unique');
 });
 
 test('adds durable, generation-guarded project reconciliation state', async () => {

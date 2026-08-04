@@ -124,13 +124,17 @@ export function assertCanAssignBoardRole(actorMember, universityName, role) {
   assertBoardRole(role);
   if (isGlobalPresident(actorMember)) return;
 
+  if (role === BOARD_ROLES.PRESIDENT) {
+    assertUser(
+      isUniversityPresident(actorMember, universityName),
+      `Only the President of ${universityName} can assign a university President there.`,
+    );
+    return;
+  }
+
   assertUser(
-    role !== BOARD_ROLES.PRESIDENT,
-    'Only a Global President can assign a university President.',
-  );
-  assertUser(
-    isUniversityPresident(actorMember, universityName),
-    `Only the President of ${universityName} can assign board roles there.`,
+    isUniversityPresident(actorMember, universityName) || isUniversityVicePresident(actorMember, universityName),
+    `Only the President or Vice President of ${universityName} can assign board roles there.`,
   );
 }
 
@@ -138,13 +142,17 @@ export function assertCanRemoveBoardRole(actorMember, universityName, role) {
   assertBoardRole(role);
   if (isGlobalPresident(actorMember)) return;
 
+  if (role === BOARD_ROLES.PRESIDENT) {
+    assertUser(
+      isUniversityPresident(actorMember, universityName),
+      `Only the President of ${universityName} can remove a university President there.`,
+    );
+    return;
+  }
+
   assertUser(
-    role !== BOARD_ROLES.PRESIDENT,
-    'Only a Global President can remove a university President.',
-  );
-  assertUser(
-    isUniversityPresident(actorMember, universityName),
-    `Only the President of ${universityName} can remove board roles there.`,
+    isUniversityPresident(actorMember, universityName) || isUniversityVicePresident(actorMember, universityName),
+    `Only the President or Vice President of ${universityName} can remove board roles there.`,
   );
 }
 

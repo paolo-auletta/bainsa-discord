@@ -48,6 +48,14 @@ test('role visibility tiers expose only the intended board levels', () => {
   assert.deepEqual(visibleRoleIds('board', roles), ['global', 'bocconi-president', 'bocconi-vp', 'bocconi-head']);
 });
 
+test('board role commands are visible to university Vice Presidents', () => {
+  const scope = { kind: 'university', universityName: 'Bocconi' };
+  const vicePresident = memberWithRoles(['Bocconi - Vice President']);
+
+  assert.equal(canDiscoverCommand({ commandName: 'board-assign', member: vicePresident, channelScope: scope }), true);
+  assert.equal(canDiscoverCommand({ commandName: 'board-remove', member: vicePresident, channelScope: scope }), true);
+});
+
 test('command overwrites deny everyone and explicitly allow only the selected roles', () => {
   assert.deepEqual(
     buildCommandPermissionOverwrites({ commandName: 'division-create', guildId: 'guild', roles }),
