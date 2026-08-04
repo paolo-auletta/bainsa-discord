@@ -7,7 +7,7 @@ import { MAX_PROJECT_PARTICIPANTS, PROJECT_MEMBER_FETCH_CONCURRENCY, PROJECT_STA
 import {
   addProjectMember,
   assertGuildMembers,
-  assertActiveDivisionResearchers,
+  assertActiveProjectMembers,
   assertActiveUniversityMembers,
   canViewProject,
   closeProject,
@@ -22,7 +22,11 @@ import {
   warmProjectAutocompleteCache,
 } from '../src/services/projects/index.js';
 import { UserFacingError } from '../src/errors.js';
-import { sortedDiscordUserIds } from '../src/services/projects/eligibility.js';
+import {
+  assertMemberProjectAssignmentEligibility,
+  assertProjectPeopleEligibility,
+  sortedDiscordUserIds,
+} from '../src/services/projects/eligibility.js';
 import { formatProjectIntro, formatShowcasePost, projectInfoMessage } from '../src/services/projects/formatters.js';
 
 function memberWithRoles(id, roleNames) {
@@ -172,10 +176,11 @@ test('cached project people scope members to a division and supervisors to a uni
         if (text.includes('FROM divisions')) return { rows: [] };
         return {
           rows: [
-            { discord_user_id: '1', full_name: 'Ada', member_type: 'researcher', university_name: 'Bocconi', division_name: 'Projects' },
-            { discord_user_id: '2', full_name: 'Beatrice', member_type: 'alumni', university_name: 'Bocconi', division_name: 'Projects' },
-            { discord_user_id: '3', full_name: 'Carlo', member_type: 'researcher', university_name: 'Bocconi', division_name: 'Analysis' },
-            { discord_user_id: '4', full_name: 'Daria', member_type: 'researcher', university_name: 'Sapienza', division_name: 'Projects' },
+            { discord_user_id: '1', full_name: 'Ada', member_type: 'researcher', university_name: 'Bocconi', division_name: 'Projects', is_university_board_member: false },
+            { discord_user_id: '2', full_name: 'Beatrice', member_type: 'alumni', university_name: 'Bocconi', division_name: 'Projects', is_university_board_member: false },
+            { discord_user_id: '3', full_name: 'Carlo', member_type: 'researcher', university_name: 'Bocconi', division_name: 'Analysis', is_university_board_member: true },
+            { discord_user_id: '4', full_name: 'Daria', member_type: 'researcher', university_name: 'Sapienza', division_name: 'Projects', is_university_board_member: true },
+            { discord_user_id: '5', full_name: 'Elena', member_type: 'researcher', university_name: 'Bocconi', division_name: null, is_university_board_member: true },
           ],
         };
       },
@@ -185,7 +190,11 @@ test('cached project people scope members to a division and supervisors to a uni
   const scoped = { universityName: 'Bocconi', divisionName: 'Projects', term: '' };
   assert.deepEqual(
     await findProjectPeople({ ...scoped, role: 'member' }),
-    [{ discord_user_id: '1', full_name: 'Ada' }],
+    [
+      { discord_user_id: '1', full_name: 'Ada' },
+      { discord_user_id: '3', full_name: 'Carlo' },
+      { discord_user_id: '5', full_name: 'Elena' },
+    ],
   );
   assert.deepEqual(
     await findProjectPeople({ ...scoped, role: 'supervisor' }),
@@ -193,6 +202,7 @@ test('cached project people scope members to a division and supervisors to a uni
       { discord_user_id: '1', full_name: 'Ada' },
       { discord_user_id: '2', full_name: 'Beatrice' },
       { discord_user_id: '3', full_name: 'Carlo' },
+      { discord_user_id: '5', full_name: 'Elena' },
     ],
   );
   assert.deepEqual(
@@ -201,11 +211,12 @@ test('cached project people scope members to a division and supervisors to a uni
       { discord_user_id: '1', full_name: 'Ada' },
       { discord_user_id: '2', full_name: 'Beatrice' },
       { discord_user_id: '3', full_name: 'Carlo' },
+      { discord_user_id: '5', full_name: 'Elena' },
     ],
   );
 });
 
-test('member eligibility is division-scoped for project members', async () => {
+test('project member lookup accepts division researchers and same-university board members', async () => {
   const calls = [];
   const db = {
     async query(text, values) {
@@ -214,9 +225,56 @@ test('member eligibility is division-scoped for project members', async () => {
     },
   };
 
-  await assertActiveDivisionResearchers(db, 10, 20, ['111111111111111111'], 'members');
-  assert.match(calls[0].text, /JOIN member_divisions/);
+  await assertActiveProjectMembers(db, 10, 20, ['111111111111111111'], 'members');
+  assert.match(calls[0].text, /FROM member_divisions/);
+  assert.match(calls[0].text, /FROM board_assignments/);
   assert.deepEqual(calls[0].values, [10, 20, ['111111111111111111'], 'researcher']);
+});
+
+test('project eligibility accepts local board members as members without a division', async () => {
+  const project = { university_id: 10, division_id: 20 };
+  const person = { discord_user_id: 'board-member', role: 'member' };
+  const db = {
+    async query() {
+      return {
+        rows: [{
+          discord_user_id: 'board-member',
+          member_type: 'researcher',
+          university_id: 10,
+          status: 'active',
+          division_id: null,
+          is_university_board_member: true,
+        }],
+      };
+    },
+  };
+
+  await assertProjectPeopleEligibility(db, project, [person]);
+});
+
+test('executive promotion preserves same-university project member eligibility', async () => {
+  const db = {
+    async query() {
+      return {
+        rows: [{
+          id: 42,
+          name: 'Signals',
+          university_id: 10,
+          division_id: 20,
+          role: 'member',
+          is_university_board_member: false,
+        }],
+      };
+    },
+  };
+
+  await assertMemberProjectAssignmentEligibility(db, {
+    userId: 'future-president',
+    memberType: 'researcher',
+    universityId: 10,
+    divisionIds: [],
+    additionalBoardUniversityIds: [10],
+  });
 });
 
 test('supervisor eligibility is university-scoped and accepts active alumni', async () => {
@@ -523,7 +581,7 @@ test('completed and archived projects reject all mutating project commands befor
 test('eligibility reports missing active members clearly', async () => {
   const db = { query: async () => ({ rows: [] }) };
   await assert.rejects(
-    () => assertActiveDivisionResearchers(db, 10, 20, ['333333333333333333'], 'members'),
+    () => assertActiveProjectMembers(db, 10, 20, ['333333333333333333'], 'members'),
     UserFacingError,
   );
 });

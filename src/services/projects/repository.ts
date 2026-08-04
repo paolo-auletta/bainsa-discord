@@ -64,23 +64,39 @@ export async function assertActiveUniversityMembers(db, universityId, userIds, f
   );
 }
 
-export async function assertActiveDivisionResearchers(db, universityId, divisionId, userIds, fieldName) {
+export async function assertActiveProjectMembers(db, universityId, divisionId, userIds, fieldName) {
   const result = await db.query(
     `SELECT m.discord_user_id
      FROM members m
-     JOIN member_divisions md ON md.discord_user_id = m.discord_user_id
      WHERE m.university_id = $1
-       AND md.division_id = $2
        AND m.discord_user_id = ANY($3::text[])
-       AND m.member_type = $4
-       AND m.status = 'active'`,
+       AND m.status = 'active'
+       AND (
+         (
+           m.member_type = $4
+           AND EXISTS (
+             SELECT 1
+               FROM member_divisions md
+              WHERE md.discord_user_id = m.discord_user_id
+                AND md.division_id = $2
+           )
+         )
+         OR EXISTS (
+           SELECT 1
+             FROM board_assignments br
+            WHERE br.discord_user_id = m.discord_user_id
+              AND br.university_id = $1
+              AND br.active = true
+              AND br.role IN ('head', 'vice_president', 'president')
+         )
+       )`,
     [universityId, divisionId, userIds, MEMBER_TYPES.RESEARCHER],
   );
   const accepted = new Set(result.rows.map((row) => String(row.discord_user_id)));
   const rejected = userIds.filter((id) => !accepted.has(String(id)));
   assertUser(
     rejected.length === 0,
-    `These ${fieldName} are not active researchers in this division: ${formatDiscordUserReferences(rejected)}.`,
+    `These ${fieldName} are neither active researchers in this division nor board members of this university: ${formatDiscordUserReferences(rejected)}.`,
   );
 }
 

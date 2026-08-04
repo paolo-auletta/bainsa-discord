@@ -626,6 +626,142 @@ test('board Head assignment preserves an existing division membership role', asy
   assert.equal(target.roles.cache.has(headRole.id), true);
 });
 
+test('board VP assignment removes Discord division and Head roles even when assignments are stale', async () => {
+  const researcherRole = testRole('researcher-role', ROLE_NAMES.RESEARCHER);
+  const universityRole = testRole('bocconi-role', 'Bocconi');
+  const analysisRole = testRole('analysis-role', 'Bocconi - Analysis');
+  const projectsRole = testRole('projects-role', 'Bocconi - Projects');
+  const analysisHeadRole = testRole('analysis-head-role', 'Bocconi - Head of Analysis');
+  const projectsHeadRole = testRole('projects-head-role', 'Bocconi - Head of Projects');
+  const vicePresidentRole = testRole('vice-president-role', 'Bocconi - Vice President');
+  const roleCache = cacheFrom([
+    researcherRole,
+    universityRole,
+    analysisRole,
+    projectsRole,
+    analysisHeadRole,
+    projectsHeadRole,
+    vicePresidentRole,
+  ]);
+  const target = memberWithRoles([
+    researcherRole,
+    universityRole,
+    analysisRole,
+    projectsRole,
+    analysisHeadRole,
+    projectsHeadRole,
+  ]);
+  const guild = {
+    roles: { cache: roleCache },
+    members: { async fetch() { return target; } },
+  };
+  const db = {
+    async query(text) {
+      if (text.includes('FROM universities')) return { rows: [{ id: 1, name: 'Bocconi' }], rowCount: 1 };
+      if (text.includes('FROM members m')) return { rows: [{ university_name: 'Bocconi' }], rowCount: 1 };
+      if (text.includes('FROM member_divisions')) {
+        return {
+          rows: [
+            { name: 'Analysis', university_name: 'Bocconi' },
+            { name: 'Projects', university_name: 'Bocconi' },
+          ],
+          rowCount: 2,
+        };
+      }
+      if (text.includes('FROM board_assignments br')) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (text.includes('FROM project_people pp')) return { rows: [], rowCount: 0 };
+      throw new Error(`Unexpected query: ${text}`);
+    },
+    async transaction(callback) {
+      return callback({ async query() { return { rows: [], rowCount: 0 }; } });
+    },
+  };
+
+  await assignBoardRole(
+    {
+      guild,
+      user: { id: 'actor-user' },
+      member: fakeMember([ROLE_NAMES.GLOBAL_PRESIDENT]),
+    },
+    {
+      university: 'Bocconi',
+      role: BOARD_ROLES.VICE_PRESIDENT,
+      user: { id: 'target-user' },
+    },
+    { db },
+  );
+
+  assert.deepEqual(
+    [...target.roles.cache.values()].map((role) => role.name).sort(),
+    [ROLE_NAMES.RESEARCHER, 'Bocconi', 'Bocconi - Vice President'].sort(),
+  );
+});
+
+test('board executive assignment preserves same-university project membership without a division', async () => {
+  const researcherRole = testRole('researcher-role', ROLE_NAMES.RESEARCHER);
+  const universityRole = testRole('bocconi-role', 'Bocconi');
+  const analysisRole = testRole('analysis-role', 'Bocconi - Analysis');
+  const vicePresidentRole = testRole('vice-president-role', 'Bocconi - Vice President');
+  const roleCache = cacheFrom([researcherRole, universityRole, analysisRole, vicePresidentRole]);
+  const target = memberWithRoles([researcherRole, universityRole, analysisRole]);
+  const guild = {
+    roles: { cache: roleCache },
+    members: { async fetch() { return target; } },
+  };
+  const projectAssignment = {
+    id: 42,
+    name: 'Signals',
+    university_id: 1,
+    division_id: 10,
+    role: 'member',
+    is_university_board_member: false,
+  };
+  const db = {
+    async query(text) {
+      if (text.includes('FROM universities')) return { rows: [{ id: 1, name: 'Bocconi' }], rowCount: 1 };
+      if (text.includes('FROM members m')) return { rows: [{ university_name: 'Bocconi' }], rowCount: 1 };
+      if (text.includes('FROM member_divisions')) {
+        return { rows: [{ id: 10, name: 'Analysis', university_name: 'Bocconi' }], rowCount: 1 };
+      }
+      if (text.includes('FROM board_assignments br')) return { rows: [], rowCount: 0 };
+      if (text.includes('FROM project_people pp')) {
+        return { rows: [projectAssignment], rowCount: 1 };
+      }
+      throw new Error(`Unexpected query: ${text}`);
+    },
+    async transaction(callback) {
+      return callback({
+        async query(text) {
+          if (text.includes('FROM project_people pp')) {
+            return { rows: [projectAssignment], rowCount: 1 };
+          }
+          return { rows: [], rowCount: 0 };
+        },
+      });
+    },
+  };
+
+  await assignBoardRole(
+    {
+      guild,
+      user: { id: 'actor-user' },
+      member: fakeMember([ROLE_NAMES.GLOBAL_PRESIDENT]),
+    },
+    {
+      university: 'Bocconi',
+      role: BOARD_ROLES.VICE_PRESIDENT,
+      user: { id: 'target-user' },
+    },
+    { db },
+  );
+  assert.deepEqual(
+    [...target.roles.cache.values()].map((role) => role.name).sort(),
+    [ROLE_NAMES.RESEARCHER, 'Bocconi', 'Bocconi - Vice President'].sort(),
+  );
+});
+
 test('division member assignment preserves an existing division member role color', async () => {
   const accessRole = testRole('sapienza-robotics-role', 'Sapienza - Robotics', divisionColorDetails('green').hex);
   const roleCache = cacheFrom([

@@ -13,7 +13,7 @@ import { query, transaction } from '../../db.js';
 import { UserFacingError, assertUser } from '../../errors.js';
 import { uniqueIds } from './permissions.js';
 import {
-  assertActiveDivisionResearchers,
+  assertActiveProjectMembers,
   assertActiveUniversityMembers,
   findActiveDivision,
   getProject,
@@ -160,7 +160,7 @@ export async function createProject(input, deps: ProjectDependencies = {}) {
     BOARD_ROLES.PRESIDENT,
   ]);
   await assertGuildMembers(guild, uniqueIds([...memberIds, ...supervisorIds]));
-  await assertActiveDivisionResearchers(db, divisionRecord.university_id, divisionRecord.division_id, memberIds, 'members');
+  await assertActiveProjectMembers(db, divisionRecord.university_id, divisionRecord.division_id, memberIds, 'members');
   await assertActiveUniversityMembers(db, divisionRecord.university_id, supervisorIds, 'supervisors');
 
   const project = await db.transaction(async (client) => {
@@ -208,7 +208,7 @@ export async function addProjectMember(input, deps: ProjectDependencies = {}) {
   assertProjectIsOpen(project.status);
   await assertGuildMembers(input.interaction.guild, [input.user.id]);
   if (role === PROJECT_PERSON_ROLES.MEMBER) {
-    await assertActiveDivisionResearchers(db, project.university_id, project.division_id, [input.user.id], 'members');
+    await assertActiveProjectMembers(db, project.university_id, project.division_id, [input.user.id], 'members');
   } else {
     await assertActiveUniversityMembers(db, project.university_id, [input.user.id], `${role}s`);
   }
@@ -378,7 +378,7 @@ export async function getProjectInfo(input, deps: ProjectDependencies = {}) {
 }
 
 export {
-  assertActiveDivisionResearchers,
+  assertActiveProjectMembers,
   assertActiveUniversityMembers,
   assertGuildMembers,
   canViewProject,
