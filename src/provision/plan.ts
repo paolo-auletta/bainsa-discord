@@ -30,7 +30,6 @@ export const GLOBAL_CHANNELS = Object.freeze({
   SHOWCASE: 'projects-showcase',
   RESOURCES: 'resources',
   TOPIC_PROPOSALS: 'topic-proposals',
-  ANONYMOUS_FEEDBACK: 'anonymous-feedback',
 });
 
 export const START_CHANNELS = Object.freeze({

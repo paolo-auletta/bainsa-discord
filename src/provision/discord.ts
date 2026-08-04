@@ -48,7 +48,6 @@ import {
   globalBotLogOverwrites,
   globalBoardOverwrites,
   globalGeneralOverwrites,
-  globalReadOnlyOverwrites,
   logsOverwrites,
   memberForumOverwrites,
   privateBaseOverwrites,
@@ -441,17 +440,12 @@ export class DiscordProvisioner {
       overwrites: memberForumOverwrites(roleIds),
       tags: globalForumTags(),
     });
-    const feedback = await this.ensureTextChannel(guild, GLOBAL_CHANNELS.ANONYMOUS_FEEDBACK, {
-      parent: globalCategory,
-      overwrites: globalReadOnlyOverwrites(roleIds),
-    });
     await this.seedMessage(globalGeneral, 'global:general', globalSeedContent.general);
     await this.seedMessage(globalAnnouncements, 'global:announcements', globalSeedContent.announcements);
     await this.seedMessage(globalBoard, 'global:board', globalSeedContent.board);
     await this.seedForumGuide(globalShowcase, 'global:showcase', globalSeedContent.showcase);
     await this.seedForumGuide(resourcesForum, 'global:resources', globalSeedContent.resources);
     await this.seedForumGuide(topicForum, 'global:topic-proposals', globalSeedContent.topicProposals);
-    await this.seedMessage(feedback, 'global:anonymous-feedback', globalSeedContent.anonymousFeedback);
 
     for (const university of this.plan.universities) {
       const universityRecord = await this.ensureUniversity(guild, roleIds, university);

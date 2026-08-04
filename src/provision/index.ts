@@ -20,7 +20,6 @@ export {
   globalGeneralOverwrites,
   globalAnnouncementOverwrites,
   globalBotLogOverwrites,
-  globalReadOnlyOverwrites,
   globalBoardOverwrites,
   memberForumOverwrites,
   showcaseForumOverwrites,

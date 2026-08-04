@@ -84,7 +84,14 @@ export function globalSeeds({ anonymousFeedbackUrl }: { anonymousFeedbackUrl?: s
     announcements: buildSeedContent({
       key: 'global:announcements',
       title: 'Global Announcements',
-      body: 'Global Presidents and University Presidents can publish network-wide announcements here. Use native Discord announcement tools and calendar events.',
+      body: [
+        'Global Presidents and University Presidents can publish network-wide announcements here. Use native Discord announcement tools and calendar events.',
+        '',
+        '**Anonymous feedback**',
+        anonymousFeedbackUrl
+          ? `Use this form when you want feedback routed privately to the right reviewers:\n${anonymousFeedbackUrl}`
+          : 'Anonymous feedback is enabled by configuration. Ask a board member for the current feedback form if it is not displayed here yet.',
+      ].join('\n'),
     }),
     board: buildSeedContent({
       key: 'global:board',
@@ -115,13 +122,6 @@ export function globalSeeds({ anonymousFeedbackUrl }: { anonymousFeedbackUrl?: s
       key: 'global:topic-proposals',
       title: 'Topic Proposals',
       body: 'Suggest research, event, or discussion topics for the broader community. Include context, intended audience, and what help you need.',
-    }),
-    anonymousFeedback: buildSeedContent({
-      key: 'global:anonymous-feedback',
-      title: 'Anonymous Feedback',
-      body: anonymousFeedbackUrl
-        ? `Use this form when you want feedback routed privately to the right reviewers:\n${anonymousFeedbackUrl}`
-        : 'Anonymous feedback is enabled by configuration. Ask a board member for the current feedback form if it is not displayed here yet.',
     }),
   };
 }
