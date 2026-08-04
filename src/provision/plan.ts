@@ -29,7 +29,7 @@ export const GLOBAL_CHANNELS = Object.freeze({
   BOARD: 'bainsa-board',
   SHOWCASE: 'projects-showcase',
   RESOURCES: 'resources',
-  TOPIC_PROPOSALS: 'topic-proposals',
+  CHANNEL_PROPOSALS: 'channel-proposals',
   ANONYMOUS_FEEDBACK: 'anonymous-feedback',
 });
 

@@ -56,7 +56,7 @@ GLOBAL BAINSA — visible to approved members
 ├── #bainsa-board — Global Presidents + University Presidents
 ├── forum: projects-showcase — selected cross-network project stories
 ├── forum: resources — shared knowledge base
-├── forum: topic-proposals — member-led ideas for common topics
+├── forum: channel-proposals — member-led requests for new shared channels
 └── #anonymous-feedback — link to a confidential external form
 
 BAINSA <UNIVERSITY> — visible only to that university
@@ -170,7 +170,7 @@ Global President
 
 The server therefore has three different kinds of conversation:
 
-1. **Public to all approved BAINSA members** — global general, resources, topic proposals, announcements, and showcases.
+1. **Public to all approved BAINSA members** — global general, resources, channel proposals, announcements, and showcases.
 2. **Locally private** — university, division, and project work.
 3. **Governance-only** — local boards, the global board, onboarding review, bot logs, and administrative logs.
 
@@ -221,7 +221,7 @@ GLOBAL BAINSA — visible to approved members
 ├── #bainsa-board — Global Presidents + University Presidents
 ├── forum: projects-showcase — selected cross-network project stories
 ├── forum: resources — shared knowledge base
-├── forum: topic-proposals — member-led ideas for common topics
+├── forum: channel-proposals — member-led requests for new shared channels
 └── #anonymous-feedback — link to a confidential external form
 ```
 
@@ -275,11 +275,11 @@ This is the shared, searchable knowledge base. Suggested resource families inclu
 
 Posts should use clear titles, appropriate tags, a short explanation of why the resource is useful, and any access or expiry information. Personal data and restricted alumni information should remain in an access-controlled external system rather than being posted openly.
 
-### Forum: `topic-proposals`
+### Forum: `channel-proposals`
 
-Any approved member can open a post proposing a new shared topic. A useful proposal should state:
+Any approved member can open a post proposing a new shared channel. A useful channel proposal should state:
 
-- The topic and intended audience.
+- The channel’s purpose and intended audience.
 - Why existing channels are insufficient.
 - The expected activity or output.
 - Whether it is global, university-specific, or temporary.
