@@ -40,8 +40,8 @@ test.after(async () => {
 test('runs every migration against a fresh database and keeps the final contract idempotent', async () => {
   const first = await resetAndMigrate();
   assert.equal(first.pending, 0);
-  assert.equal(first.appliedNow.length, 5);
-  assert.deepEqual(first.status.map((row) => row.status), ['applied', 'applied', 'applied', 'applied', 'applied']);
+  assert.equal(first.appliedNow.length, 6);
+  assert.deepEqual(first.status.map((row) => row.status), ['applied', 'applied', 'applied', 'applied', 'applied', 'applied']);
 
   const tables = await database.query(`
     SELECT table_name
@@ -90,8 +90,14 @@ test('runs every migration against a fresh database and keeps the final contract
     [otherUniversityId, 'Projects', 'blue'],
   );
   await database.query(
-    'INSERT INTO members (discord_user_id, university_id, member_type) VALUES ($1, $2, $3)',
-    ['member-1', universityId, 'researcher'],
+    `INSERT INTO members (discord_user_id, university_id, member_type)
+     VALUES ($1, $2, $3), ($4, $2, $3), ($5, $2, $3)`,
+    ['member-1', universityId, 'researcher', 'president-1', 'president-2'],
+  );
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, role)
+     VALUES ($1, $2, 'president'), ($3, $2, 'president')`,
+    ['president-1', universityId, 'president-2'],
   );
 
   await assert.rejects(
@@ -123,11 +129,11 @@ test('runs every migration against a fresh database and keeps the final contract
 
   const second = await migrate();
   assert.deepEqual(second.appliedNow, []);
-  assert.equal(second.applied, 5);
+  assert.equal(second.applied, 6);
   assert.equal(second.pending, 0);
 
   const status = await migrate({ statusOnly: true });
-  assert.equal(status.applied, 5);
+  assert.equal(status.applied, 6);
   assert.equal(status.pending, 0);
 });
 
@@ -195,7 +201,7 @@ test('upgrades the tracked legacy university and division shape in place', async
   );
 
   const result = await migrate();
-  assert.equal(result.applied, 5);
+  assert.equal(result.applied, 6);
   assert.equal(result.recordedNotLocal, 1);
 
   const university = await database.query(

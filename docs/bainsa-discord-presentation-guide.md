@@ -595,19 +595,19 @@ All slash commands must be run in a valid `#bot-log`. Inputs marked “optional�
 #### `/board-assign`
 
 - **Why:** appoint board members through the same auditable role hierarchy used for every other operation.
-- **Who:** Global Presidents for any university; a University President inside their university.
+- **Who:** Global Presidents for any university; a University President or Vice President inside their university.
 - **Inputs:** `user`, `university`, `role` (`Head`, `Vice President`, or `President`); `division` is required only for Head.
 - **Returns:** private confirmation after the member, board assignment, and roles are reconciled.
-- **Rules:** only a Global President can appoint a University President.
+- **Rules:** a University President or Global President can appoint a University President. Multiple co-Presidents can be active in one university; Vice Presidents cannot appoint a President.
 - **Activity:** appointee, university, position, and division where relevant are posted.
 
 #### `/board-remove`
 
 - **Why:** remove authority while preserving the person’s ordinary membership.
-- **Who:** Global Presidents for any university; a University President inside their university.
+- **Who:** Global Presidents for any university; a University President or Vice President inside their university.
 - **Inputs:** `user`, `university`, `role`; optional `division` for a specific Head role and optional private `reason`.
 - **Returns:** private confirmation after the board assignment and managed board role are removed.
-- **Rules:** only a Global President can remove a University President. Leaving Head division blank removes all Head roles in that university.
+- **Rules:** a University President or Global President can remove a University President. Vice Presidents cannot remove a President. Leaving Head division blank removes all Head roles in that university.
 - **Activity:** the removed position is posted without the reason.
 
 #### `/board-info`

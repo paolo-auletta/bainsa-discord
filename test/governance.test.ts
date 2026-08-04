@@ -12,7 +12,9 @@ import { UserFacingError } from '../src/errors.js';
 import {
   assertBoardAssignDivisionShape,
   assertBoardRemoveDivisionShape,
+  assertCanAssignBoardRole,
   assertCanManageMember,
+  assertCanRemoveBoardRole,
   assertCanRemoveMember,
   parseDivisionList,
 } from '../src/services/governance/policy.js';
@@ -214,6 +216,24 @@ test('member management policy reports the actor university when the selected un
     () => assertCanManageMember(bocconiVicePresident, 'Sapienza', sapienzaMember),
     (error) => error instanceof UserFacingError && error.message === 'You can only manage members in Bocconi.',
   );
+});
+
+test('board role policy scopes VP and President authority for board roles', () => {
+  const vp = fakeMember(['Bocconi - Vice President']);
+  const president = fakeMember(['Bocconi - President']);
+
+  for (const role of [BOARD_ROLES.HEAD, BOARD_ROLES.VICE_PRESIDENT]) {
+    assert.doesNotThrow(() => assertCanAssignBoardRole(vp, 'Bocconi', role));
+    assert.doesNotThrow(() => assertCanRemoveBoardRole(vp, 'Bocconi', role));
+  }
+  assert.doesNotThrow(() => assertCanAssignBoardRole(president, 'Bocconi', BOARD_ROLES.PRESIDENT));
+  assert.doesNotThrow(() => assertCanRemoveBoardRole(president, 'Bocconi', BOARD_ROLES.PRESIDENT));
+  assert.throws(() => assertCanAssignBoardRole(vp, 'Bocconi', BOARD_ROLES.PRESIDENT), UserFacingError);
+  assert.throws(() => assertCanRemoveBoardRole(vp, 'Bocconi', BOARD_ROLES.PRESIDENT), UserFacingError);
+  assert.throws(() => assertCanAssignBoardRole(president, 'Sapienza', BOARD_ROLES.PRESIDENT), UserFacingError);
+  assert.throws(() => assertCanRemoveBoardRole(president, 'Sapienza', BOARD_ROLES.PRESIDENT), UserFacingError);
+  assert.throws(() => assertCanAssignBoardRole(vp, 'Sapienza', BOARD_ROLES.VICE_PRESIDENT), UserFacingError);
+  assert.throws(() => assertCanRemoveBoardRole(vp, 'Sapienza', BOARD_ROLES.HEAD), UserFacingError);
 });
 
 test('board Head division rules differ for assign and remove', () => {

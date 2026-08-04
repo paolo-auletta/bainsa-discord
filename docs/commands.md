@@ -57,7 +57,7 @@ Buttons and command selectors update the same ephemeral message in place. Every 
 - Global Presidents can operate across all universities.
 - University Presidents and Vice Presidents can operate only within their university, except where a command explicitly says otherwise.
 - Division Heads can operate only within their assigned division for division and project operations.
-- A university President can assign or remove university board roles. Only a Global President can assign or remove a university President.
+- A university President can assign or remove university board roles, including university Presidents. Vice Presidents can manage Head and Vice President roles only. Multiple active co-Presidents are supported.
 - `member-remove` is limited to university Presidents, university Vice Presidents, and Global Presidents. A Vice President cannot remove their university President.
 - The Bot account cannot be managed, assigned, promoted, removed, or included in a project participant list.
 - Commands do not change the Bot account's status, roles, membership, or permissions.
@@ -180,7 +180,7 @@ The bot blocks removal when the person still has active project access in that d
 
 ### `/board-assign`
 
-**Who can use it:** Global Presidents for all universities; a university President for their university. Only a Global President can assign a university President.
+**Who can use it:** Global Presidents for all universities; a university President or Vice President for their university. A university President can also assign a co-President; a Vice President cannot assign a President.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
@@ -193,7 +193,7 @@ The bot verifies the appointment, reconciles the Researcher, university, board, 
 
 ### `/board-remove`
 
-**Who can use it:** Global Presidents for all universities; a university President for their university. Only a Global President can remove a university President.
+**Who can use it:** Global Presidents for all universities; a university President or Vice President for their university. A university President can remove a co-President; a Vice President cannot remove a President.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
