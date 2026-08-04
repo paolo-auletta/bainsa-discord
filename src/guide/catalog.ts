@@ -162,7 +162,7 @@ export const GUIDE_CATALOG = Object.freeze([
       'Supervisors must be active members of the selected university.',
       'Prepare start and expected-end dates in YYYY-MM-DD format.',
     ],
-    inputs: ['Name', 'University and division', 'Members and supervisors', 'Dates', 'Optional private notes'],
+    inputs: ['Name', 'University and division', 'Dates', 'Optional private notes', 'Native member and supervisor selectors'],
     success: 'The project is committed and its private Discord channel is created or queued for reconciliation.',
     activity: 'The project, team, timeline, and Discord state are posted in #bot-log; notes are omitted.',
   }),

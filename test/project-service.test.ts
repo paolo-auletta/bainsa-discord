@@ -14,7 +14,6 @@ import {
   createProject,
   findProjectParentId,
   findProjectDivisions,
-  findProjectPeople,
   findProjectUniversities,
   removeProjectMember,
   searchVisibleProjects,
@@ -136,84 +135,36 @@ test('autocomplete only returns projects visible to the caller', async () => {
   assert.doesNotMatch(sql, /LIMIT 100/);
 });
 
-test('project setup autocomplete scopes universities, divisions, and people correctly', async () => {
+test('project setup autocomplete scopes universities and divisions correctly', async () => {
   const calls = [];
   const db = {
     async query(text, values) {
       calls.push({ text, values });
-      return { rows: [{ name: 'Bocconi', discord_user_id: '111111111111111111', full_name: 'Ada Lovelace' }] };
+      return { rows: [{ name: 'Bocconi' }] };
     },
   };
 
   await findProjectUniversities('b', { db });
   await findProjectDivisions('Bocconi', 'p', { db });
-  await findProjectPeople({
-    universityName: 'Bocconi',
-    divisionName: 'Projects',
-    role: 'member',
-    term: 'ada',
-  }, { db });
-  await findProjectPeople({
-    universityName: 'Bocconi',
-    divisionName: 'Projects',
-    role: 'supervisor',
-    term: 'ada',
-  }, { db });
 
   assert.match(calls[0].text, /FROM universities/);
   assert.match(calls[1].text, /JOIN universities/);
-  assert.match(calls[2].text, /member_divisions/);
-  assert.deepEqual(calls[2].values.slice(0, 3), ['Bocconi', 'Projects', 'researcher']);
-  assert.equal(calls[3].values[1], null);
-  assert.equal(calls[3].values[2], null);
 });
 
-test('cached project people scope members to a division and supervisors to a university', async () => {
+test('project autocomplete cache contains only universities and divisions', async () => {
+  const queries = [];
   await warmProjectAutocompleteCache({
     db: {
       async query(text) {
+        queries.push(text);
         if (text.includes('FROM universities')) return { rows: [] };
         if (text.includes('FROM divisions')) return { rows: [] };
-        return {
-          rows: [
-            { discord_user_id: '1', full_name: 'Ada', member_type: 'researcher', university_name: 'Bocconi', division_name: 'Projects', is_university_board_member: false },
-            { discord_user_id: '2', full_name: 'Beatrice', member_type: 'alumni', university_name: 'Bocconi', division_name: 'Projects', is_university_board_member: false },
-            { discord_user_id: '3', full_name: 'Carlo', member_type: 'researcher', university_name: 'Bocconi', division_name: 'Analysis', is_university_board_member: true },
-            { discord_user_id: '4', full_name: 'Daria', member_type: 'researcher', university_name: 'Sapienza', division_name: 'Projects', is_university_board_member: true },
-            { discord_user_id: '5', full_name: 'Elena', member_type: 'researcher', university_name: 'Bocconi', division_name: null, is_university_board_member: true },
-          ],
-        };
+        throw new Error(`Unexpected autocomplete query: ${text}`);
       },
     },
   });
-
-  const scoped = { universityName: 'Bocconi', divisionName: 'Projects', term: '' };
-  assert.deepEqual(
-    await findProjectPeople({ ...scoped, role: 'member' }),
-    [
-      { discord_user_id: '1', full_name: 'Ada' },
-      { discord_user_id: '3', full_name: 'Carlo' },
-      { discord_user_id: '5', full_name: 'Elena' },
-    ],
-  );
-  assert.deepEqual(
-    await findProjectPeople({ ...scoped, role: 'supervisor' }),
-    [
-      { discord_user_id: '1', full_name: 'Ada' },
-      { discord_user_id: '2', full_name: 'Beatrice' },
-      { discord_user_id: '3', full_name: 'Carlo' },
-      { discord_user_id: '5', full_name: 'Elena' },
-    ],
-  );
-  assert.deepEqual(
-    await findProjectPeople({ universityName: 'Bocconi', role: 'supervisor', term: '' }),
-    [
-      { discord_user_id: '1', full_name: 'Ada' },
-      { discord_user_id: '2', full_name: 'Beatrice' },
-      { discord_user_id: '3', full_name: 'Carlo' },
-      { discord_user_id: '5', full_name: 'Elena' },
-    ],
-  );
+  assert.equal(queries.length, 2);
+  assert.equal(queries.some((text) => text.includes('FROM members')), false);
 });
 
 test('project member lookup accepts division researchers and same-university board members', async () => {
@@ -374,6 +325,21 @@ test('project member fetches report only confirmed unknown members as absent', a
   await assert.rejects(
     () => assertGuildMembers(guild, ['123456789012345']),
     /These users are not in the server: <@123456789012345>/,
+  );
+});
+
+test('project participant selection rejects every bot account', async () => {
+  const guild = {
+    members: {
+      async fetch(id) {
+        return { id, user: { bot: id === 'bot-account' } };
+      },
+    },
+  };
+
+  await assert.rejects(
+    () => assertGuildMembers(guild, ['human-account', 'bot-account']),
+    /Bots cannot be assigned to projects: <@bot-account>/,
   );
 });
 

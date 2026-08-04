@@ -9,6 +9,7 @@ interface ComponentHandler {
   canHandle: (customId: string) => boolean;
   handleButton?: (interaction: unknown) => unknown;
   handleStringSelect?: (interaction: unknown) => unknown;
+  handleUserSelect?: (interaction: unknown) => unknown;
   handleModalSubmit?: (interaction: unknown) => unknown;
   handleComponent?: (interaction: unknown) => unknown;
 }
@@ -17,6 +18,7 @@ interface InteractionDispatcherOptions {
   commands?: readonly CommandDefinition[];
   onboarding?: ComponentHandler;
   guide?: ComponentHandler;
+  projectSetup?: ComponentHandler;
   onError?: (interaction: unknown, error: unknown) => Promise<void>;
 }
 
@@ -25,6 +27,7 @@ export function routeInteraction(interaction) {
   if (interaction.isAutocomplete?.()) return 'autocomplete';
   if (interaction.isButton?.()) return 'button';
   if (interaction.isStringSelectMenu?.()) return 'stringSelect';
+  if (interaction.isUserSelectMenu?.()) return 'userSelect';
   if (interaction.isModalSubmit?.()) return 'modalSubmit';
   return 'unknown';
 }
@@ -38,6 +41,7 @@ export function createInteractionDispatcher({
   commands,
   onboarding,
   guide,
+  projectSetup,
   onError = handleInteractionError,
 }: InteractionDispatcherOptions = {}) {
   const commandMap = buildCommandMap(commands ?? []);
@@ -72,6 +76,16 @@ export function createInteractionDispatcher({
 
       if (route === 'button' && onboarding?.canHandle?.(interaction.customId)) {
         await requireComponentHandler(onboarding.handleButton)(interaction);
+        return;
+      }
+
+      if (route === 'button' && projectSetup?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(projectSetup.handleButton)(interaction);
+        return;
+      }
+
+      if (route === 'userSelect' && projectSetup?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(projectSetup.handleUserSelect)(interaction);
         return;
       }
 

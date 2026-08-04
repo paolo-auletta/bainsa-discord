@@ -147,7 +147,7 @@ Do not use this override in a production deployment: members could otherwise see
 
 ## Onboarding
 
-New members can only see the read-only `START HERE` area. The onboarding flow collects a full name, member type, university, and exactly one division for Researchers. Alumni choose no division. A Division Head, Vice President, or President from that university—or a Global President—must approve the request before roles are assigned. Board roles cannot be requested through onboarding.
+New members can only see the read-only `START HERE` area. The onboarding flow collects a full name, member type, university, and exactly one division for Researchers. Alumni choose no division. A Division Head, Vice President, or President from that university—or a Global President—must approve the request before roles are assigned. Approval also sets the member's server nickname from the recorded onboarding name so Discord-native user selectors can find them by name; names longer than Discord's 32-character nickname limit remain complete in PostgreSQL and are truncated only in the nickname. Board roles cannot be requested through onboarding.
 
 ## Development
 

@@ -72,7 +72,7 @@ test('university and division authority stays scoped', () => {
   );
 });
 
-test('commands cannot target the bot account directly or in project participant lists', () => {
+test('commands cannot target the bot account directly', () => {
   const interaction = {
     client: { user: { id: '99999999999999999' } },
     options: {
@@ -81,13 +81,6 @@ test('commands cannot target the bot account directly or in project participant 
   };
 
   assert.throws(() => assertNoBotCommandTarget(interaction), UserFacingError);
-  assert.throws(
-    () => assertNoBotCommandTarget({
-      ...interaction,
-      options: { data: [{ type: 3, name: 'members', value: '<@99999999999999999>' }] },
-    }),
-    /cannot be managed or assigned/,
-  );
   assert.throws(
     () => assertNotBotUser(interaction, '99999999999999999'),
     /cannot be managed or assigned/,

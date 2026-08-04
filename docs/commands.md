@@ -66,10 +66,9 @@ Buttons and command selectors update the same ephemeral message in place. Every 
 
 - University fields search active universities.
 - A division field searches only active divisions belonging to the selected university. The division list is empty until a valid university value has been selected.
-- Project `members` and `supervisors` fields search Discord server members directly, just like the native member picker used by `/member-add`. They are not filtered by project names, divisions, or university names in the autocomplete UI.
-- Project participant fields remain comma-separated string fields because Discord does not provide a multi-user slash-command option. Select or enter one Discord mention at a time, separated by commas. The database validates the final list against the selected project scope.
+- Project creation opens Discord-native multi-user selectors after the slash-command fields are submitted. The database validates the selected people against the project scope before creation.
 - Date fields use strict `YYYY-MM-DD` text. Discord slash commands do not provide a native calendar/date option.
-- Autocomplete suggestions never include the Bot account.
+- The Bot account is rejected by both native command targets and project participant selectors.
 
 ## Member Commands
 
@@ -229,13 +228,13 @@ All v1 projects are private, university-scoped, and division-scoped. Project cha
 | `name` | Yes | Project name |
 | `university` | Yes | University that owns the project; autocomplete searches active universities |
 | `division` | Yes | Division inside the selected university; autocomplete is filtered to that university |
-| `members` | Yes | One or more server members, entered as comma-separated Discord mentions; final validation requires active Researchers in the selected division |
-| `supervisors` | Yes | One or more server members, entered as comma-separated Discord mentions; final validation requires active members of the selected university and permits active Alumni |
 | `start_date` | Yes | Start date in `YYYY-MM-DD` format |
 | `expected_end` | Yes | Expected end date in `YYYY-MM-DD` format; must not precede the start date |
 | `notes` | No | Project notes |
 
-The member and supervisor suggestions search all non-bot Discord members. The selected university and division are still authoritative: the database rejects a person who does not meet the appropriate project eligibility rule, rejects duplicate people across the two lists, and rejects the Bot account. Duplicate mentions within one field are collapsed. A project has at most 994 unique direct participants across members, supervisors, and board liaisons. This reserves six of Discord's 1,000 permission overwrites for `@everyone`, the Bot, Global President, and the scoped Head, Vice President, and President roles. Discord documents this limit as error 30060, “Maximum number of channel permission overwrites reached (1000)”: [Discord API error codes](https://discord.com/developers/topics/opcodes-and-status-codes).
+After the slash-command fields are submitted, the bot opens Discord-native user selectors for the initial members and supervisors. Each selector accepts up to 25 people and searches Discord server nicknames and usernames. Onboarding approval sets the server nickname from the recorded onboarding name, so native user search can find members by that name. Both selections are required.
+
+The selected university and division remain authoritative: the database rejects a person who does not meet the appropriate project eligibility rule, rejects duplicate people across the two groups, and rejects the Bot account. A project has at most 994 unique direct participants across members, supervisors, and board liaisons; additional participants can be added afterward with `/project-add-member`. This reserves six of Discord's 1,000 permission overwrites for `@everyone`, the Bot, Global President, and the scoped Head, Vice President, and President roles. Discord documents this limit as error 30060, “Maximum number of channel permission overwrites reached (1000)”: [Discord API error codes](https://discord.com/developers/topics/opcodes-and-status-codes).
 
 When valid, the bot atomically commits the project, participant records, audit entry, and pending reconciliation intent to PostgreSQL. It then immediately runs an idempotent reconciliation that creates or repairs the private project channel and its scoped access. If Discord work fails, the committed project is reported as pending and retries automatically. The project introduction and showcase history are one-shot best-effort posts; they are not replayed by reconciliation.
 

@@ -24,6 +24,8 @@ export async function assertGuildMembers(guild, userIds) {
   );
   const missing = userIds.filter((_, index) => !fetched[index]);
   assertUser(missing.length === 0, `These users are not in the server: ${formatDiscordUserReferences(missing)}.`);
+  const bots = userIds.filter((_, index) => fetched[index]?.user?.bot === true);
+  assertUser(bots.length === 0, `Bots cannot be assigned to projects: ${formatDiscordUserReferences(bots)}.`);
 }
 
 function findCategoryId(guild, preferredId, fallbackName) {
