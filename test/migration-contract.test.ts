@@ -11,6 +11,16 @@ const divisionColorMigrationUrl = projectPath('db', 'migrations', '005_division_
 const expandedDivisionColorMigrationUrl = projectPath('db', 'migrations', '006_expand_division_colors.sql');
 const reconciliationMigrationUrl = projectPath('db', 'migrations', '007_project_reconciliation.sql');
 const coPresidentsMigrationUrl = projectPath('db', 'migrations', '008_allow_co_presidents.sql');
+const executivePromotionMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '009_clear_division_roles_on_executive_promotion.sql',
+);
+const executiveExclusivityMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '010_enforce_executive_division_exclusivity.sql',
+);
 
 async function migrationSql() {
   return readFile(migrationUrl, 'utf8');
@@ -36,6 +46,14 @@ async function coPresidentsMigrationSql() {
   return readFile(coPresidentsMigrationUrl, 'utf8');
 }
 
+async function executivePromotionMigrationSql() {
+  return readFile(executivePromotionMigrationUrl, 'utf8');
+}
+
+async function executiveExclusivityMigrationSql() {
+  return readFile(executiveExclusivityMigrationUrl, 'utf8');
+}
+
 function assertIncludes(sql, snippet) {
   assert.ok(sql.includes(snippet), `Expected migration to include: ${snippet}`);
 }
@@ -52,6 +70,8 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '006_expand_division_colors.sql',
     '007_project_reconciliation.sql',
     '008_allow_co_presidents.sql',
+    '009_clear_division_roles_on_executive_promotion.sql',
+    '010_enforce_executive_division_exclusivity.sql',
   ]);
 });
 
@@ -59,6 +79,26 @@ test('allows multiple active university Presidents', async () => {
   const sql = await coPresidentsMigrationSql();
 
   assertIncludes(sql, 'DROP INDEX IF EXISTS board_assignments_active_president_per_university_unique');
+});
+
+test('defers and serializes executive division cleanup across all relevant writes', async () => {
+  const sql = await executiveExclusivityMigrationSql();
+
+  assertIncludes(sql, 'DROP TRIGGER IF EXISTS board_assignments_clear_division_roles_on_executive_promotion');
+  assertIncludes(sql, 'pg_advisory_xact_lock');
+  assertIncludes(sql, 'AFTER INSERT OR UPDATE OF active, role, university_id, discord_user_id ON board_assignments');
+  assertIncludes(sql, 'DEFERRABLE INITIALLY DEFERRED');
+  assertIncludes(sql, 'member_divisions_enforce_executive_division_exclusivity');
+});
+
+test('clears division assignments when an executive board role becomes active', async () => {
+  const sql = await executivePromotionMigrationSql();
+
+  assertIncludes(sql, 'CREATE OR REPLACE FUNCTION clear_division_assignments_for_executive_promotion()');
+  assertIncludes(sql, "NEW.role IN ('vice_president', 'president')");
+  assertIncludes(sql, 'DELETE FROM member_divisions AS md');
+  assertIncludes(sql, "AND role = 'head'");
+  assertIncludes(sql, 'BEFORE INSERT OR UPDATE OF active, role ON board_assignments');
 });
 
 test('adds durable, generation-guarded project reconciliation state', async () => {

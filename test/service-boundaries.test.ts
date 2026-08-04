@@ -35,7 +35,7 @@ const GOVERNANCE_PUBLIC_API = [
 
 const PROJECT_PUBLIC_API = [
   'addProjectMember',
-  'assertActiveDivisionResearchers',
+  'assertActiveProjectMembers',
   'assertActiveUniversityMembers',
   'assertGuildMembers',
   'canViewProject',

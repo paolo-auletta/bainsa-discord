@@ -33,7 +33,15 @@ export async function lockMemberEligibilityRows(q, userIds) {
 
 async function membershipRows(q, userIds) {
   const result = await q.query(
-    `SELECT m.discord_user_id, m.member_type, m.university_id, m.status, md.division_id
+    `SELECT m.discord_user_id, m.member_type, m.university_id, m.status, md.division_id,
+            EXISTS (
+              SELECT 1
+                FROM board_assignments br
+               WHERE br.discord_user_id = m.discord_user_id
+                 AND br.university_id = m.university_id
+                 AND br.active = true
+                 AND br.role IN ('head', 'vice_president', 'president')
+            ) AS is_university_board_member
        FROM members m
        LEFT JOIN member_divisions md ON md.discord_user_id = m.discord_user_id
       WHERE m.discord_user_id = ANY($1::text[])`,
@@ -53,10 +61,12 @@ function membershipIndex(rows) {
         university_id: row.university_id,
         status: row.status,
         divisionIds: new Set(),
+        isUniversityBoardMember: false,
       };
       members.set(userId, member);
     }
     if (row.division_id != null) member.divisionIds.add(String(row.division_id));
+    member.isUniversityBoardMember ||= row.is_university_board_member === true;
   }
   return members;
 }
@@ -66,6 +76,7 @@ function isEligibleForProjectPerson(member, project, role) {
     return false;
   }
   if (role === PROJECT_PERSON_ROLES.MEMBER) {
+    if (member.isUniversityBoardMember) return true;
     return member.member_type === MEMBER_TYPES.RESEARCHER && member.divisionIds.has(String(project.division_id));
   }
   return role === PROJECT_PERSON_ROLES.SUPERVISOR || role === PROJECT_PERSON_ROLES.BOARD_LIAISON;
@@ -88,7 +99,7 @@ export async function assertProjectPeopleEligibility(q, project, people) {
 
   for (const [role, rejected] of rejectedByRole) {
     const message = role === PROJECT_PERSON_ROLES.MEMBER
-      ? `These ${roleFieldName(role)} are not active researchers in this division: ${formatDiscordUserReferences(rejected)}.`
+      ? `These ${roleFieldName(role)} are neither active researchers in this division nor board members of this university: ${formatDiscordUserReferences(rejected)}.`
       : `These ${roleFieldName(role)} are not accepted active members in this university: ${formatDiscordUserReferences(rejected)}.`;
     assertUser(false, message);
   }
@@ -104,9 +115,18 @@ export async function assertMemberProjectAssignmentEligibility(q, {
   memberType,
   universityId,
   divisionIds,
+  additionalBoardUniversityIds = [],
 }) {
   const result = await q.query(
-    `SELECT p.id, p.name, p.university_id, p.division_id, pp.role
+    `SELECT p.id, p.name, p.university_id, p.division_id, pp.role,
+            EXISTS (
+              SELECT 1
+                FROM board_assignments br
+               WHERE br.discord_user_id = pp.discord_user_id
+                 AND br.university_id = p.university_id
+                 AND br.active = true
+                 AND br.role IN ('head', 'vice_president', 'president')
+            ) AS is_university_board_member
        FROM project_people pp
        JOIN projects p ON p.id = pp.project_id
       WHERE pp.discord_user_id = $1
@@ -115,9 +135,16 @@ export async function assertMemberProjectAssignmentEligibility(q, {
     [String(userId), ACTIVE_PROJECT_STATUSES],
   );
   const allowedDivisions = new Set(divisionIds.map((divisionId) => String(divisionId)));
+  const additionalBoardUniversities = new Set(
+    additionalBoardUniversityIds.map((candidate) => String(candidate)),
+  );
   const incompatible = result.rows.filter((project) => {
     if (String(project.university_id) !== String(universityId)) return true;
     if (project.role !== PROJECT_PERSON_ROLES.MEMBER) return false;
+    if (
+      project.is_university_board_member === true ||
+      additionalBoardUniversities.has(String(project.university_id))
+    ) return false;
     return memberType !== MEMBER_TYPES.RESEARCHER || !allowedDivisions.has(String(project.division_id));
   });
 

@@ -238,6 +238,28 @@ function removableMembershipRoleNames(previousRecord, previousDivisions, nextUni
   return [...new Set(names)];
 }
 
+function removableDivisionRoleNamesForExecutivePromotion(universityName, divisions, boardRoles) {
+  return stableRoleNames([
+    ...divisions
+      .filter((division) => division.university_name === universityName)
+      .map((division) => divisionRoleName(universityName, division.name)),
+    ...boardRoles
+      .filter((boardRole) =>
+        boardRole.role === BOARD_ROLES.HEAD &&
+        boardRole.university_name === universityName &&
+        boardRole.division_name,
+      )
+      .map((boardRole) => divisionHeadRoleName(universityName, boardRole.division_name)),
+  ]);
+}
+
+function discordDivisionRoleNamesForUniversity(member, universityName) {
+  const prefix = `${universityName} - `;
+  return [...member.roles.cache.values()]
+    .map((role) => role.name)
+    .filter((roleName) => roleName.startsWith(prefix) && isDivisionScopedRoleName(roleName));
+}
+
 function assertNoSilentUniversityMove(previousRecord, universityName, commandName) {
   if (!previousRecord?.university_name || previousRecord.university_name === universityName) return;
   assertUser(
@@ -268,9 +290,17 @@ async function assertNoActiveProjectAccessLoss(db, userId, division) {
       WHERE pp.discord_user_id = $1
         AND p.division_id = $2
         AND p.status = ANY($3::text[])
+        AND NOT EXISTS (
+          SELECT 1
+            FROM board_assignments br
+           WHERE br.discord_user_id = pp.discord_user_id
+             AND br.university_id = $4
+             AND br.active = true
+             AND br.role IN ('head', 'vice_president', 'president')
+        )
       ORDER BY p.name
       LIMIT 5`,
-    [String(userId), division.id, ACTIVE_PROJECT_STATUSES],
+    [String(userId), division.id, ACTIVE_PROJECT_STATUSES, division.university_id],
   );
   assertUser(
     result.rowCount === 0,
@@ -280,10 +310,11 @@ async function assertNoActiveProjectAccessLoss(db, userId, division) {
   );
 }
 
-function projectEligibilityFailure(project, memberType, universityId, divisionIds) {
+function projectEligibilityFailure(project, memberType, universityId, divisionIds, universityBoardMember) {
   const sameUniversity = String(project.university_id) === String(universityId);
 
   if (project.role === PROJECT_PERSON_ROLES.MEMBER) {
+    if (sameUniversity && universityBoardMember) return false;
     return (
       memberType !== MEMBER_TYPES.RESEARCHER ||
       !sameUniversity ||
@@ -301,7 +332,14 @@ function projectEligibilityFailure(project, memberType, universityId, divisionId
   return true;
 }
 
-async function assertActiveProjectUpdateEligibility(db, userId, memberType, university, divisions) {
+async function assertActiveProjectUpdateEligibility(
+  db,
+  userId,
+  memberType,
+  university,
+  divisions,
+  { universityBoardMember = false } = {},
+) {
   const result = await db.query(
     `SELECT p.id, p.name, p.university_id, p.division_id, pp.role
        FROM project_people pp
@@ -313,7 +351,7 @@ async function assertActiveProjectUpdateEligibility(db, userId, memberType, univ
   );
   const divisionIds = new Set(divisions.map((division) => String(division.id)));
   const incompatible = result.rows.filter((project) =>
-    projectEligibilityFailure(project, memberType, university.id, divisionIds),
+    projectEligibilityFailure(project, memberType, university.id, divisionIds, universityBoardMember),
   );
 
   assertUser(
@@ -350,7 +388,13 @@ async function applyMemberMembership(interaction, options, deps: GovernanceDepen
   }
 
   const divisions = await getDivisionRecords(db, university, divisionNames);
-  await assertActiveProjectUpdateEligibility(db, target.id, memberType, university, divisions);
+  const universityBoardMember = boardRoles.some((boardRole) =>
+    boardRole.university_name === university.name &&
+    [BOARD_ROLES.HEAD, BOARD_ROLES.VICE_PRESIDENT, BOARD_ROLES.PRESIDENT].includes(boardRole.role),
+  );
+  await assertActiveProjectUpdateEligibility(db, target.id, memberType, university, divisions, {
+    universityBoardMember,
+  });
   const desiredRoleNames = roleNamesForMember(university.name, memberType, divisions);
   const removableRoleNames = removableMembershipRoleNames(previousRecord, previousDivisions, university.name);
   const reason = `BAINSA governance: ${options.auditAction}`;
@@ -899,6 +943,32 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
       ? await getDivisionByName(db, university.id, university.name, divisionName)
       : null;
 
+  const currentDivisions =
+    role === BOARD_ROLES.HEAD ? [] : await getMemberDivisions(db, target.id);
+  const currentBoardRoles =
+    role === BOARD_ROLES.HEAD ? [] : await getBoardRoles(db, target.id);
+  if (role !== BOARD_ROLES.HEAD) {
+    await assertActiveProjectUpdateEligibility(
+      db,
+      target.id,
+      MEMBER_TYPES.RESEARCHER,
+      university,
+      [],
+      { universityBoardMember: true },
+    );
+  }
+  const removableRoleNames =
+    role === BOARD_ROLES.HEAD
+      ? []
+      : stableRoleNames([
+          ...removableDivisionRoleNamesForExecutivePromotion(
+            university.name,
+            currentDivisions,
+            currentBoardRoles,
+          ),
+          ...discordDivisionRoleNamesForUniversity(target, university.name),
+        ]);
+
   const roleNames = [universityAccessRoleName(university.name)];
   if (role === BOARD_ROLES.HEAD) {
     roleNames.push(...roleNamesForDivisionHead(university.name, division.name));
@@ -912,10 +982,19 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
     interaction.guild,
     roleNames,
     reason,
+    { removableRoleNames },
   );
 
   try {
     await db.transaction(async (q) => {
+      await lockMemberEligibilityRows(q, [target.id]);
+      await assertMemberProjectAssignmentEligibility(q, {
+        userId: target.id,
+        memberType: MEMBER_TYPES.RESEARCHER,
+        universityId: university.id,
+        divisionIds: role === BOARD_ROLES.HEAD ? currentDivisions.map((entry) => entry.id) : [],
+        additionalBoardUniversityIds: [university.id],
+      });
       await upsertMemberRecord(q, target.id, MEMBER_TYPES.RESEARCHER, university.id, null);
       if (division) await addMemberDivisionRow(q, target.id, division.id);
       await q.query(
@@ -986,6 +1065,7 @@ export async function removeBoardRole(interaction, options, deps: GovernanceDepe
 
   try {
     await db.transaction(async (q) => {
+      await lockMemberEligibilityRows(q, [target.id]);
       await q.query(
         `UPDATE board_assignments
             SET active = false,
@@ -997,6 +1077,16 @@ export async function removeBoardRole(interaction, options, deps: GovernanceDepe
             AND ($4::bigint IS NULL OR division_id = $4)`,
         [String(target.id), university.id, role, division?.id ?? null],
       );
+      const member = await getMemberRecord(q, target.id);
+      const memberDivisions = await getMemberDivisions(q, target.id);
+      if (member) {
+        await assertMemberProjectAssignmentEligibility(q, {
+          userId: target.id,
+          memberType: member.member_type,
+          universityId: member.university_id,
+          divisionIds: memberDivisions.map((entry) => entry.id),
+        });
+      }
       await writeAudit(q, {
         actorId: interaction.user.id,
         action: 'board.remove',
