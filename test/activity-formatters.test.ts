@@ -26,7 +26,7 @@ test('activity policy contains every state-changing command and no lookup comman
     'division-add-member',
     'division-create',
     'division-remove-member',
-    'division-rename',
+    'division-update',
     'member-add',
     'member-remove',
     'member-update',
@@ -124,6 +124,24 @@ test('division and board activity use consistent action, scope, and role fields'
   assert.equal(fieldValue(boardEmbed, 'Member'), '<@100>');
   assert.equal(fieldValue(boardEmbed, 'Scope'), 'Bocconi › Culture');
   assert.equal(fieldValue(boardEmbed, 'Role'), 'Head of Culture');
+});
+
+test('division update activity reports a color-only change without inventing a name change', () => {
+  const payload = formatBoardActivity('division-update', {
+    actorId,
+    result: {
+      university,
+      oldName: 'Culture',
+      newName: 'Culture',
+      oldColor: 'pink',
+      newColor: 'green',
+    },
+  });
+  const embed = embedJson(payload);
+
+  assert.equal(embed.title, '🟠 Division updated');
+  assert.equal(fieldValue(embed, 'Division'), 'Culture');
+  assert.equal(fieldValue(embed, 'Color'), 'Pink → Green');
 });
 
 test('project creation lists the team and reports pending Discord reconciliation accurately', () => {

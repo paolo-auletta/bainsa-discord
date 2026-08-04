@@ -25,7 +25,7 @@ export const COMMAND_VISIBILITY = Object.freeze({
   'member-remove': 'executive',
   'member-info': 'board',
   'division-create': 'president',
-  'division-rename': 'president',
+  'division-update': 'president',
   'division-add-member': 'board',
   'division-remove-member': 'board',
   'board-assign': 'president',

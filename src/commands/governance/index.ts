@@ -27,7 +27,7 @@ import {
   removeBoardRole,
   removeDivisionMember,
   removeMember,
-  renameDivision,
+  updateDivision,
   updateMember,
 } from '../../services/governance/service.js';
 
@@ -285,22 +285,30 @@ const divisionCreate = {
     }),
 };
 
-const divisionRename = {
-  data: command('division-rename', 'Rename a division, its roles, and its channels.')
+const divisionUpdate = {
+  data: command('division-update', 'Update a division name or color and reconcile managed resources.')
     .addStringOption(universityOption)
     .addStringOption((option) =>
       divisionOption(option, 'current_name', 'Current division name', true),
     )
-    .addStringOption((option) => option.setName('new_name').setDescription('New division name').setRequired(true)),
+    .addStringOption((option) => option.setName('new_name').setDescription('New division name').setRequired(false))
+    .addStringOption((option) =>
+      option
+        .setName('color')
+        .setDescription('New division color')
+        .setRequired(false)
+        .addChoices(...DIVISION_COLOR_CHOICES),
+    ),
   autocomplete,
   execute: (interaction) =>
     run(interaction, async () => {
-      const result = await renameDivision(interaction, {
+      const result = await updateDivision(interaction, {
         university: interaction.options.getString('university', true),
         currentName: interaction.options.getString('current_name', true),
-        newName: interaction.options.getString('new_name', true),
+        newName: interaction.options.getString('new_name'),
+        color: interaction.options.getString('color'),
       });
-      await postActivity(interaction, 'division-rename', result);
+      await postActivity(interaction, 'division-update', result);
     }),
 };
 
@@ -399,7 +407,7 @@ export const governanceCommands = [
   memberRemove,
   memberInfo,
   divisionCreate,
-  divisionRename,
+  divisionUpdate,
   divisionAddMember,
   divisionRemoveMember,
   boardAssign,

@@ -1,6 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 
-import { BOARD_ROLES, PROJECT_PERSON_ROLES } from '../constants.js';
+import { BOARD_ROLES, divisionColorDetails, PROJECT_PERSON_ROLES } from '../constants.js';
 import { boardRoleLabel, memberTypeLabel } from '../services/governance/policy.js';
 import { formatPeopleLine } from '../services/projects/formatters.js';
 
@@ -179,14 +179,20 @@ function divisionCreate({ actorId, result }) {
   });
 }
 
-function divisionRename({ actorId, result }) {
+function divisionUpdate({ actorId, result }) {
+  const nameChanged = result.oldName !== result.newName;
+  const colorChanged = result.oldColor !== result.newColor;
+  const oldColor = divisionColorDetails(result.oldColor);
+  const newColor = divisionColorDetails(result.newColor);
   return activity({
     kind: 'update',
-    title: 'Division renamed',
+    title: 'Division updated',
     subjectLabel: 'Division',
-    subject: `${result.oldName} → ${result.newName}`,
+    subject: nameChanged ? `${result.oldName} → ${result.newName}` : result.newName,
     universityName: result.university.name,
-    fields: [],
+    fields: colorChanged
+      ? [field('Color', `${oldColor?.label ?? result.oldColor} → ${newColor?.label ?? result.newColor}`)]
+      : [],
     actorId,
   });
 }
@@ -328,7 +334,7 @@ const FORMATTERS = Object.freeze({
   'member-update': memberUpdate,
   'member-remove': memberRemove,
   'division-create': divisionCreate,
-  'division-rename': divisionRename,
+  'division-update': divisionUpdate,
   'division-add-member': (input) => divisionMember(input, 'add'),
   'division-remove-member': (input) => divisionMember(input, 'remove'),
   'board-assign': (input) => boardRole(input, 'add'),

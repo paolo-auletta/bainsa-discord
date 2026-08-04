@@ -148,13 +148,6 @@ function colorForRoleName(roleName) {
   return universityRoleColor(universityName);
 }
 
-async function renameRole(guild, oldName, newName, reason) {
-  const role = roleByName(guild, oldName);
-  assertUser(role, `Could not find role "${oldName}".`);
-  if (role.name === newName) return role;
-  return role.setName(newName, reason);
-}
-
 async function ensureRoles(guild, roleNames, reason) {
   const results = [];
   for (const roleName of roleNames) {
@@ -688,85 +681,119 @@ export async function createDivision(interaction, options, deps: GovernanceDepen
   return { university, divisionName, divisionColor, head, textChannel, voiceChannel };
 }
 
-export async function renameDivision(interaction, options, deps: GovernanceDependencies = {}) {
+export async function updateDivision(interaction, options, deps: GovernanceDependencies = {}) {
   const db = dbFrom(deps);
   const actor = actorMember(interaction);
   const university = await getUniversityByName(db, options.university);
   assertUniversityAuthority(actor, university.name, [BOARD_ROLES.PRESIDENT]);
   const division = await getDivisionByName(db, university.id, university.name, options.currentName);
-  const newName = normalizeDisplayName(options.newName, 'new_name');
-  assertUser(division.name.toLowerCase() !== newName.toLowerCase(), 'The new name is the same as the current name.');
-
-  const conflict = await db.query(
-    `SELECT id
-       FROM divisions
-      WHERE university_id = $1
-        AND lower(name) = lower($2)
-        AND id <> $3
-        AND active = true
-      LIMIT 1`,
-    [university.id, newName, division.id],
+  const newName = options.newName == null ? division.name : normalizeDisplayName(options.newName, 'new_name');
+  const divisionColor = divisionColorDetails(options.color ?? division.color);
+  assertUser(
+    divisionColor,
+    `Choose one of the supported division colors: ${Object.values(DIVISION_COLORS).map(({ key }) => key).join(', ')}.`,
   );
-  assertUser(conflict.rowCount === 0, `${newName} already exists at ${university.name}.`);
+  const nameChanged = division.name.toLowerCase() !== newName.toLowerCase();
+  const colorChanged = division.color.toLowerCase() !== divisionColor.key;
+  assertUser(nameChanged || colorChanged, 'Specify a new division name or color different from the current value.');
 
-  const reason = `BAINSA governance: division.rename ${university.name}/${division.name} to ${newName}`;
+  if (nameChanged) {
+    const conflict = await db.query(
+      `SELECT id
+         FROM divisions
+        WHERE university_id = $1
+          AND lower(name) = lower($2)
+          AND id <> $3
+          AND active = true
+        LIMIT 1`,
+      [university.id, newName, division.id],
+    );
+    assertUser(conflict.rowCount === 0, `${newName} already exists at ${university.name}.`);
+  }
+
+  const reason = `BAINSA governance: division.update ${university.name}/${division.name} to ${newName} (${divisionColor.key})`;
   const oldAccessName = divisionRoleName(university.name, division.name);
   const oldHeadName = divisionHeadRoleName(university.name, division.name);
   const newAccessName = divisionRoleName(university.name, newName);
   const newHeadName = divisionHeadRoleName(university.name, newName);
-  const renamed = [];
+  const accessRole = roleByName(interaction.guild, oldAccessName);
+  const headRole = roleByName(interaction.guild, oldHeadName);
+  assertUser(accessRole, `Could not find role "${oldAccessName}".`);
+  assertUser(headRole, `Could not find role "${oldHeadName}".`);
+  const updatedRoles = [
+    { role: accessRole, oldName: oldAccessName, oldColor: accessRole.hexColor },
+    { role: headRole, oldName: oldHeadName, oldColor: headRole.hexColor },
+  ];
 
   try {
-    const accessRole = await renameRole(interaction.guild, oldAccessName, newAccessName, reason);
-    renamed.push({ resource: accessRole, oldName: oldAccessName });
-    const headRole = await renameRole(interaction.guild, oldHeadName, newHeadName, reason);
-    renamed.push({ resource: headRole, oldName: oldHeadName });
-    await renameChannelById(
-      interaction.guild,
-      division.text_channel_id,
-      divisionChannelName(newName, ChannelType.GuildText, division.color).slice(0, 100),
-      reason,
-    );
-    await renameChannelById(
-      interaction.guild,
-      division.voice_channel_id,
-      divisionChannelName(newName, ChannelType.GuildVoice, division.color).slice(0, 100),
-      reason,
-    );
+    if (nameChanged) {
+      await accessRole.setName(newAccessName, reason);
+      await headRole.setName(newHeadName, reason);
+    }
+    if (colorChanged) {
+      await accessRole.edit({ colors: { primaryColor: divisionColor.hex }, reason });
+      await headRole.edit({ colors: { primaryColor: divisionColor.hex }, reason });
+    }
+    if (nameChanged || colorChanged) {
+      await renameChannelById(
+        interaction.guild,
+        division.text_channel_id,
+        divisionChannelName(newName, ChannelType.GuildText, divisionColor.key).slice(0, 100),
+        reason,
+      );
+      await renameChannelById(
+        interaction.guild,
+        division.voice_channel_id,
+        divisionChannelName(newName, ChannelType.GuildVoice, divisionColor.key).slice(0, 100),
+        reason,
+      );
+    }
 
     await db.transaction(async (q) => {
       await q.query(
         `UPDATE divisions
             SET name = $1,
                 slug = $2,
-                member_role_id = $3,
-                head_role_id = $4,
+                color = $3,
+                member_role_id = $4,
+                head_role_id = $5,
                 updated_at = now()
-          WHERE id = $5`,
-        [newName, slugify(newName), accessRole.id, headRole.id, division.id],
+          WHERE id = $6`,
+        [newName, slugify(newName), divisionColor.key, accessRole.id, headRole.id, division.id],
       );
       await writeAudit(q, {
         actorId: interaction.user.id,
-        action: 'division.rename',
+        action: 'division.update',
         targetType: 'division',
         targetId: division.id,
         universityId: university.id,
-        before: { name: division.name },
-        after: { name: newName },
+        before: { name: division.name, color: division.color },
+        after: { name: newName, color: divisionColor.key },
       });
     });
     if (!deps.db) invalidateGovernanceAutocompleteCache();
   } catch (error) {
     await Promise.allSettled(
-      renamed.map(({ resource, oldName }) => resource.setName(oldName, 'Compensating failed division rename')),
+      updatedRoles.map(async ({ role, oldName, oldColor }) => {
+        if (role.name !== oldName) await role.setName(oldName, 'Compensating failed division update');
+        if (oldColor && role.hexColor?.toLowerCase() !== oldColor.toLowerCase()) {
+          await role.edit({ colors: { primaryColor: oldColor }, reason: 'Compensating failed division update' });
+        }
+      }),
     );
     throw new UserFacingError(
-      `Division rename failed. Discord role names were restored where possible; channel names may need review: ${error.message}`,
+      `Division update failed. Discord role names and colors were restored where possible; channel names may need review: ${error.message}`,
       { cause: error },
     );
   }
 
-  return { university, oldName: division.name, newName };
+  return {
+    university,
+    oldName: division.name,
+    newName,
+    oldColor: division.color,
+    newColor: divisionColor.key,
+  };
 }
 
 export async function addDivisionMember(interaction, options, deps: GovernanceDependencies = {}) {
