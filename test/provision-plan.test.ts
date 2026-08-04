@@ -10,6 +10,7 @@ import {
   divisionVoiceOverwrites,
   globalBotLogOverwrites,
   globalGeneralOverwrites,
+  globalVoiceOverwrites,
   globalAnnouncementOverwrites,
   globalReadOnlyOverwrites,
   legacyDivisionTextAliases,
@@ -24,6 +25,7 @@ import {
   universityExecutiveOverwrites,
   universityForumTags,
   universityBotLogOverwrites,
+  universityVoiceOverwrites,
 } from '../src/provision/index.js';
 
 const samplePlan = {
@@ -344,6 +346,102 @@ test('division voice channels grant event creation only to scoped board roles', 
   for (const entry of overwrites) {
     assert.equal(entry.allow.includes(PermissionFlagsBits.ManageEvents), false);
   }
+});
+
+test('global voice channel is available to members and event creation is limited to board roles', () => {
+  const overwrites = globalVoiceOverwrites({
+    everyone: 'everyone',
+    bot: 'bot',
+    researcher: 'researcher',
+    alumni: 'alumni',
+    globalPresident: 'global',
+    universityPresidents: ['president'],
+  });
+
+  assert.ok(overwrites.find((entry) => entry.id === 'researcher').allow.includes(PermissionFlagsBits.Connect));
+  assert.ok(overwrites.find((entry) => entry.id === 'alumni').allow.includes(PermissionFlagsBits.Speak));
+  for (const id of ['global', 'president']) {
+    const entry = overwrites.find((candidate) => candidate.id === id);
+    assert.ok(entry.allow.includes(PermissionFlagsBits.Connect));
+    assert.ok(entry.allow.includes(PermissionFlagsBits.CreateEvents));
+  }
+  for (const id of ['researcher', 'alumni']) {
+    assert.equal(
+      overwrites.find((entry) => entry.id === id).allow.includes(PermissionFlagsBits.CreateEvents),
+      false,
+    );
+  }
+});
+
+test('university voice channel is available to all university members and its board', () => {
+  const [university] = normalizePlan(samplePlan).universities;
+  const overwrites = universityVoiceOverwrites(
+    {
+      everyone: 'everyone',
+      bot: 'bot',
+      globalPresident: 'global',
+      universityHeadRoleIds: new Map([['Bocconi', ['head']]]),
+      roles: new Map([
+        ['Bocconi', 'university'],
+        ['Bocconi - President', 'president'],
+        ['Bocconi - Vice President', 'vp'],
+        ['Bocconi - Head of Projects', 'projects-head'],
+      ]),
+    },
+    university,
+  );
+
+  const member = overwrites.find((entry) => entry.id === 'university');
+  assert.ok(member.allow.includes(PermissionFlagsBits.Connect));
+  assert.ok(member.allow.includes(PermissionFlagsBits.Speak));
+  assert.equal(member.allow.includes(PermissionFlagsBits.CreateEvents), false);
+  for (const id of ['head', 'projects-head', 'president', 'vp', 'global']) {
+    const entry = overwrites.find((candidate) => candidate.id === id);
+    assert.ok(entry.allow.includes(PermissionFlagsBits.Connect), id);
+    assert.ok(entry.allow.includes(PermissionFlagsBits.Speak), id);
+    assert.ok(entry.allow.includes(PermissionFlagsBits.CreateEvents), id);
+  }
+});
+
+test('provisioning creates one global and one university voice room in their scoped categories', async () => {
+  const plan = normalizePlan({
+    universities: [{ name: 'Bocconi', divisions: ['Projects'] }],
+  });
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: {},
+    db: null,
+    dryRun: true,
+    plan,
+    logger: {},
+  });
+  const roleIds = {
+    everyone: 'everyone',
+    bot: 'bot',
+    researcher: 'researcher',
+    alumni: 'alumni',
+    globalPresident: 'global',
+    universityPresidents: ['president'],
+    universityHeadRoleIds: new Map([['Bocconi', ['head']]]),
+    roles: new Map([
+      ['Bocconi', 'university'],
+      ['Bocconi - President', 'president'],
+      ['Bocconi - Vice President', 'vp'],
+      ['Bocconi - Projects', 'projects'],
+      ['Bocconi - Head of Projects', 'head'],
+    ]),
+  };
+  const guild = {
+    channels: { cache: { find: () => null, values: () => [] } },
+  };
+
+  await provisioner.ensureStructure(guild, roleIds);
+
+  const createdChannels = provisioner.summary.actions
+    .filter(({ action }) => action === 'channels.created')
+    .map(({ label }) => label);
+  assert.ok(createdChannels.includes('channel:bainsa-general-room'));
+  assert.ok(createdChannels.includes('channel:general-room'));
 });
 
 test('legacy name normalization adopts pipe and emoji-prefixed resources', () => {
