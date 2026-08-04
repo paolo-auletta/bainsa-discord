@@ -183,6 +183,9 @@ export function universityVoiceOverwrites(roleIds, university) {
 }
 
 export function universityAnnouncementOverwrites(roleIds, university) {
+  // Local announcements are writable by every board role scoped to this
+  // university, including division Heads. Global announcements intentionally
+  // use a separate President-only policy above.
   return [
     overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
     overwrite(roleIds.roles.get(university.universityRole), {

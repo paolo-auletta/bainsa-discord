@@ -25,6 +25,7 @@ import {
   startHereOverwrites,
   stripDangerousHumanPermissions,
   universityExecutiveOverwrites,
+  universityAnnouncementOverwrites,
   universityForumTags,
   universityBotLogOverwrites,
   universityVoiceOverwrites,
@@ -1057,6 +1058,37 @@ test('global announcements allow presidents to post but keep everyone else hidde
   });
   assert.ok(overwrites.some((entry) => entry.id === 'president' && entry.allow.includes(PermissionFlagsBits.SendMessages)));
   assert.ok(overwrites.some((entry) => entry.id === 'global' && entry.allow.includes(PermissionFlagsBits.SendMessages)));
+});
+
+test('university announcements allow every local board role but keep Heads out of global announcements', () => {
+  const university = normalizePlan(samplePlan).universities[0];
+  const roleIds = {
+    everyone: 'everyone',
+    bot: 'bot',
+    globalPresident: 'global',
+    universityPresidents: ['president'],
+    universityHeadRoleIds: new Map([['Bocconi', ['head']]]),
+    roles: new Map([
+      ['Bocconi', 'university'],
+      ['Bocconi - President', 'president'],
+      ['Bocconi - Vice President', 'vice-president'],
+      ['Bocconi - Head of Projects', 'head'],
+    ]),
+  };
+
+  const local = universityAnnouncementOverwrites(roleIds, university);
+  for (const id of ['head', 'vice-president', 'president', 'global']) {
+    const overwrite = local.find((entry) => entry.id === id);
+    assert.ok(overwrite, `missing university announcement overwrite for ${id}`);
+    assert.ok(overwrite.allow.includes(PermissionFlagsBits.SendMessages), id);
+  }
+
+  const universityMember = local.find((entry) => entry.id === 'university');
+  assert.ok(universityMember.deny.includes(PermissionFlagsBits.SendMessages));
+
+  const global = globalAnnouncementOverwrites(roleIds);
+  assert.equal(global.some((entry) => entry.id === 'head'), false);
+  assert.equal(global.some((entry) => entry.id === 'vice-president'), false);
 });
 
 function fakeRole(id, name) {
