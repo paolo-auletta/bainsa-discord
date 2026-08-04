@@ -10,6 +10,11 @@ const onboardingMigrationUrl = projectPath('db', 'migrations', '004_onboarding_n
 const divisionColorMigrationUrl = projectPath('db', 'migrations', '005_division_colors.sql');
 const expandedDivisionColorMigrationUrl = projectPath('db', 'migrations', '006_expand_division_colors.sql');
 const reconciliationMigrationUrl = projectPath('db', 'migrations', '007_project_reconciliation.sql');
+const executivePromotionMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '008_clear_division_roles_on_executive_promotion.sql',
+);
 
 async function migrationSql() {
   return readFile(migrationUrl, 'utf8');
@@ -31,6 +36,10 @@ async function reconciliationMigrationSql() {
   return readFile(reconciliationMigrationUrl, 'utf8');
 }
 
+async function executivePromotionMigrationSql() {
+  return readFile(executivePromotionMigrationUrl, 'utf8');
+}
+
 function assertIncludes(sql, snippet) {
   assert.ok(sql.includes(snippet), `Expected migration to include: ${snippet}`);
 }
@@ -46,7 +55,18 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '005_division_colors.sql',
     '006_expand_division_colors.sql',
     '007_project_reconciliation.sql',
+    '008_clear_division_roles_on_executive_promotion.sql',
   ]);
+});
+
+test('clears division assignments when an executive board role becomes active', async () => {
+  const sql = await executivePromotionMigrationSql();
+
+  assertIncludes(sql, 'CREATE OR REPLACE FUNCTION clear_division_assignments_for_executive_promotion()');
+  assertIncludes(sql, "NEW.role IN ('vice_president', 'president')");
+  assertIncludes(sql, 'DELETE FROM member_divisions AS md');
+  assertIncludes(sql, "AND role = 'head'");
+  assertIncludes(sql, 'BEFORE INSERT OR UPDATE OF active, role ON board_assignments');
 });
 
 test('adds durable, generation-guarded project reconciliation state', async () => {

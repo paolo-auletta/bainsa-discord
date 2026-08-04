@@ -40,8 +40,10 @@ test.after(async () => {
 test('runs every migration against a fresh database and keeps the final contract idempotent', async () => {
   const first = await resetAndMigrate();
   assert.equal(first.pending, 0);
-  assert.equal(first.appliedNow.length, 5);
-  assert.deepEqual(first.status.map((row) => row.status), ['applied', 'applied', 'applied', 'applied', 'applied']);
+  assert.equal(first.appliedNow.length, 6);
+  assert.deepEqual(first.status.map((row) => row.status), [
+    'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
+  ]);
 
   const tables = await database.query(`
     SELECT table_name
@@ -123,12 +125,77 @@ test('runs every migration against a fresh database and keeps the final contract
 
   const second = await migrate();
   assert.deepEqual(second.appliedNow, []);
-  assert.equal(second.applied, 5);
+  assert.equal(second.applied, 6);
   assert.equal(second.pending, 0);
 
   const status = await migrate({ statusOnly: true });
-  assert.equal(status.applied, 5);
+  assert.equal(status.applied, 6);
   assert.equal(status.pending, 0);
+});
+
+test('executive appointments clear division memberships and Head assignments in the same university', async () => {
+  await resetAndMigrate();
+  const bocconiId = await insertUniversity('Bocconi');
+  const sapienzaId = await insertUniversity('Sapienza');
+  const divisions = await database.query(
+    `INSERT INTO divisions (university_id, name, color)
+     VALUES
+       ($1, 'Analysis', 'orange'),
+       ($1, 'Projects', 'blue'),
+       ($2, 'Culture', 'pink'),
+       ($2, 'Research', 'green')
+     RETURNING id, university_id`,
+    [bocconiId, sapienzaId],
+  );
+  const [bocconiAnalysis, bocconiProjects, sapienzaCulture, sapienzaResearch] = divisions.rows;
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type)
+     VALUES ('vice-president', $1, 'researcher'), ('president', $2, 'researcher')`,
+    [bocconiId, sapienzaId],
+  );
+  await database.query(
+    `INSERT INTO member_divisions (discord_user_id, division_id)
+     VALUES
+       ('vice-president', $1),
+       ('vice-president', $2),
+       ('president', $3),
+       ('president', $4)`,
+    [bocconiAnalysis.id, bocconiProjects.id, sapienzaCulture.id, sapienzaResearch.id],
+  );
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, division_id, role)
+     VALUES
+       ('vice-president', $1, $2, 'head'),
+       ('president', $3, $4, 'head')`,
+    [bocconiId, bocconiAnalysis.id, sapienzaId, sapienzaCulture.id],
+  );
+
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, role)
+     VALUES
+       ('vice-president', $1, 'vice_president'),
+       ('president', $2, 'president')`,
+    [bocconiId, sapienzaId],
+  );
+
+  const memberships = await database.query(
+    `SELECT discord_user_id FROM member_divisions
+      WHERE discord_user_id IN ('vice-president', 'president')`,
+  );
+  assert.equal(memberships.rowCount, 0);
+
+  const assignments = await database.query(
+    `SELECT discord_user_id, role, active
+       FROM board_assignments
+      WHERE discord_user_id IN ('vice-president', 'president')
+      ORDER BY discord_user_id, role`,
+  );
+  assert.deepEqual(assignments.rows, [
+    { discord_user_id: 'president', role: 'head', active: false },
+    { discord_user_id: 'president', role: 'president', active: true },
+    { discord_user_id: 'vice-president', role: 'head', active: false },
+    { discord_user_id: 'vice-president', role: 'vice_president', active: true },
+  ]);
 });
 
 test('refuses checksum drift after migrations have been applied', async () => {
@@ -195,7 +262,7 @@ test('upgrades the tracked legacy university and division shape in place', async
   );
 
   const result = await migrate();
-  assert.equal(result.applied, 5);
+  assert.equal(result.applied, 6);
   assert.equal(result.recordedNotLocal, 1);
 
   const university = await database.query(

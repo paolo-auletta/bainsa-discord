@@ -238,6 +238,21 @@ function removableMembershipRoleNames(previousRecord, previousDivisions, nextUni
   return [...new Set(names)];
 }
 
+function removableDivisionRoleNamesForExecutivePromotion(universityName, divisions, boardRoles) {
+  return stableRoleNames([
+    ...divisions
+      .filter((division) => division.university_name === universityName)
+      .map((division) => divisionRoleName(universityName, division.name)),
+    ...boardRoles
+      .filter((boardRole) =>
+        boardRole.role === BOARD_ROLES.HEAD &&
+        boardRole.university_name === universityName &&
+        boardRole.division_name,
+      )
+      .map((boardRole) => divisionHeadRoleName(universityName, boardRole.division_name)),
+  ]);
+}
+
 function assertNoSilentUniversityMove(previousRecord, universityName, commandName) {
   if (!previousRecord?.university_name || previousRecord.university_name === universityName) return;
   assertUser(
@@ -899,6 +914,15 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
       ? await getDivisionByName(db, university.id, university.name, divisionName)
       : null;
 
+  const removableRoleNames =
+    role === BOARD_ROLES.HEAD
+      ? [divisionRoleName(university.name, division.name)]
+      : removableDivisionRoleNamesForExecutivePromotion(
+          university.name,
+          await getMemberDivisions(db, target.id),
+          await getBoardRoles(db, target.id),
+        );
+
   const roleNames = [universityAccessRoleName(university.name)];
   if (role === BOARD_ROLES.HEAD) {
     roleNames.push(...roleNamesForDivisionHead(university.name, division.name));
@@ -912,10 +936,7 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
     interaction.guild,
     roleNames,
     reason,
-    {
-      removableRoleNames:
-        role === BOARD_ROLES.HEAD ? [divisionRoleName(university.name, division.name)] : [],
-    },
+    { removableRoleNames },
   );
 
   try {
