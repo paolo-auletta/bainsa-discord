@@ -44,6 +44,8 @@ import {
   normalizeSelectedDivisionIds,
 } from './state.js';
 
+const DISCORD_NICKNAME_LIMIT = 32;
+
 export function createOnboardingService({ db = { query }, runTransaction = transaction } = {}) {
   async function handleButton(interaction) {
     const parsed = parseOnboardingId(interaction.customId);
@@ -236,7 +238,7 @@ export function createOnboardingService({ db = { query }, runTransaction = trans
     let reviewed;
     let university;
     let divisions;
-    let rollbackRoles = null;
+    let rollbackDiscordState = null;
 
     try {
       await runTransaction(async (client) => {
@@ -248,7 +250,14 @@ export function createOnboardingService({ db = { query }, runTransaction = trans
         const allDivisions = await listAllDivisions(client);
         const allUniversities = await listAllUniversities(client);
         await assertReviewer(interaction, university.name);
-        rollbackRoles = await assignApprovedRoles(interaction.guild, request, university, divisions, allDivisions, allUniversities);
+        rollbackDiscordState = await assignApprovedDiscordState(
+          interaction.guild,
+          request,
+          university,
+          divisions,
+          allDivisions,
+          allUniversities,
+        );
         await upsertActiveMember(client, request);
         reviewed = await markReviewed(client, request.id, ONBOARDING_STATUSES.APPROVED, interaction.user.id);
         await writeAudit(client, {
@@ -265,9 +274,9 @@ export function createOnboardingService({ db = { query }, runTransaction = trans
         });
       });
     } catch (error) {
-      if (rollbackRoles) {
-        await rollbackRoles().catch((rollbackError) => {
-          logger.error('Failed to roll back Discord roles after approval error', {
+      if (rollbackDiscordState) {
+        await rollbackDiscordState().catch((rollbackError) => {
+          logger.error('Failed to roll back Discord member state after approval error', {
             userId: interaction.user.id,
             requestId,
             error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
@@ -440,9 +449,10 @@ async function editReviewMessage(interaction, request, university, divisions, re
   await message?.edit(payload);
 }
 
-async function assignApprovedRoles(guild, request, university, divisions, allDivisions, allUniversities) {
+async function assignApprovedDiscordState(guild, request, university, divisions, allDivisions, allUniversities) {
   const member = await guild.members.fetch(request.discord_user_id);
   const previousRoleIds = new Set(member.roles.cache.keys());
+  const previousNickname = member.nickname ?? null;
   const targetRoleIds = new Set();
   targetRoleIds.add(await resolveRoleId(guild, request.member_type === MEMBER_TYPES.ALUMNI ? ROLE_NAMES.ALUMNI : ROLE_NAMES.RESEARCHER));
   targetRoleIds.add(await resolveRoleId(guild, university.discord_role_id, university.name));
@@ -469,12 +479,30 @@ async function assignApprovedRoles(guild, request, university, divisions, allDiv
   try {
     if (removableIds.length > 0) await member.roles.remove(removableIds);
     await member.roles.add([...targetRoleIds]);
+    await member.setNickname(
+      discordNicknameFromFullName(request.full_name),
+      `BAINSA onboarding approval ${request.id}`,
+    );
   } catch (error) {
-    await restoreMemberRoles(guild, request.discord_user_id, previousRoleIds);
+    await restoreMemberDiscordState(
+      guild,
+      request.discord_user_id,
+      previousRoleIds,
+      previousNickname,
+    );
     throw error;
   }
 
-  return () => restoreMemberRoles(guild, request.discord_user_id, previousRoleIds);
+  return () => restoreMemberDiscordState(
+    guild,
+    request.discord_user_id,
+    previousRoleIds,
+    previousNickname,
+  );
+}
+
+export function discordNicknameFromFullName(fullName) {
+  return [...normalizeFullName(fullName)].slice(0, DISCORD_NICKNAME_LIMIT).join('').trimEnd();
 }
 
 async function resolveRoleId(guild, idOrName, fallbackName = null) {
@@ -493,6 +521,19 @@ async function restoreMemberRoles(guild, userId, previousRoleIds) {
 
   if (remove.length > 0) await member.roles.remove(remove);
   if (add.length > 0) await member.roles.add(add);
+}
+
+async function restoreMemberDiscordState(guild, userId, previousRoleIds, previousNickname) {
+  const results = await Promise.allSettled([
+    restoreMemberRoles(guild, userId, previousRoleIds),
+    guild.members.fetch(userId).then((member) =>
+      member.setNickname(previousNickname, 'Compensating failed BAINSA onboarding approval'),
+    ),
+  ]);
+  const failures = results.filter((result) => result.status === 'rejected');
+  if (failures.length > 0) {
+    throw new AggregateError(failures.map((failure) => failure.reason), 'Could not restore Discord member state.');
+  }
 }
 
 export function roleRestorePlan(previousRoleIds, currentRoleIds, guildId) {

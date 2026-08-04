@@ -64,8 +64,6 @@ export function readProjectCreateOptions(interaction) {
     name: optionValue(interaction, 'name'),
     university: optionValue(interaction, 'university'),
     division: optionValue(interaction, 'division'),
-    members: optionValue(interaction, 'members'),
-    supervisors: optionValue(interaction, 'supervisors'),
     startDate: optionValue(interaction, 'start_date'),
     expectedEnd: optionValue(interaction, 'expected_end'),
     notes: optionValue(interaction, 'notes', false),

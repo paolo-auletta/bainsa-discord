@@ -48,13 +48,13 @@ import {
 } from './gateway.js';
 import {
   findProjectDivisions,
-  findProjectPeople,
   findProjectUniversities,
   searchVisibleProjects,
   warmProjectAutocompleteCache,
 } from './autocomplete.js';
 import { canViewProject } from './policy.js';
 import { projectInfoMessage, projectSuccessMessage, readProjectCreateOptions } from './formatters.js';
+import { createProjectSetupService } from './setup.js';
 
 const DEFAULT_DB = { query, transaction };
 type ProjectDependencies = { db?: typeof DEFAULT_DB };
@@ -377,6 +377,8 @@ export async function getProjectInfo(input, deps: ProjectDependencies = {}) {
   return { project, people };
 }
 
+export const projectCreateSetup = createProjectSetupService({ createProject });
+
 export {
   assertActiveDivisionResearchers,
   assertActiveUniversityMembers,
@@ -384,7 +386,6 @@ export {
   canViewProject,
   findProjectDivisions,
   findProjectParentId,
-  findProjectPeople,
   findProjectUniversities,
   parseDiscordUserIds,
   projectInfoMessage,

@@ -347,6 +347,35 @@ test('dispatcher routes guide buttons and select menus by custom id', async () =
   assert.deepEqual(handled, ['guide:button', 'guide:select']);
 });
 
+test('dispatcher routes project setup buttons and native user selects', async () => {
+  const handled = [];
+  const projectSetup = {
+    canHandle: (customId) => customId.startsWith('project-setup:'),
+    handleButton: async (interaction) => handled.push(`button:${interaction.customId}`),
+    handleUserSelect: async (interaction) => handled.push(`users:${interaction.customId}`),
+  };
+  const dispatch = createInteractionDispatcher({
+    commands: [],
+    projectSetup,
+    onError: async () => assert.fail('unexpected error handler call'),
+  });
+
+  await dispatch({
+    customId: 'project-setup:1:confirm',
+    isButton: () => true,
+  });
+  await dispatch({
+    customId: 'project-setup:1:members',
+    isButton: () => false,
+    isUserSelectMenu: () => true,
+  });
+
+  assert.deepEqual(handled, [
+    'button:project-setup:1:confirm',
+    'users:project-setup:1:members',
+  ]);
+});
+
 test('dispatcher reports matched component routes without handlers', async () => {
   const cases = [
     {
@@ -370,13 +399,23 @@ test('dispatcher reports matched component routes without handlers', async () =>
       component: { canHandle: () => true },
       flags: { isModalSubmit: true },
     },
+    {
+      label: 'project setup users',
+      component: { canHandle: () => true },
+      flags: { isUserSelectMenu: true },
+      projectSetup: true,
+    },
   ];
 
   for (const testCase of cases) {
     let captured;
     const dispatch = createInteractionDispatcher({
       commands: [],
-      ...(testCase.guide ? { guide: testCase.component } : { onboarding: testCase.component }),
+      ...(testCase.guide
+        ? { guide: testCase.component }
+        : testCase.projectSetup
+          ? { projectSetup: testCase.component }
+          : { onboarding: testCase.component }),
       onError: async (_interaction, error) => {
         captured = error;
       },
@@ -388,6 +427,7 @@ test('dispatcher reports matched component routes without handlers', async () =>
       isAutocomplete: () => false,
       isButton: () => Boolean(testCase.flags.isButton),
       isStringSelectMenu: () => Boolean(testCase.flags.isStringSelectMenu),
+      isUserSelectMenu: () => Boolean(testCase.flags.isUserSelectMenu),
       isModalSubmit: () => Boolean(testCase.flags.isModalSubmit),
       isRepliable: () => true,
     });
@@ -420,5 +460,6 @@ test('dispatcher sends unknown repliable interactions to error handler', async (
 
 test('routeInteraction returns expected route names', () => {
   assert.equal(routeInteraction({ isChatInputCommand: () => false, isAutocomplete: () => true }), 'autocomplete');
+  assert.equal(routeInteraction({ isUserSelectMenu: () => true }), 'userSelect');
   assert.equal(routeInteraction({}), 'unknown');
 });

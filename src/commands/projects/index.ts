@@ -11,11 +11,10 @@ import {
 import {
   addProjectMember,
   closeProject,
-  createProject,
   findProjectDivisions,
-  findProjectPeople,
   findProjectUniversities,
   getProjectInfo,
+  projectCreateSetup,
   projectInfoMessage,
   readProjectCreateOptions,
   removeProjectMember,
@@ -89,43 +88,10 @@ async function autocompleteProjectCreate(interaction) {
       );
       return;
     }
-    if (['members', 'supervisors'].includes(focused.name)) {
-      const role = focused.name === 'members' ? PROJECT_PERSON_ROLES.MEMBER : PROJECT_PERSON_ROLES.SUPERVISOR;
-      await respondAutocomplete(interaction, await memberChoices(interaction, role, focused.value));
-      return;
-    }
     await respondAutocomplete(interaction, []);
   } catch {
     await respondAutocomplete(interaction, [], 'Project setup autocomplete fallback');
   }
-}
-
-function memberSearchTerm(value) {
-  const raw = String(value ?? '');
-  const lastToken = raw.split(/[\s,;]+/).at(-1) ?? '';
-  return lastToken.replace(/^@/, '').trim().slice(0, 32);
-}
-
-function memberSearchPrefix(value) {
-  const raw = String(value ?? '');
-  const lastToken = raw.split(/[\s,;]+/).at(-1) ?? '';
-  return raw.slice(0, raw.length - lastToken.length);
-}
-
-async function memberChoices(interaction, role, value) {
-  const term = memberSearchTerm(value);
-  const prefix = memberSearchPrefix(value);
-  const universityName = interaction.options.getString('university') ?? '';
-  const divisionName =
-    role === PROJECT_PERSON_ROLES.MEMBER ? interaction.options.getString('division') ?? '' : null;
-  const people = await findProjectPeople({ universityName, divisionName, role, term });
-
-  return people
-    .slice(0, 25)
-    .map((person) => ({
-      name: `${person.full_name || `Member ${person.discord_user_id}`} (<@${person.discord_user_id}>)`.slice(0, 100),
-      value: `${prefix}<@${person.discord_user_id}>`.slice(0, 100),
-    }));
 }
 
 const projectCreate = {
@@ -140,31 +106,17 @@ const projectCreate = {
       .addStringOption((option) =>
         option.setName('division').setDescription('Division name').setRequired(true).setAutocomplete(true),
       )
-      .addStringOption((option) =>
-        option
-          .setName('members')
-          .setDescription('Member mentions; 994 total project participants max')
-          .setRequired(true)
-          .setAutocomplete(true),
-      )
-      .addStringOption((option) =>
-        option
-          .setName('supervisors')
-          .setDescription('Supervisor mentions; 994 total participants max')
-          .setRequired(true)
-          .setAutocomplete(true),
-      )
       .addStringOption((option) => option.setName('start_date').setDescription('YYYY-MM-DD').setRequired(true))
       .addStringOption((option) => option.setName('expected_end').setDescription('YYYY-MM-DD').setRequired(true))
       .addStringOption((option) => option.setName('notes').setDescription('Project notes').setRequired(false)),
   ),
   autocomplete: autocompleteProjectCreate,
   async execute(interaction) {
-    await runActivityCommand(
-      interaction,
-      'project-create',
-      () => createProject(readProjectCreateOptions(interaction)),
-    );
+    try {
+      await projectCreateSetup.start(interaction, readProjectCreateOptions(interaction));
+    } catch (error) {
+      await handleInteractionError(interaction, error);
+    }
   },
 };
 

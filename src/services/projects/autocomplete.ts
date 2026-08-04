@@ -1,4 +1,4 @@
-import { divisionLabel, MEMBER_TYPES, PROJECT_PERSON_ROLES } from '../../constants.js';
+import { divisionLabel } from '../../constants.js';
 import { query } from '../../db.js';
 import { canViewProject } from './policy.js';
 
@@ -10,7 +10,6 @@ const projectAutocompleteCache = {
   loadedAt: 0,
   universities: [],
   divisions: [],
-  people: [],
 };
 
 function dbClient(db) {
@@ -108,54 +107,9 @@ export async function findProjectDivisions(universityName, term = '', deps: Proj
   return result.rows;
 }
 
-export async function findProjectPeople({ universityName, divisionName, role, term = '' }, deps: ProjectDependencies = {}) {
-  if (!universityName?.trim()) return [];
-  if (role === PROJECT_PERSON_ROLES.MEMBER && !divisionName?.trim()) return [];
-  if (projectAutocompleteCache.loadedAt) {
-    refreshProjectAutocompleteCacheInBackground(deps);
-    const normalizedUniversity = universityName.trim().toLowerCase();
-    const normalizedDivision = divisionName?.trim().toLowerCase() ?? '';
-    const normalizedTerm = String(term).trim().toLowerCase();
-    return projectAutocompleteCache.people
-      .filter((row) =>
-        row.university_name.toLowerCase() === normalizedUniversity &&
-        (role !== PROJECT_PERSON_ROLES.MEMBER || row.division_name?.toLowerCase() === normalizedDivision) &&
-        (role !== PROJECT_PERSON_ROLES.MEMBER || row.member_type === MEMBER_TYPES.RESEARCHER) &&
-        (!normalizedTerm || row.full_name?.toLowerCase().includes(normalizedTerm) || row.discord_user_id.includes(normalizedTerm)),
-      )
-      .map(({ discord_user_id, full_name }) => ({ discord_user_id, full_name }))
-      .slice(0, 25);
-  }
-  const db = dbClient(deps.db);
-  const normalizedTerm = String(term).trim();
-  const result = await db.query(
-    `SELECT m.discord_user_id, m.full_name
-       FROM members m
-       JOIN universities u ON u.id = m.university_id
-       LEFT JOIN member_divisions md ON md.discord_user_id = m.discord_user_id
-       LEFT JOIN divisions d ON d.id = md.division_id
-      WHERE m.status = 'active'
-        AND u.active = true
-        AND lower(u.name) = lower($1)
-        AND ($2::text IS NULL OR (d.active = true AND lower(d.name) = lower($2)))
-        AND ($3::text IS NULL OR m.member_type = $3)
-        AND ($4 = '' OR coalesce(m.full_name, '') ILIKE $5 OR m.discord_user_id ILIKE $5)
-      ORDER BY coalesce(m.full_name, ''), m.discord_user_id
-      LIMIT 25`,
-    [
-      universityName.trim(),
-      role === PROJECT_PERSON_ROLES.MEMBER ? divisionName.trim() : null,
-      role === PROJECT_PERSON_ROLES.MEMBER ? MEMBER_TYPES.RESEARCHER : null,
-      normalizedTerm,
-      `%${normalizedTerm}%`,
-    ],
-  );
-  return result.rows;
-}
-
 export async function warmProjectAutocompleteCache(deps: ProjectDependencies = {}) {
   const db = dbClient(deps.db);
-  const [universities, divisions, people] = await Promise.all([
+  const [universities, divisions] = await Promise.all([
     db.query(
       `SELECT name
          FROM universities
@@ -170,22 +124,10 @@ export async function warmProjectAutocompleteCache(deps: ProjectDependencies = {
           AND d.active = true
         ORDER BY u.name, d.name`,
     ),
-    db.query(
-      `SELECT m.discord_user_id, m.full_name, m.member_type,
-              u.name AS university_name, d.name AS division_name
-         FROM members m
-         JOIN universities u ON u.id = m.university_id
-         LEFT JOIN member_divisions md ON md.discord_user_id = m.discord_user_id
-         LEFT JOIN divisions d ON d.id = md.division_id AND d.active = true
-        WHERE m.status = 'active'
-          AND u.active = true
-        ORDER BY coalesce(m.full_name, ''), m.discord_user_id`,
-    ),
   ]);
 
   projectAutocompleteCache.universities = universities.rows;
   projectAutocompleteCache.divisions = divisions.rows;
-  projectAutocompleteCache.people = people.rows;
   projectAutocompleteCache.loadedAt = Date.now();
   return projectAutocompleteCache;
 }

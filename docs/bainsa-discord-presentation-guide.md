@@ -208,7 +208,7 @@ The member presses **Begin onboarding** and completes a private four-step flow:
 
 The applicant confirms the information and submits it. The bot posts the request in the chosen university’s `#onboarding-review` channel.
 
-Any authorised board member for that university—a Division Head, Vice President, President, or Global President—can approve or reject it. Approval creates or updates the member record and assigns the correct Discord roles automatically. The applicant cannot request a board position through onboarding.
+Any authorised board member for that university—a Division Head, Vice President, President, or Global President—can approve or reject it. Approval creates or updates the member record, assigns the correct Discord roles, and sets the member's server nickname from the onboarding name automatically. The applicant cannot request a board position through onboarding.
 
 The benefit is consistency: new members do not need an administrator to manually understand and reproduce the permission model every time.
 
@@ -382,10 +382,10 @@ They provide:
 
 - Project name.
 - University and division.
-- Initial members.
-- Initial supervisors.
 - Start date and expected end date.
 - Optional internal notes.
+
+Discord then opens native multi-user selectors for the initial members and supervisors, with up to 25 people in each group. Because onboarding names are synchronized to server nicknames, the native selector can find members by their recorded name or Discord username.
 
 Members must be active Researchers in the selected division. Supervisors must be active members of the selected university and may be Alumni.
 
@@ -624,7 +624,7 @@ All slash commands must be run in a valid `#bot-log`. Inputs marked “optional�
 
 - **Why:** create a governed project record, private workspace, team, and showcase entry in one workflow.
 - **Who:** Global Presidents; the selected university’s President or Vice President; the selected Division Head.
-- **Inputs:** `name`, `university`, `division`, comma-separated `members`, comma-separated `supervisors`, `start_date`, `expected_end`; optional private `notes`.
+- **Inputs:** `name`, `university`, `division`, `start_date`, `expected_end`; optional private `notes`, followed by native Discord selectors for initial members and supervisors.
 - **Returns:** private confirmation that the project was created, or that its committed Discord state is pending automatic reconciliation.
 - **Rules:** members must be active Researchers in the division; supervisors must be active university members; dates use `YYYY-MM-DD`; one person cannot appear in both lists; maximum 994 participants.
 - **Activity:** project, team, timeline, and Discord state are posted; notes are omitted.

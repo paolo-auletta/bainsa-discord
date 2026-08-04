@@ -246,12 +246,16 @@ test('draft updates report a conditional status miss without disclosing another 
   );
 });
 
-test('roleRestorePlan restores previous roles without touching everyone role', async () => {
+test('onboarding nickname and role compensation respect Discord limits and previous state', async () => {
   process.env.DISCORD_TOKEN ??= 'test-token';
   process.env.DISCORD_CLIENT_ID ??= 'test-client';
   process.env.DISCORD_GUILD_ID ??= 'test-guild';
   process.env.DATABASE_URL ??= 'postgres://localhost/test';
-  const { roleRestorePlan } = await import('../src/onboarding/service.js');
+  const { discordNicknameFromFullName, roleRestorePlan } = await import('../src/onboarding/service.js');
+
+  assert.equal(discordNicknameFromFullName('  Ada   Lovelace  '), 'Ada Lovelace');
+  assert.equal(discordNicknameFromFullName('A'.repeat(40)), 'A'.repeat(32));
+  assert.equal(discordNicknameFromFullName(`${'A'.repeat(31)}😀B`), `${'A'.repeat(31)}😀`);
 
   assert.deepEqual(
     roleRestorePlan(
@@ -279,6 +283,7 @@ test('a Division Head can approve, and Discord roles roll back when a later DB w
         id: '10',
         discord_user_id: 'target',
         member_type: 'researcher',
+        full_name: 'Ada Lovelace',
         university_id: '1',
         division_ids: ['11'],
         status: 'pending',
@@ -312,6 +317,7 @@ test('a Division Head can approve, and Discord roles roll back when a later DB w
   ]);
   const targetRoleIds = new Set(['guild', 'alumni-role', 'sapienza-role', 'sapienza-projects-role']);
   const target = memberWithMutableRoles('target', targetRoleIds, roles);
+  target.nickname = 'Previous nickname';
   const reviewer = {
     roles: {
       cache: {
@@ -342,6 +348,8 @@ test('a Division Head can approve, and Discord roles roll back when a later DB w
   );
 
   assert.deepEqual([...targetRoleIds].sort(), ['alumni-role', 'guild', 'sapienza-projects-role', 'sapienza-role']);
+  assert.equal(target.nickname, 'Previous nickname');
+  assert.deepEqual(target.nicknameHistory, ['Ada Lovelace', 'Previous nickname']);
 });
 
 function roleCache(entries) {
@@ -355,6 +363,8 @@ function roleCache(entries) {
 function memberWithMutableRoles(userId, roleIds, roles) {
   const member = {
     id: userId,
+    nickname: null,
+    nicknameHistory: [],
     guild: { id: 'guild', roles: { cache: roles } },
     roles: {
       cache: {
@@ -366,6 +376,11 @@ function memberWithMutableRoles(userId, roleIds, roles) {
       add: async (ids) => {
         for (const id of ids) roleIds.add(id);
       },
+    },
+    async setNickname(nickname) {
+      this.nickname = nickname;
+      this.nicknameHistory.push(nickname);
+      return this;
     },
   };
   return member;

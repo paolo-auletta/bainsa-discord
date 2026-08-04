@@ -10,12 +10,17 @@ import { createInteractionDispatcher } from './runtime/dispatcher.js';
 import { installGracefulShutdown } from './runtime/shutdown.js';
 import { config } from './config.js';
 import { warmGovernanceAutocompleteCache } from './services/governance/service.js';
-import { warmProjectAutocompleteCache } from './services/projects/index.js';
+import { projectCreateSetup, warmProjectAutocompleteCache } from './services/projects/index.js';
 import { createProjectReconciliationWorker } from './services/projects/reconciliation.js';
 
 const client = createBotClient();
 const onboarding = createOnboardingService();
-const dispatchInteraction = createInteractionDispatcher({ commands, onboarding, guide: guideInteractions });
+const dispatchInteraction = createInteractionDispatcher({
+  commands,
+  onboarding,
+  guide: guideInteractions,
+  projectSetup: projectCreateSetup,
+});
 let projectReconciliationWorker: ReturnType<typeof createProjectReconciliationWorker> | null = null;
 const lifecycle = installGracefulShutdown({
   client,

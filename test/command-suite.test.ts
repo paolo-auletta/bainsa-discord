@@ -18,7 +18,7 @@ const EXPECTED_COMMANDS = {
   'board-assign': ['user', 'university', 'role', 'division'],
   'board-remove': ['user', 'university', 'role', 'division', 'reason'],
   'board-info': ['university'],
-  'project-create': ['name', 'university', 'division', 'members', 'supervisors', 'start_date', 'expected_end', 'notes'],
+  'project-create': ['name', 'university', 'division', 'start_date', 'expected_end', 'notes'],
   'project-add-member': ['project', 'user', 'role'],
   'project-remove-member': ['project', 'user', 'reason'],
   'project-update': ['project', 'name', 'expected_end', 'notes', 'status'],
@@ -79,7 +79,7 @@ test('university-dependent division selectors expose ordered autocomplete contra
 test('every command that accepts a user or project participant blocks the Bot account', () => {
   const botId = '99999999999999999';
   const targetCommands = commands.filter((command) =>
-    command.data.toJSON().options.some((option) => option.type === 6 || ['members', 'supervisors'].includes(option.name)),
+    command.data.toJSON().options.some((option) => option.type === 6),
   );
 
   assert.deepEqual(
@@ -95,7 +95,6 @@ test('every command that accepts a user or project participant blocks the Bot ac
       'member-remove',
       'member-update',
       'project-add-member',
-      'project-create',
       'project-remove-member',
     ].sort(),
   );
@@ -103,7 +102,6 @@ test('every command that accepts a user or project participant blocks the Bot ac
   for (const command of targetCommands) {
     const options = command.data.toJSON().options.map((option) => {
       if (option.type === 6) return { type: 6, name: option.name, value: botId };
-      if (['members', 'supervisors'].includes(option.name)) return { type: 3, name: option.name, value: `<@${botId}>` };
       return { type: option.type, name: option.name, value: 'placeholder' };
     });
     assert.throws(

@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { ComponentType } from 'discord.js';
+
 import { projectCommands } from '../src/commands/projects/index.js';
-import { warmProjectAutocompleteCache } from '../src/services/projects/index.js';
 
 test('exports the v1 project command set', () => {
   assert.deepEqual(
@@ -26,8 +27,6 @@ test('project-create requires the core fields and keeps notes optional', () => {
       ['name', true],
       ['university', true],
       ['division', true],
-      ['members', true],
-      ['supervisors', true],
       ['start_date', true],
       ['expected_end', true],
       ['notes', false],
@@ -37,53 +36,33 @@ test('project-create requires the core fields and keeps notes optional', () => {
 
 test('project-create autocompletes its scoped setup fields', () => {
   const command = projectCommands.find((candidate) => candidate.data.name === 'project-create');
-  for (const name of ['university', 'division', 'members', 'supervisors']) {
+  for (const name of ['university', 'division']) {
     const option = command.data.toJSON().options.find((candidate) => candidate.name === name);
     assert.equal(option.autocomplete, true, name);
   }
   assert.equal(typeof command.autocomplete, 'function');
 });
 
-test('project-create person fields use the cached university and division membership lists', async () => {
+test('project-create opens native Discord user selectors for members and supervisors', async () => {
   const command = projectCommands.find((candidate) => candidate.data.name === 'project-create');
-  await warmProjectAutocompleteCache({
-    db: {
-      async query(text) {
-        if (text.includes('FROM universities')) return { rows: [{ name: 'Bocconi' }, { name: 'Sapienza' }] };
-        if (text.includes('FROM divisions')) return { rows: [{ university_name: 'Bocconi', name: 'Projects', color: 'blue' }] };
-        return {
-          rows: [
-            { discord_user_id: '1', full_name: 'Ada Lovelace', member_type: 'researcher', university_name: 'Bocconi', division_name: 'Projects' },
-            { discord_user_id: '2', full_name: 'Beatrice Bianchi', member_type: 'alumni', university_name: 'Bocconi', division_name: 'Projects' },
-            { discord_user_id: '3', full_name: 'Carlo Conti', member_type: 'researcher', university_name: 'Bocconi', division_name: 'Analysis' },
-            { discord_user_id: '4', full_name: 'Daria De Luca', member_type: 'researcher', university_name: 'Sapienza', division_name: 'Projects' },
-          ],
-        };
-      },
-    },
+  let reply;
+  const values = {
+    name: 'Native selectors', university: 'Bocconi', division: 'Projects',
+    start_date: '2026-08-01', expected_end: '2026-09-01', notes: null,
+  };
+  await command.execute({
+    user: { id: 'actor-native-selectors' },
+    guildId: 'guild',
+    options: { getString: (name) => values[name] ?? null },
+    reply: async (payload) => { reply = payload; },
   });
 
-  async function autocomplete(focusedName) {
-    let choices;
-    await command.autocomplete({
-      commandName: 'project-create',
-      options: {
-        getFocused: () => ({ name: focusedName, value: '' }),
-        getString: (name) => ({ university: 'Bocconi', division: 'Projects' })[name] ?? null,
-      },
-      async respond(nextChoices) {
-        choices = nextChoices;
-      },
-    });
-    return choices;
-  }
-
-  assert.deepEqual(await autocomplete('members'), [{ name: 'Ada Lovelace (<@1>)', value: '<@1>' }]);
-  assert.deepEqual(await autocomplete('supervisors'), [
-    { name: 'Ada Lovelace (<@1>)', value: '<@1>' },
-    { name: 'Beatrice Bianchi (<@2>)', value: '<@2>' },
-    { name: 'Carlo Conti (<@3>)', value: '<@3>' },
-  ]);
+  const components = reply.components.map((row) => row.toJSON());
+  assert.equal(components[0].components[0].type, ComponentType.UserSelect);
+  assert.equal(components[1].components[0].type, ComponentType.UserSelect);
+  assert.equal(components[0].components[0].max_values, 25);
+  assert.equal(components[1].components[0].max_values, 25);
+  assert.equal(components[2].components[0].disabled, true);
 });
 
 test('project selection commands expose autocomplete', () => {
