@@ -171,7 +171,7 @@ export function universityAnnouncementOverwrites(roleIds, university) {
 export function universityBoardOverwrites(roleIds, university) {
   return [
     overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
-    ...universityBoardRoleIds(roleIds, university).map((id) => overwrite(id, { allow: TEXT_WRITE })),
+    ...universityScopedBoardRoleIds(roleIds, university).map((id) => overwrite(id, { allow: TEXT_WRITE })),
     botOverwrite(roleIds),
   ];
 }
@@ -273,9 +273,15 @@ export function collectRoleIds(guild, rolesByName, plan) {
 
 function universityBoardRoleIds(roleIds, university) {
   return [...new Set([
+    roleIds.globalPresident,
+    ...universityScopedBoardRoleIds(roleIds, university),
+  ].filter(Boolean))];
+}
+
+function universityScopedBoardRoleIds(roleIds, university) {
+  return [...new Set([
     roleIds.roles.get(university.presidentRole),
     roleIds.roles.get(university.vicePresidentRole),
-    roleIds.globalPresident,
     ...university.divisions.map((division) =>
       roleIds.roles.get(divisionHeadRoleName(university.name, division.name)),
     ),
