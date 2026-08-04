@@ -29,6 +29,7 @@ import {
   universityForumTags,
   universityBotLogOverwrites,
   universityVoiceOverwrites,
+  universityBoardOverwrites,
 } from '../src/provision/index.js';
 
 const samplePlan = {
@@ -356,6 +357,32 @@ test('onboarding review is visible to every university board role', () => {
   assert.ok(overwrites.some((overwrite) => overwrite.id === 'president'));
   assert.ok(overwrites.some((overwrite) => overwrite.id === 'vp'));
   assert.ok(overwrites.some((overwrite) => overwrite.id === 'global'));
+});
+
+test('university board channels are private to that university board', () => {
+  const [university] = normalizePlan(samplePlan).universities;
+  const overwrites = universityBoardOverwrites(
+    {
+      everyone: 'everyone',
+      bot: 'bot',
+      globalPresident: 'global',
+      universityHeadRoleIds: new Map([['Bocconi', ['head']]]),
+      roles: new Map([
+        ['Bocconi - Head of Projects', 'head'],
+        ['Bocconi - President', 'president'],
+        ['Bocconi - Vice President', 'vp'],
+      ]),
+    },
+    university,
+  );
+
+  assert.equal(overwrites.some((overwrite) => overwrite.id === 'global'), false);
+  for (const id of ['head', 'president', 'vp']) {
+    const entry = overwrites.find((overwrite) => overwrite.id === id);
+    assert.ok(entry, `missing local board overwrite for ${id}`);
+    assert.ok(entry.allow.includes(PermissionFlagsBits.ViewChannel), id);
+    assert.ok(entry.allow.includes(PermissionFlagsBits.SendMessages), id);
+  }
 });
 
 test('showcase forums are read-only to humans and postable only by the bot overwrite', () => {
