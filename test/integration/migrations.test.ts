@@ -90,8 +90,9 @@ test('runs every migration against a fresh database and keeps the final contract
     [otherUniversityId, 'Projects', 'blue'],
   );
   await database.query(
-    'INSERT INTO members (discord_user_id, university_id, member_type) VALUES ($1, $2, $3)',
-    ['member-1', universityId, 'researcher'],
+    `INSERT INTO members (discord_user_id, university_id, member_type)
+     VALUES ($1, $2, $3), ($4, $2, $3), ($5, $2, $3)`,
+    ['member-1', universityId, 'researcher', 'president-1', 'president-2'],
   );
   await database.query(
     `INSERT INTO board_assignments (discord_user_id, university_id, role)
