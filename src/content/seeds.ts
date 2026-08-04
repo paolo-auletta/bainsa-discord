@@ -40,7 +40,7 @@ export function startHereSeeds() {
         '**Where to post**',
         '• **Global general** — cross-university questions, discussion, and updates.',
         '• **Resources** — useful papers, datasets, tools, and templates for everyone.',
-        '• **Topic proposals** — research, event, or discussion ideas that could involve the wider community.',
+        '• **Channel proposals** — requests for a new shared channel that could help the wider community.',
         '• **University general** — questions and updates that concern your university only.',
         '• **Division channel** — planning and work for your division.',
         '• **Project channel** — work for a specific project and its assigned team.',
@@ -111,10 +111,10 @@ export function globalSeeds({ anonymousFeedbackUrl }: { anonymousFeedbackUrl?: s
       title: 'Resources',
       body: 'Post useful datasets, papers, tools, and templates for the whole BAINSA community. Use tags to keep resources searchable.',
     }),
-    topicProposals: buildSeedContent({
-      key: 'global:topic-proposals',
-      title: 'Topic Proposals',
-      body: 'Suggest research, event, or discussion topics for the broader community. Include context, intended audience, and what help you need.',
+    channelProposals: buildSeedContent({
+      key: 'global:channel-proposals',
+      title: 'Channel Proposals',
+      body: 'Suggest a new shared channel for research, events, or discussion. Include its purpose, intended audience, and what help you need.',
     }),
     anonymousFeedback: buildSeedContent({
       key: 'global:anonymous-feedback',

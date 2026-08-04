@@ -436,8 +436,9 @@ export class DiscordProvisioner {
       overwrites: memberForumOverwrites(roleIds),
       tags: globalForumTags(),
     });
-    const topicForum = await this.ensureForumChannel(guild, GLOBAL_CHANNELS.TOPIC_PROPOSALS, {
+    const channelProposalsForum = await this.ensureForumChannel(guild, GLOBAL_CHANNELS.CHANNEL_PROPOSALS, {
       parent: globalCategory,
+      aliases: ['topic-proposals'],
       overwrites: memberForumOverwrites(roleIds),
       tags: globalForumTags(),
     });
@@ -450,7 +451,15 @@ export class DiscordProvisioner {
     await this.seedMessage(globalBoard, 'global:board', globalSeedContent.board);
     await this.seedForumGuide(globalShowcase, 'global:showcase', globalSeedContent.showcase);
     await this.seedForumGuide(resourcesForum, 'global:resources', globalSeedContent.resources);
-    await this.seedForumGuide(topicForum, 'global:topic-proposals', globalSeedContent.topicProposals);
+    await this.seedForumGuide(
+      channelProposalsForum,
+      'global:channel-proposals',
+      globalSeedContent.channelProposals,
+      {
+        legacyKeys: ['global:topic-proposals'],
+        legacyHeadings: ['# Topic Proposals'],
+      },
+    );
     await this.seedMessage(feedback, 'global:anonymous-feedback', globalSeedContent.anonymousFeedback);
 
     for (const university of this.plan.universities) {
@@ -672,17 +681,33 @@ export class DiscordProvisioner {
     channel,
     key,
     content,
-    options: { components?: readonly unknown[]; pin?: boolean } = {},
+    options: {
+      components?: readonly unknown[];
+      pin?: boolean;
+      legacyKeys?: readonly string[];
+      legacyHeadings?: readonly string[];
+    } = {},
   ) {
     if (!channel?.messages?.fetch) return;
     let message = await this.findTrackedSeedMessage(channel, key);
-    if (!message) message = await this.findSeedMessage(channel, key, content);
+    let matchedLegacyKey = null;
+    if (!message) {
+      for (const legacyKey of options.legacyKeys ?? []) {
+        message = await this.findTrackedSeedMessage(channel, legacyKey);
+        if (message) {
+          matchedLegacyKey = legacyKey;
+          break;
+        }
+      }
+    }
+    if (!message) message = await this.findSeedMessage(channel, key, content, options.legacyHeadings);
     if (!message) {
       this.record('seeds', 'created', `seed:${key}`);
       if (this.dryRun) return null;
       message = await channel.send({ content, components: options.components ?? [] });
       await this.pinSeedMessage(message, key, options.pin);
       await this.trackSeedMessage(channel, key, message);
+      if (matchedLegacyKey) await this.untrackSeedMessage(channel, matchedLegacyKey);
       return message;
     }
     const sameContent = message.content === content;
@@ -694,6 +719,7 @@ export class DiscordProvisioner {
     if (sameContent && sameComponents && samePin) {
       this.record('seeds', 'unchanged', `seed:${key}`);
       await this.trackSeedMessage(channel, key, message);
+      if (matchedLegacyKey) await this.untrackSeedMessage(channel, matchedLegacyKey);
       return message;
     }
     this.record('seeds', 'updated', `seed:${key}`);
@@ -703,6 +729,7 @@ export class DiscordProvisioner {
     }
     await this.pinSeedMessage(message, key, options.pin);
     await this.trackSeedMessage(channel, key, message);
+    if (matchedLegacyKey) await this.untrackSeedMessage(channel, matchedLegacyKey);
     return message;
   }
 
@@ -719,12 +746,12 @@ export class DiscordProvisioner {
     }
   }
 
-  async seedForumGuide(forum, key, content) {
+  async seedForumGuide(forum, key, content, options = {}) {
     if (!forum?.threads) return;
     const activeThreads = await forum.threads.fetchActive().catch(() => null);
     const thread = activeThreads?.threads?.find((candidate) => candidate.name === FORUM_GUIDE_THREAD_NAME);
     if (thread) {
-      await this.seedMessage(thread, key, content);
+      await this.seedMessage(thread, key, content, options);
       return thread;
     }
     this.record('seeds', 'created', `forum-seed:${key}`);
@@ -736,19 +763,21 @@ export class DiscordProvisioner {
     });
   }
 
-  async findSeedMessage(channel, key, content) {
+  async findSeedMessage(channel, key, content, legacyHeadings: readonly string[] = []) {
     const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
     if (!messages) return null;
 
     const botMessages = [...messages.values()]
       .filter((message) => message.author?.id === this.client.user?.id);
     const marker = seedMarker(key);
-    const heading = content.split('\n', 1)[0];
+    const headings = [content.split('\n', 1)[0], ...(legacyHeadings ?? [])];
 
     return (
       oldestMessage(botMessages.filter((message) => message.content === content))
       ?? oldestMessage(botMessages.filter((message) => message.content.includes(marker)))
-      ?? oldestMessage(botMessages.filter((message) => message.content.startsWith(`${heading}\n`)))
+      ?? oldestMessage(botMessages.filter((message) =>
+        headings.some((heading) => message.content.startsWith(`${heading}\n`)),
+      ))
       ?? null
     );
   }
@@ -797,6 +826,22 @@ export class DiscordProvisioner {
          ON CONFLICT (guild_id, channel_id, content_key)
          DO UPDATE SET message_id = EXCLUDED.message_id, updated_at = now()`,
         [this.guildId, channel.id, key, message.id],
+      );
+      this.seedTrackingAvailable = true;
+    } catch (error) {
+      if (this.seedTrackingAvailable !== false) {
+        this.seedTrackingAvailable = false;
+        this.summary.warnings.push({ type: 'seed_tracking_unavailable', reason: error.message });
+      }
+    }
+  }
+
+  async untrackSeedMessage(channel, key) {
+    if (this.dryRun || !this.db || !this.guildId || this.seedTrackingAvailable === false) return;
+    try {
+      await this.db.query(
+        'DELETE FROM provisioned_messages WHERE guild_id = $1 AND channel_id = $2 AND content_key = $3',
+        [this.guildId, channel.id, key],
       );
       this.seedTrackingAvailable = true;
     } catch (error) {

@@ -4,8 +4,10 @@ import test from 'node:test';
 import { ChannelType, PermissionFlagsBits } from 'discord.js';
 
 import { BOARD_ROLES, ROLE_COLORS, ROLE_NAMES } from '../src/constants.js';
+import { globalSeeds } from '../src/content/seeds.js';
 import {
   DiscordProvisioner,
+  GLOBAL_CHANNELS,
   UNIVERSITY_CHANNELS,
   divisionVoiceOverwrites,
   globalBotLogOverwrites,
@@ -199,6 +201,61 @@ test('roleSpecs apply stable colors to membership, university, and board roles',
 test('approved channel constants do not include a separate university projects category', () => {
   assert.equal('PROJECTS_CATEGORY' in UNIVERSITY_CHANNELS, false);
   assert.equal(UNIVERSITY_CHANNELS.BOT_LOG, 'bot-log');
+});
+
+test('global channel proposals use clear plural naming in the channel and guide', () => {
+  const seeds = globalSeeds();
+
+  assert.equal(GLOBAL_CHANNELS.CHANNEL_PROPOSALS, 'channel-proposals');
+  assert.equal('TOPIC_PROPOSALS' in GLOBAL_CHANNELS, false);
+  assert.equal('topicProposals' in seeds, false);
+  assert.match(seeds.channelProposals, /^# Channel Proposals\n/);
+  assert.match(seeds.channelProposals, /Suggest a new shared channel/);
+});
+
+test('legacy topic proposals forum is renamed in place', async () => {
+  const edits = [];
+  const legacyForum = {
+    id: 'legacy-forum',
+    name: 'topic-proposals',
+    type: ChannelType.GuildForum,
+    parentId: 'global-category',
+    availableTags: [],
+    async edit(payload) {
+      edits.push(payload);
+      if (payload.name) this.name = payload.name;
+      if (payload.parent) this.parentId = payload.parent;
+      return this;
+    },
+  };
+  const guild = {
+    channels: {
+      cache: {
+        find(predicate) {
+          return [legacyForum].find(predicate);
+        },
+      },
+    },
+  };
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: {},
+    db: null,
+    dryRun: false,
+    plan: samplePlan,
+    logger: {},
+  });
+
+  const channel = await provisioner.ensureForumChannel(guild, GLOBAL_CHANNELS.CHANNEL_PROPOSALS, {
+    parent: { id: 'global-category' },
+    aliases: ['topic-proposals'],
+  });
+
+  assert.equal(channel.id, legacyForum.id);
+  assert.equal(channel.name, 'channel-proposals');
+  assert.equal(provisioner.summary.channels.adopted, 1);
+  assert.equal(provisioner.summary.channels.updated, 1);
+  assert.deepEqual(edits, [{ name: 'channel-proposals', reason: 'BAINSA v1 provisioning' }]);
 });
 
 test('text and start permissions match v1 Discord policy', () => {
@@ -495,6 +552,73 @@ test('seed messages adopt legacy bot messages with the same heading and update t
 
   assert.equal(provisioner.summary.seeds.updated, 1);
   assert.deepEqual(edited, [{ content: seedContent, components: [] }]);
+});
+
+test('channel proposal guide migrates its tracked seed without creating a duplicate', async () => {
+  const seedContent = globalSeeds().channelProposals;
+  const edited = [];
+  const queries = [];
+  const existingMessage = {
+    id: 'legacy-guide',
+    content: '# Topic Proposals\n\nOld guidance.',
+    author: { id: 'bot' },
+    components: [],
+    createdTimestamp: 1,
+    async edit(payload) {
+      edited.push(payload);
+      this.content = payload.content;
+      return this;
+    },
+  };
+  const channel = {
+    id: 'channel-proposals',
+    messages: {
+      async fetch(query) {
+        if (query === 'legacy-guide') return existingMessage;
+        return new Map([[existingMessage.id, existingMessage]]);
+      },
+    },
+    async send() {
+      throw new Error('The legacy guide must be updated in place.');
+    },
+  };
+  const db = {
+    async query(sql, values) {
+      queries.push({ sql, values });
+      if (sql.includes('SELECT message_id')) {
+        return { rows: values[2] === 'global:topic-proposals' ? [{ message_id: 'legacy-guide' }] : [] };
+      }
+      if (sql.includes('INSERT INTO provisioned_messages')) return { rows: [] };
+      if (sql.includes('DELETE FROM provisioned_messages')) return { rows: [] };
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+  };
+  const provisioner = new DiscordProvisioner({
+    client: { user: { id: 'bot' } },
+    config: {},
+    db,
+    dryRun: false,
+    plan: samplePlan,
+    logger: {},
+  });
+  provisioner.guildId = 'guild';
+
+  const message = await provisioner.seedMessage(channel, 'global:channel-proposals', seedContent, {
+    legacyKeys: ['global:topic-proposals'],
+    legacyHeadings: ['# Topic Proposals'],
+  });
+
+  assert.equal(message, existingMessage);
+  assert.equal(provisioner.summary.seeds.updated, 1);
+  assert.deepEqual(edited, [{ content: seedContent, components: [] }]);
+  assert.deepEqual(
+    queries.filter(({ sql }) => sql.includes('INSERT INTO provisioned_messages')).map(({ values }) => values),
+    [['guild', 'channel-proposals', 'global:channel-proposals', 'legacy-guide']],
+  );
+  assert.deepEqual(
+    queries.filter(({ sql }) => sql.includes('DELETE FROM provisioned_messages')).map(({ values }) => values),
+    [['guild', 'channel-proposals', 'global:topic-proposals']],
+  );
 });
 
 test('bot-log guide seeds are pinned when provisioning requests it', async () => {
