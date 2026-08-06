@@ -41,8 +41,10 @@ function managedMember(id, guild, initialRoles = []) {
   let roleMutationCount = 0;
   return {
     id: String(id),
-    user: { id: String(id) },
+    user: { id: String(id), bot: false },
     guild,
+    nickname: null,
+    nicknameHistory: [],
     roles: {
       cache,
       async add(entries) {
@@ -59,6 +61,11 @@ function managedMember(id, guild, initialRoles = []) {
     },
     roleMutationCount() {
       return roleMutationCount;
+    },
+    async setNickname(nickname) {
+      this.nickname = nickname;
+      this.nicknameHistory.push(nickname);
+      return this;
     },
   };
 }
@@ -333,6 +340,7 @@ test('onboarding approval rolls back its PostgreSQL transaction and Discord role
     ]),
   };
   const target = managedMember('onboarding-user', guild, [role('guild', '@everyone')]);
+  target.nickname = 'Previous nickname';
   const reviewer = globalPresident();
   guild.members = {
     async fetch(id) {
@@ -358,6 +366,8 @@ test('onboarding approval rolls back its PostgreSQL transaction and Discord role
   assert.equal(target.roles.cache.has('researcher-role'), false);
   assert.equal(target.roles.cache.has('bocconi-role'), false);
   assert.equal(target.roles.cache.has('analysis-role'), false);
+  assert.equal(target.nickname, 'Previous nickname');
+  assert.deepEqual(target.nicknameHistory, ['Ada Lovelace', 'Previous nickname']);
   assert.equal((await database.query('SELECT count(*)::int AS count FROM members')).rows[0].count, 0);
   assert.equal(
     (await database.query('SELECT status FROM onboarding_requests WHERE id = $1', [request.rows[0].id])).rows[0].status,
