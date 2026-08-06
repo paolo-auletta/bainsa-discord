@@ -50,7 +50,6 @@ const PROJECT_PUBLIC_API = [
   'projectIdFromOption',
   'projectInfoMessage',
   'projectSuccessMessage',
-  'readProjectCreateOptions',
   'removeProjectMember',
   'searchVisibleProjects',
   'updateProject',

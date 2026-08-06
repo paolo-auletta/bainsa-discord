@@ -53,7 +53,7 @@ import {
   warmProjectAutocompleteCache,
 } from './autocomplete.js';
 import { canViewProject } from './policy.js';
-import { projectInfoMessage, projectSuccessMessage, readProjectCreateOptions } from './formatters.js';
+import { projectInfoMessage, projectSuccessMessage } from './formatters.js';
 import { createProjectSetupService } from './setup.js';
 
 const DEFAULT_DB = { query, transaction };
@@ -377,7 +377,11 @@ export async function getProjectInfo(input, deps: ProjectDependencies = {}) {
   return { project, people };
 }
 
-export const projectCreateSetup = createProjectSetupService({ createProject });
+export const projectCreateSetup = createProjectSetupService({
+  createProject,
+  findUniversities: findProjectUniversities,
+  findDivisions: findProjectDivisions,
+});
 
 export {
   assertActiveProjectMembers,
@@ -390,7 +394,6 @@ export {
   parseDiscordUserIds,
   projectInfoMessage,
   projectSuccessMessage,
-  readProjectCreateOptions,
   searchVisibleProjects,
   validateProjectDates,
   warmProjectAutocompleteCache,

@@ -347,12 +347,14 @@ test('dispatcher routes guide buttons and select menus by custom id', async () =
   assert.deepEqual(handled, ['guide:button', 'guide:select']);
 });
 
-test('dispatcher routes project setup buttons and native user selects', async () => {
+test('dispatcher routes every project setup component type', async () => {
   const handled = [];
   const projectSetup = {
-    canHandle: (customId) => customId.startsWith('project-setup:'),
+    canHandle: (customId) => customId.startsWith('pc:'),
     handleButton: async (interaction) => handled.push(`button:${interaction.customId}`),
+    handleStringSelect: async (interaction) => handled.push(`strings:${interaction.customId}`),
     handleUserSelect: async (interaction) => handled.push(`users:${interaction.customId}`),
+    handleModalSubmit: async (interaction) => handled.push(`modal:${interaction.customId}`),
   };
   const dispatch = createInteractionDispatcher({
     commands: [],
@@ -361,18 +363,30 @@ test('dispatcher routes project setup buttons and native user selects', async ()
   });
 
   await dispatch({
-    customId: 'project-setup:1:confirm',
+    customId: 'pc:1:crt',
     isButton: () => true,
   });
   await dispatch({
-    customId: 'project-setup:1:members',
+    customId: 'pc:1:uni',
+    isButton: () => false,
+    isStringSelectMenu: () => true,
+  });
+  await dispatch({
+    customId: 'pc:1:mem',
     isButton: () => false,
     isUserSelectMenu: () => true,
   });
+  await dispatch({
+    customId: 'pc:1:nm',
+    isButton: () => false,
+    isModalSubmit: () => true,
+  });
 
   assert.deepEqual(handled, [
-    'button:project-setup:1:confirm',
-    'users:project-setup:1:members',
+    'button:pc:1:crt',
+    'strings:pc:1:uni',
+    'users:pc:1:mem',
+    'modal:pc:1:nm',
   ]);
 });
 
@@ -403,6 +417,18 @@ test('dispatcher reports matched component routes without handlers', async () =>
       label: 'project setup users',
       component: { canHandle: () => true },
       flags: { isUserSelectMenu: true },
+      projectSetup: true,
+    },
+    {
+      label: 'project setup strings',
+      component: { canHandle: () => true },
+      flags: { isStringSelectMenu: true },
+      projectSetup: true,
+    },
+    {
+      label: 'project setup modal',
+      component: { canHandle: () => true },
+      flags: { isModalSubmit: true },
       projectSetup: true,
     },
   ];

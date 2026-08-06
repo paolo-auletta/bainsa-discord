@@ -54,22 +54,6 @@ export function formatShowcasePost(project, people, extra = '') {
   ]);
 }
 
-function optionValue(interaction, name, required = true) {
-  return interaction.options.getString(name, required);
-}
-
-export function readProjectCreateOptions(interaction) {
-  return {
-    interaction,
-    name: optionValue(interaction, 'name'),
-    university: optionValue(interaction, 'university'),
-    division: optionValue(interaction, 'division'),
-    startDate: optionValue(interaction, 'start_date'),
-    expectedEnd: optionValue(interaction, 'expected_end'),
-    notes: optionValue(interaction, 'notes', false),
-  };
-}
-
 export function projectInfoMessage(project, people) {
   const channel = project.discord_channel_id ? `<#${project.discord_channel_id}>` : 'Not provisioned';
   return formatMessage([

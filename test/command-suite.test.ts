@@ -18,7 +18,7 @@ const EXPECTED_COMMANDS = {
   'board-assign': ['user', 'university', 'role', 'division'],
   'board-remove': ['user', 'university', 'role', 'division', 'reason'],
   'board-info': ['university'],
-  'project-create': ['name', 'university', 'division', 'start_date', 'expected_end', 'notes'],
+  'project-create': [],
   'project-add-member': ['project', 'user', 'role'],
   'project-remove-member': ['project', 'user', 'reason'],
   'project-update': ['project', 'name', 'expected_end', 'notes', 'status'],
@@ -34,7 +34,6 @@ const UNIVERSITY_DEPENDENT_DIVISION_COMMANDS = [
   'division-remove-member',
   'board-assign',
   'board-remove',
-  'project-create',
 ];
 
 test('every v1 command is registered with a complete slash-command contract', () => {

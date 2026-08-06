@@ -129,9 +129,11 @@ Projects:
 - `/project-close`
 - `/project-info`
 
+`/project-create` has no inline arguments. It opens a private five-step wizard for the project name, scope, team, dates, notes, and final review; the project is created only after confirmation.
+
 Announcements and scheduled events use Discord's native UI and scoped channel permissions. There are no announcement, event, showcase-management, destructive-delete, or broad maintenance commands in v1.
 
-Commands cannot target the Bot account, including user-list fields in project creation. Governance commands acknowledge immediately before performing Discord and database work, so longer operations do not expire the interaction response window.
+Commands cannot target the Bot account, including project participant selectors. Governance commands acknowledge immediately before performing Discord and database work, so longer operations do not expire the interaction response window.
 
 Slash commands are usable only in the global `LOGS / bot-log` channel or the matching university `bot-log` channel. University board roles can use their university bot log; Global Presidents can use the global bot log. The dispatcher enforces this even if a Discord permission is later changed manually. Command registration requires `DISCORD_CLIENT_SECRET` in production and synchronizes Discord's board-only command visibility: Presidents see president commands, VPs executive commands, and Heads board/project commands. Discord documents that this permission endpoint requires a Bearer token with the `applications.commands.permissions.update` scope: [Application Commands](https://discord.com/developers/interactions/application-commands#edit-application-command-permissions). The dispatcher independently applies the same channel, tier, and university scope policy before autocomplete performs any database or guild-member lookup; stale or unauthorized interactions receive no suggestions. Execution-time authorization still runs when a command is submitted.
 

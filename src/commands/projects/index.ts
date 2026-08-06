@@ -2,7 +2,7 @@ import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 
 import { formatBoardActivity } from '../../activity/formatters.js';
 import { respondAutocomplete } from '../../discord/autocomplete.js';
-import { divisionLabel, PROJECT_PERSON_ROLES, PROJECT_STATUSES } from '../../constants.js';
+import { PROJECT_PERSON_ROLES, PROJECT_STATUSES } from '../../constants.js';
 import {
   handleInteractionError,
   replyBoardActivity,
@@ -11,12 +11,9 @@ import {
 import {
   addProjectMember,
   closeProject,
-  findProjectDivisions,
-  findProjectUniversities,
   getProjectInfo,
   projectCreateSetup,
   projectInfoMessage,
-  readProjectCreateOptions,
   removeProjectMember,
   searchVisibleProjects,
   updateProject,
@@ -71,49 +68,15 @@ async function autocompleteProjects(interaction) {
   }
 }
 
-async function autocompleteProjectCreate(interaction) {
-  const focused = interaction.options.getFocused(true);
-  const university = interaction.options.getString('university') ?? '';
-  try {
-    if (focused.name === 'university') {
-      const rows = await findProjectUniversities(focused.value);
-      await respondAutocomplete(interaction, rows.map((row) => ({ name: row.name, value: row.name })));
-      return;
-    }
-    if (focused.name === 'division') {
-      const rows = await findProjectDivisions(university, focused.value);
-      await respondAutocomplete(
-        interaction,
-        rows.map((row) => ({ name: divisionLabel(row.name, row.color), value: row.name })),
-      );
-      return;
-    }
-    await respondAutocomplete(interaction, []);
-  } catch {
-    await respondAutocomplete(interaction, [], 'Project setup autocomplete fallback');
-  }
-}
-
 const projectCreate = {
   data: withNoDm(
     new SlashCommandBuilder()
       .setName('project-create')
-      .setDescription('Enter project details, then select members and supervisors')
-      .addStringOption((option) => option.setName('name').setDescription('Project name').setRequired(true))
-      .addStringOption((option) =>
-        option.setName('university').setDescription('University name').setRequired(true).setAutocomplete(true),
-      )
-      .addStringOption((option) =>
-        option.setName('division').setDescription('Division name').setRequired(true).setAutocomplete(true),
-      )
-      .addStringOption((option) => option.setName('start_date').setDescription('YYYY-MM-DD').setRequired(true))
-      .addStringOption((option) => option.setName('expected_end').setDescription('YYYY-MM-DD').setRequired(true))
-      .addStringOption((option) => option.setName('notes').setDescription('Project notes').setRequired(false)),
+      .setDescription('Open the private guided project setup'),
   ),
-  autocomplete: autocompleteProjectCreate,
   async execute(interaction) {
     try {
-      await projectCreateSetup.start(interaction, readProjectCreateOptions(interaction));
+      await projectCreateSetup.start(interaction);
     } catch (error) {
       await handleInteractionError(interaction, error);
     }

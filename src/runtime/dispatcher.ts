@@ -89,6 +89,16 @@ export function createInteractionDispatcher({
         return;
       }
 
+      if (route === 'stringSelect' && projectSetup?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(projectSetup.handleStringSelect)(interaction);
+        return;
+      }
+
+      if (route === 'modalSubmit' && projectSetup?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(projectSetup.handleModalSubmit)(interaction);
+        return;
+      }
+
       if (
         (route === 'button' || route === 'stringSelect') &&
         guide?.canHandle?.(interaction.customId)

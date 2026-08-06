@@ -376,16 +376,9 @@ The Projects division is the standard starting point. Presidents can create furt
 
 ### 1. Creation
 
-An authorised Head, Vice President, President, or Global President runs `/project-create` in the correct `#bot-log`.
+An authorised Head, Vice President, President, or Global President runs `/project-create` in the correct `#bot-log`. The command opens a polished private wizard instead of collecting arguments in the command line.
 
-They provide:
-
-- Project name.
-- University and division.
-- Start date and expected end date.
-- Optional internal notes.
-
-Discord then opens native multi-user selectors for the initial members and supervisors, with up to 25 people in each group. Because onboarding names are synchronized to server nicknames, the native selector can find members by their recorded name or Discord username.
+The wizard moves through five screens: project name, university and division, members and supervisors, dates and optional notes, then final review. The project name stays at the top throughout. Discord-native multi-user selectors accept up to 25 people in each group. Because onboarding names are synchronized to server nicknames, the native selector can find members by their recorded name or Discord username.
 
 Members must be active Researchers in the selected division. Supervisors must be active members of the selected university and may be Alumni.
 
@@ -624,7 +617,7 @@ All slash commands must be run in a valid `#bot-log`. Inputs marked “optional�
 
 - **Why:** create a governed project record, private workspace, team, and showcase entry in one workflow.
 - **Who:** Global Presidents; the selected university’s President or Vice President; the selected Division Head.
-- **Inputs:** `name`, `university`, `division`, `start_date`, `expected_end`; optional private `notes`, followed by native Discord selectors for initial members and supervisors.
+- **Inputs:** No command-line fields. A private five-step wizard collects the name, university and division, initial members and supervisors, dates, and optional notes before final confirmation.
 - **Returns:** private confirmation that the project was created, or that its committed Discord state is pending automatic reconciliation.
 - **Rules:** members must be active Researchers in the division; supervisors must be active university members; dates use `YYYY-MM-DD`; one person cannot appear in both lists; maximum 994 participants.
 - **Activity:** project, team, timeline, and Discord state are posted; notes are omitted.

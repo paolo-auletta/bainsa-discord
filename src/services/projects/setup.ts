@@ -1,101 +1,100 @@
 import { randomUUID } from 'node:crypto';
 
-import {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  MessageFlags,
-  UserSelectMenuBuilder,
-} from 'discord.js';
+import { MessageFlags } from 'discord.js';
 
 import { formatBoardActivity } from '../../activity/formatters.js';
 import { assertNoBotUserIds } from '../../authorization.js';
 import { assertUser } from '../../errors.js';
 import { logger } from '../../logger.js';
-import { assertNoUserOverlap } from './validation.js';
+import {
+  cancelledPayload,
+  detailsPayload,
+  participantsPayload,
+  parseProjectSetupId,
+  PROJECT_SETUP_ACTIONS,
+  PROJECT_SETUP_SELECTION_LIMIT,
+  projectDatesModal,
+  projectNameModal,
+  projectNotesModal,
+  reviewPayload,
+  scopePayload,
+} from './setup-components.js';
+import {
+  assertNoUserOverlap,
+  normalizeProjectName,
+  validateProjectDates,
+} from './validation.js';
 
-const PREFIX = 'project-setup';
 const SESSION_TTL_MS = 15 * 60 * 1_000;
-const MAX_NATIVE_SELECTIONS = 25;
-
-const ACTIONS = Object.freeze({
-  MEMBERS: 'members',
-  SUPERVISORS: 'supervisors',
-  CONFIRM: 'confirm',
-  CANCEL: 'cancel',
-});
-const ACTION_VALUES = new Set<string>(Object.values(ACTIONS));
-const SELECT_ACTIONS = new Set<string>([ACTIONS.MEMBERS, ACTIONS.SUPERVISORS]);
-const BUTTON_ACTIONS = new Set<string>([ACTIONS.CONFIRM, ACTIONS.CANCEL]);
-
-function projectSetupId(sessionId, action) {
-  return `${PREFIX}:${sessionId}:${action}`;
-}
-
-function parseProjectSetupId(customId) {
-  const [prefix, sessionId, action] = String(customId ?? '').split(':');
-  if (prefix !== PREFIX || !sessionId || !ACTION_VALUES.has(action)) return null;
-  return { sessionId, action };
-}
+const BUTTON_ACTIONS = new Set<string>([
+  PROJECT_SETUP_ACTIONS.NAME_OPEN,
+  PROJECT_SETUP_ACTIONS.SCOPE_DONE,
+  PROJECT_SETUP_ACTIONS.PEOPLE_DONE,
+  PROJECT_SETUP_ACTIONS.DATES_OPEN,
+  PROJECT_SETUP_ACTIONS.NOTES_OPEN,
+  PROJECT_SETUP_ACTIONS.REVIEW,
+  PROJECT_SETUP_ACTIONS.BACK_SCOPE,
+  PROJECT_SETUP_ACTIONS.BACK_PEOPLE,
+  PROJECT_SETUP_ACTIONS.BACK_DETAILS,
+  PROJECT_SETUP_ACTIONS.CREATE,
+  PROJECT_SETUP_ACTIONS.CANCEL,
+]);
+const STRING_SELECT_ACTIONS = new Set<string>([
+  PROJECT_SETUP_ACTIONS.UNIVERSITY,
+  PROJECT_SETUP_ACTIONS.DIVISION,
+]);
+const USER_SELECT_ACTIONS = new Set<string>([
+  PROJECT_SETUP_ACTIONS.MEMBERS,
+  PROJECT_SETUP_ACTIONS.SUPERVISORS,
+]);
+const MODAL_ACTIONS = new Set<string>([
+  PROJECT_SETUP_ACTIONS.NAME_MODAL,
+  PROJECT_SETUP_ACTIONS.DATES_MODAL,
+  PROJECT_SETUP_ACTIONS.NOTES_MODAL,
+]);
 
 function uniqueIds(values) {
   return [...new Set((values ?? []).map(String))];
 }
 
-function formatSelection(ids) {
-  return ids.length ? ids.map((id) => `<@${id}>`).join(', ') : 'Not selected yet';
+function actorKey(guildId, actorId) {
+  return `${guildId}:${actorId}`;
 }
 
-function userSelect(session, action, placeholder, selectedIds) {
-  const menu = new UserSelectMenuBuilder()
-    .setCustomId(projectSetupId(session.id, action))
-    .setPlaceholder(placeholder)
-    .setMinValues(1)
-    .setMaxValues(MAX_NATIVE_SELECTIONS);
-  if (selectedIds.length > 0) menu.setDefaultUsers(selectedIds);
-  return menu;
+function selectedIndex(interaction, choices, label) {
+  assertUser(interaction.values.length === 1, `Choose exactly one ${label}.`);
+  const rawIndex = interaction.values[0];
+  assertUser(/^\d+$/.test(rawIndex), `Choose a ${label} from this list.`);
+  const choice = choices[Number(rawIndex)];
+  assertUser(choice, `Choose a ${label} from this list.`);
+  return choice;
 }
 
-function setupPayload(session) {
-  return {
-    content: [
-      `Choose the initial participants for **${session.input.name}**.`,
-      `**Members:** ${formatSelection(session.memberIds)}`,
-      `**Supervisors:** ${formatSelection(session.supervisorIds)}`,
-      '',
-      'Discord searches server nicknames and usernames. Both selections are required before creation.',
-    ].join('\n'),
-    allowedMentions: { parse: [] },
-    components: [
-      new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(
-        userSelect(session, ACTIONS.MEMBERS, 'Select project members', session.memberIds),
-      ),
-      new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(
-        userSelect(session, ACTIONS.SUPERVISORS, 'Select project supervisors', session.supervisorIds),
-      ),
-      new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(projectSetupId(session.id, ACTIONS.CONFIRM))
-          .setLabel('Create project')
-          .setStyle(ButtonStyle.Success)
-          .setDisabled(session.memberIds.length === 0 || session.supervisorIds.length === 0 || session.busy),
-        new ButtonBuilder()
-          .setCustomId(projectSetupId(session.id, ACTIONS.CANCEL))
-          .setLabel('Cancel')
-          .setStyle(ButtonStyle.Secondary)
-          .setDisabled(session.busy),
-      ),
-    ],
-  };
+function payloadForScreen(session) {
+  if (session.screen === 'participants') return participantsPayload(session);
+  if (session.screen === 'details') return detailsPayload(session);
+  if (session.screen === 'review') return reviewPayload(session);
+  return scopePayload(session);
 }
 
-export function createProjectSetupService({ createProject, now = () => Date.now() }) {
+async function respondToModal(interaction, payload) {
+  if (interaction.isFromMessage?.()) return interaction.update(payload);
+  return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
+}
+
+export function createProjectSetupService({
+  createProject,
+  findUniversities,
+  findDivisions,
+  now = () => Date.now(),
+}) {
   const sessions = new Map();
   const actorSessions = new Map();
 
   function deleteSession(session) {
     sessions.delete(session.id);
-    if (actorSessions.get(session.actorId) === session.id) actorSessions.delete(session.actorId);
+    const key = actorKey(session.guildId, session.actorId);
+    if (actorSessions.get(key) === session.id) actorSessions.delete(key);
   }
 
   function sweepExpiredSessions() {
@@ -115,9 +114,32 @@ export function createProjectSetupService({ createProject, now = () => Date.now(
     return session;
   }
 
-  async function start(interaction, input) {
+  function touch(session) {
+    session.expiresAt = now() + SESSION_TTL_MS;
+  }
+
+  function assertScopeComplete(session) {
+    assertUser(session.university, 'Choose a university before continuing.');
+    assertUser(session.division, 'Choose a division before continuing.');
+  }
+
+  function assertPeopleComplete(session) {
+    assertUser(session.memberIds.length > 0, 'Choose at least one project member.');
+    assertUser(session.supervisorIds.length > 0, 'Choose at least one project supervisor.');
+    assertNoUserOverlap(session.memberIds, session.supervisorIds, 'members', 'supervisors');
+  }
+
+  function assertSetupComplete(session) {
+    assertUser(session.name, 'Enter a project name before continuing.');
+    assertScopeComplete(session);
+    assertPeopleComplete(session);
+    assertUser(session.startDate && session.expectedEnd, 'Set the project timeline before continuing.');
+  }
+
+  async function start(interaction) {
     sweepExpiredSessions();
-    const previousId = actorSessions.get(interaction.user.id);
+    const key = actorKey(interaction.guildId, interaction.user.id);
+    const previousId = actorSessions.get(key);
     if (previousId) {
       const previous = sessions.get(previousId);
       if (previous) deleteSession(previous);
@@ -127,65 +149,112 @@ export function createProjectSetupService({ createProject, now = () => Date.now(
       id: randomUUID(),
       actorId: interaction.user.id,
       guildId: interaction.guildId,
-      input: {
-        name: input.name,
-        university: input.university,
-        division: input.division,
-        startDate: input.startDate,
-        expectedEnd: input.expectedEnd,
-        notes: input.notes,
-      },
+      name: null,
+      university: null,
+      division: null,
+      divisionColor: null,
+      universities: [],
+      divisions: [],
       memberIds: [],
       supervisorIds: [],
+      startDate: null,
+      expectedEnd: null,
+      notes: null,
+      screen: 'scope',
       expiresAt: now() + SESSION_TTL_MS,
       busy: false,
     };
     sessions.set(session.id, session);
-    actorSessions.set(session.actorId, session.id);
-    await interaction.reply({ ...setupPayload(session), flags: MessageFlags.Ephemeral });
-  }
+    actorSessions.set(key, session.id);
 
-  async function handleUserSelect(interaction) {
-    const parsed = parseProjectSetupId(interaction.customId);
-    if (!parsed || !SELECT_ACTIONS.has(parsed.action)) return;
-    const session = requireSession(interaction, parsed.sessionId);
-    const selectedIds = uniqueIds(interaction.values);
-    assertUser(
-      selectedIds.length >= 1 && selectedIds.length <= MAX_NATIVE_SELECTIONS,
-      `Choose between 1 and ${MAX_NATIVE_SELECTIONS} users.`,
-    );
-    assertNoBotUserIds(interaction, selectedIds);
-
-    const memberIds = parsed.action === ACTIONS.MEMBERS ? selectedIds : session.memberIds;
-    const supervisorIds = parsed.action === ACTIONS.SUPERVISORS ? selectedIds : session.supervisorIds;
-    assertNoUserOverlap(memberIds, supervisorIds, 'members', 'supervisors');
-
-    session.memberIds = memberIds;
-    session.supervisorIds = supervisorIds;
-    session.expiresAt = now() + SESSION_TTL_MS;
-    await interaction.update(setupPayload(session));
+    try {
+      await interaction.showModal(projectNameModal(session));
+    } catch (error) {
+      deleteSession(session);
+      throw error;
+    }
   }
 
   async function handleButton(interaction) {
     const parsed = parseProjectSetupId(interaction.customId);
     if (!parsed || !BUTTON_ACTIONS.has(parsed.action)) return;
     const session = requireSession(interaction, parsed.sessionId);
+    touch(session);
 
-    if (parsed.action === ACTIONS.CANCEL) {
-      deleteSession(session);
-      await interaction.update({ content: 'Project creation cancelled.', components: [], embeds: [] });
+    if (parsed.action === PROJECT_SETUP_ACTIONS.NAME_OPEN) {
+      await interaction.showModal(projectNameModal(session));
       return;
     }
 
-    assertUser(session.memberIds.length > 0, 'Choose at least one project member.');
-    assertUser(session.supervisorIds.length > 0, 'Choose at least one project supervisor.');
+    if (parsed.action === PROJECT_SETUP_ACTIONS.SCOPE_DONE) {
+      assertScopeComplete(session);
+      session.screen = 'participants';
+      await interaction.update(participantsPayload(session));
+      return;
+    }
+
+    if (parsed.action === PROJECT_SETUP_ACTIONS.PEOPLE_DONE) {
+      assertPeopleComplete(session);
+      session.screen = 'details';
+      await interaction.update(detailsPayload(session));
+      return;
+    }
+
+    if (parsed.action === PROJECT_SETUP_ACTIONS.DATES_OPEN) {
+      await interaction.showModal(projectDatesModal(session));
+      return;
+    }
+
+    if (parsed.action === PROJECT_SETUP_ACTIONS.NOTES_OPEN) {
+      await interaction.showModal(projectNotesModal(session));
+      return;
+    }
+
+    if (parsed.action === PROJECT_SETUP_ACTIONS.REVIEW) {
+      assertSetupComplete(session);
+      session.screen = 'review';
+      await interaction.update(reviewPayload(session));
+      return;
+    }
+
+    if (parsed.action === PROJECT_SETUP_ACTIONS.BACK_SCOPE) {
+      session.screen = 'scope';
+      await interaction.update(scopePayload(session));
+      return;
+    }
+
+    if (parsed.action === PROJECT_SETUP_ACTIONS.BACK_PEOPLE) {
+      session.screen = 'participants';
+      await interaction.update(participantsPayload(session));
+      return;
+    }
+
+    if (parsed.action === PROJECT_SETUP_ACTIONS.BACK_DETAILS) {
+      session.screen = 'details';
+      await interaction.update(detailsPayload(session));
+      return;
+    }
+
+    if (parsed.action === PROJECT_SETUP_ACTIONS.CANCEL) {
+      deleteSession(session);
+      await interaction.update(cancelledPayload());
+      return;
+    }
+
+    if (parsed.action !== PROJECT_SETUP_ACTIONS.CREATE) return;
+    assertSetupComplete(session);
     session.busy = true;
     await interaction.deferUpdate();
 
     try {
       const result = await createProject({
-        ...session.input,
         interaction,
+        name: session.name,
+        university: session.university,
+        division: session.division,
+        startDate: session.startDate,
+        expectedEnd: session.expectedEnd,
+        notes: session.notes,
         members: session.memberIds.join(','),
         supervisors: session.supervisorIds.join(','),
       });
@@ -211,15 +280,103 @@ export function createProjectSetupService({ createProject, now = () => Date.now(
       await interaction.editReply({ content: acknowledgement, components: [], embeds: [] });
     } catch (error) {
       session.busy = false;
-      session.expiresAt = now() + SESSION_TTL_MS;
+      touch(session);
       throw error;
     }
+  }
+
+  async function handleStringSelect(interaction) {
+    const parsed = parseProjectSetupId(interaction.customId);
+    if (!parsed || !STRING_SELECT_ACTIONS.has(parsed.action)) return;
+    const session = requireSession(interaction, parsed.sessionId);
+    touch(session);
+
+    if (parsed.action === PROJECT_SETUP_ACTIONS.UNIVERSITY) {
+      const university = selectedIndex(interaction, session.universities, 'university');
+      if (session.university !== university.name) {
+        session.university = university.name;
+        session.division = null;
+        session.divisionColor = null;
+        session.memberIds = [];
+        session.supervisorIds = [];
+      }
+      session.divisions = await findDivisions(session.university, '');
+      assertUser(session.divisions.length > 0, `No divisions are available for ${session.university}.`);
+      await interaction.update(scopePayload(session));
+      return;
+    }
+
+    const division = selectedIndex(interaction, session.divisions, 'division');
+    if (session.division !== division.name) {
+      session.division = division.name;
+      session.divisionColor = division.color;
+      session.memberIds = [];
+      session.supervisorIds = [];
+    }
+    await interaction.update(scopePayload(session));
+  }
+
+  async function handleUserSelect(interaction) {
+    const parsed = parseProjectSetupId(interaction.customId);
+    if (!parsed || !USER_SELECT_ACTIONS.has(parsed.action)) return;
+    const session = requireSession(interaction, parsed.sessionId);
+    const selectedIds = uniqueIds(interaction.values);
+    assertUser(
+      selectedIds.length >= 1 && selectedIds.length <= PROJECT_SETUP_SELECTION_LIMIT,
+      `Choose between 1 and ${PROJECT_SETUP_SELECTION_LIMIT} users.`,
+    );
+    assertNoBotUserIds(interaction, selectedIds);
+
+    const memberIds = parsed.action === PROJECT_SETUP_ACTIONS.MEMBERS ? selectedIds : session.memberIds;
+    const supervisorIds = parsed.action === PROJECT_SETUP_ACTIONS.SUPERVISORS ? selectedIds : session.supervisorIds;
+    assertNoUserOverlap(memberIds, supervisorIds, 'members', 'supervisors');
+
+    session.memberIds = memberIds;
+    session.supervisorIds = supervisorIds;
+    touch(session);
+    await interaction.update(participantsPayload(session));
+  }
+
+  async function handleModalSubmit(interaction) {
+    const parsed = parseProjectSetupId(interaction.customId);
+    if (!parsed || !MODAL_ACTIONS.has(parsed.action)) return;
+    const session = requireSession(interaction, parsed.sessionId);
+    touch(session);
+
+    if (parsed.action === PROJECT_SETUP_ACTIONS.NAME_MODAL) {
+      session.name = normalizeProjectName(interaction.fields.getTextInputValue('project_name'));
+      if (session.universities.length === 0) {
+        session.universities = await findUniversities('');
+        assertUser(session.universities.length > 0, 'No universities are available for projects yet.');
+      }
+      await respondToModal(interaction, payloadForScreen(session));
+      return;
+    }
+
+    if (parsed.action === PROJECT_SETUP_ACTIONS.DATES_MODAL) {
+      const dates = validateProjectDates(
+        interaction.fields.getTextInputValue('start_date'),
+        interaction.fields.getTextInputValue('expected_end'),
+      );
+      session.startDate = dates.startDate;
+      session.expectedEnd = dates.expectedEnd;
+      session.screen = 'details';
+      await respondToModal(interaction, detailsPayload(session));
+      return;
+    }
+
+    const notes = interaction.fields.getTextInputValue('notes')?.trim() || null;
+    session.notes = notes;
+    session.screen = 'details';
+    await respondToModal(interaction, detailsPayload(session));
   }
 
   return {
     canHandle: (customId) => parseProjectSetupId(customId) != null,
     handleButton,
+    handleStringSelect,
     handleUserSelect,
+    handleModalSubmit,
     start,
   };
 }
@@ -228,4 +385,4 @@ export function isProjectSetupCustomId(customId) {
   return parseProjectSetupId(customId) != null;
 }
 
-export { MAX_NATIVE_SELECTIONS as PROJECT_SETUP_SELECTION_LIMIT };
+export { PROJECT_SETUP_SELECTION_LIMIT };
