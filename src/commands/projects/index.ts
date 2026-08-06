@@ -98,7 +98,7 @@ const projectCreate = {
   data: withNoDm(
     new SlashCommandBuilder()
       .setName('project-create')
-      .setDescription('Create a private university division project')
+      .setDescription('Enter project details, then select members and supervisors')
       .addStringOption((option) => option.setName('name').setDescription('Project name').setRequired(true))
       .addStringOption((option) =>
         option.setName('university').setDescription('University name').setRequired(true).setAutocomplete(true),
