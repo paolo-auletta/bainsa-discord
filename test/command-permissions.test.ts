@@ -27,7 +27,7 @@ test('every registered command has a deliberate board-visibility policy', () => 
     'division-add-member',
     'division-create',
     'division-remove-member',
-    'division-rename',
+    'division-update',
     'guide',
     'member-add',
     'member-info',

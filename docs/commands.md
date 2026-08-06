@@ -139,17 +139,18 @@ The bot privately shows the recorded full name, member type, university, divisio
 
 The bot creates the division record, color-matched access and Head roles, and the requested channels under the university category. It assigns the selected person `Researcher`, the university role, and only the new Head role. The ordinary division access role is intentionally not assigned to a Head. The new Head is also recorded in the board assignments table.
 
-### `/division-rename`
+### `/division-update`
 
 **Who can use it:** Global Presidents and university Presidents for the selected university.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `university` | Yes | University containing the division |
-| `current_name` | Yes | Existing division name to rename |
-| `new_name` | Yes | New division name |
+| `current_name` | Yes | Existing division name to update |
+| `new_name` | No | New division name |
+| `color` | No | New division color |
 
-The bot validates uniqueness, renames the persisted division, renames the access and Head roles, renames the linked text/voice channels, and records the change. `current_name` is deliberately used instead of `old_name`.
+Provide at least one changed value. The bot validates uniqueness when renaming, updates the persisted division color, updates the access and Head role colors, renames the linked text/voice channels using the new color icon, and records the change. `current_name` is deliberately used instead of `old_name`.
 
 ### `/division-add-member`
 

@@ -113,7 +113,7 @@ Membership:
 Divisions and board:
 
 - `/division-create`
-- `/division-rename`
+- `/division-update`
 - `/division-add-member`
 - `/division-remove-member`
 - `/board-assign`

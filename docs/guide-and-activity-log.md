@@ -97,7 +97,7 @@ must be shortened safely before reaching Discord limits.
 | `/member-remove` | Always after success | Member, university, and that the member was removed from the server |
 | `/member-info` | Never | Private lookup |
 | `/division-create` | Always after success | Division, university, initial Head, and created text/voice channels |
-| `/division-rename` | Always after success | University and old/new division name |
+| `/division-update` | Always after success | University and changed division name or color |
 | `/division-add-member` | Always after success | Member and university/division scope |
 | `/division-remove-member` | Always after success | Member and university/division scope |
 | `/board-assign` | Always after success | Member, assigned role, university, and Head division when applicable |

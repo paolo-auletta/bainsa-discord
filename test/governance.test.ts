@@ -31,6 +31,7 @@ import {
   projectChannelCleanupTargets,
   roleNamesForDivisionHead,
   resolveDivisionTextForMemberUpdate,
+  updateDivision,
   warmGovernanceAutocompleteCache,
 } from '../src/services/governance/service.js';
 import { createDivisionChannel, renameChannelById } from '../src/services/governance/gateway.js';
@@ -69,6 +70,11 @@ function testRole(id, name, hexColor = '#000000') {
     name,
     hexColor,
     editable: true,
+    async setName(name, reason) {
+      this.name = name;
+      this.lastSetNameReason = reason;
+      return this;
+    },
     async edit(update) {
       this.lastEdit = update;
       if (update.colors?.primaryColor) this.hexColor = update.colors.primaryColor;
@@ -86,6 +92,11 @@ function testChannel(id, name, type, parentId = null) {
     name,
     type,
     parentId,
+    async setName(name, reason) {
+      this.name = name;
+      this.lastSetNameReason = reason;
+      return this;
+    },
     async delete(reason) {
       this.deletedReason = reason;
     },
@@ -127,7 +138,7 @@ test('governanceCommands exposes only the approved v1 governance commands', () =
     'division-add-member',
     'division-create',
     'division-remove-member',
-    'division-rename',
+    'division-update',
     'member-add',
     'member-info',
     'member-remove',
@@ -173,12 +184,102 @@ test('division Heads receive only the scoped Head role, not the ordinary divisio
   );
 });
 
-test('division-rename uses current_name, not old_name', () => {
-  const divisionRename = governanceCommands.find((entry) => entry.data.name === 'division-rename');
-  const json = divisionRename.data.toJSON();
+test('division-update uses current_name and supports independent name and color changes', () => {
+  const divisionUpdate = governanceCommands.find((entry) => entry.data.name === 'division-update');
+  const json = divisionUpdate.data.toJSON();
 
   assert.ok(option(json, 'current_name'));
   assert.equal(option(json, 'old_name'), undefined);
+  assert.equal(option(json, 'new_name').required, false);
+  assert.equal(option(json, 'color').required, false);
+  assert.deepEqual(option(json, 'color').choices.map((choice) => choice.value), [
+    'red', 'orange', 'yellow', 'green', 'blue', 'pink', 'brown', 'black',
+  ]);
+});
+
+test('division-update reconciles renamed and recolored roles, channels, and persisted state', async () => {
+  const accessRole = testRole('access-role', 'Bocconi - Projects', divisionColorDetails('blue').hex);
+  const headRole = testRole('head-role', 'Bocconi - Head of Projects', divisionColorDetails('blue').hex);
+  const textChannel = testChannel('text-channel', '🟦-projects', ChannelType.GuildText);
+  const voiceChannel = testChannel('voice-channel', '🟦-projects-room', ChannelType.GuildVoice);
+  const roleCache = cacheFrom([accessRole, headRole]);
+  const channelCache = cacheFrom([textChannel, voiceChannel]);
+  const transactionQueries = [];
+  const db = {
+    async query(text) {
+      if (text.includes('FROM universities')) {
+        return { rows: [{ id: 2, name: 'Bocconi', category_id: 'bocconi-category' }], rowCount: 1 };
+      }
+      if (text.includes('AND id <>')) return { rows: [], rowCount: 0 };
+      if (text.includes('FROM divisions')) {
+        return {
+          rows: [{
+            id: 7,
+            university_id: 2,
+            name: 'Projects',
+            color: 'blue',
+            access_role_id: accessRole.id,
+            head_role_id: headRole.id,
+            text_channel_id: textChannel.id,
+            voice_channel_id: voiceChannel.id,
+          }],
+          rowCount: 1,
+        };
+      }
+      throw new Error(`Unexpected query: ${text}`);
+    },
+    async transaction(callback) {
+      return callback({
+        async query(text, values) {
+          transactionQueries.push({ text, values });
+          return { rows: [], rowCount: 1 };
+        },
+      });
+    },
+  };
+
+  const result = await updateDivision(
+    {
+      guild: {
+        roles: { cache: roleCache },
+        channels: {
+          async fetch(id) {
+            return channelCache.get(id) ?? null;
+          },
+        },
+      },
+      user: { id: 'actor-user' },
+      member: fakeMember([ROLE_NAMES.GLOBAL_PRESIDENT]),
+    },
+    {
+      university: 'Bocconi',
+      currentName: 'Projects',
+      newName: 'Innovation',
+      color: 'green',
+    },
+    { db },
+  );
+
+  assert.deepEqual(result, {
+    university: { id: 2, name: 'Bocconi', category_id: 'bocconi-category' },
+    oldName: 'Projects',
+    newName: 'Innovation',
+    oldColor: 'blue',
+    newColor: 'green',
+  });
+  assert.equal(accessRole.name, 'Bocconi - Innovation');
+  assert.equal(headRole.name, 'Bocconi - Head of Innovation');
+  assert.equal(accessRole.hexColor, divisionColorDetails('green').hex);
+  assert.equal(headRole.hexColor, divisionColorDetails('green').hex);
+  assert.equal(textChannel.name, '🟩-innovation');
+  assert.equal(voiceChannel.name, '🟩-innovation-room');
+
+  const update = transactionQueries.find((query) => query.text.includes('UPDATE divisions'));
+  assert.deepEqual(update.values, ['Innovation', 'innovation', 'green', accessRole.id, headRole.id, 7]);
+  const audit = transactionQueries.find((query) => query.text.includes('INSERT INTO audit_log'));
+  assert.equal(audit.values[1], 'division.update');
+  assert.equal(audit.values[5], JSON.stringify({ name: 'Projects', color: 'blue' }));
+  assert.equal(audit.values[6], JSON.stringify({ name: 'Innovation', color: 'green' }));
 });
 
 test('board command option shape matches the approved policy', () => {

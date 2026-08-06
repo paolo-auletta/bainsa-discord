@@ -12,7 +12,7 @@ const EXPECTED_COMMANDS = {
   'member-remove': ['user', 'reason'],
   'member-info': ['user'],
   'division-create': ['university', 'division_name', 'color', 'head', 'create_text_channel', 'create_voice_channel'],
-  'division-rename': ['university', 'current_name', 'new_name'],
+  'division-update': ['university', 'current_name', 'new_name', 'color'],
   'division-add-member': ['user', 'university', 'division'],
   'division-remove-member': ['user', 'university', 'division', 'reason'],
   'board-assign': ['user', 'university', 'role', 'division'],
@@ -29,7 +29,7 @@ const EXPECTED_COMMANDS = {
 const UNIVERSITY_DEPENDENT_DIVISION_COMMANDS = [
   'member-add',
   'member-update',
-  'division-rename',
+  'division-update',
   'division-add-member',
   'division-remove-member',
   'board-assign',

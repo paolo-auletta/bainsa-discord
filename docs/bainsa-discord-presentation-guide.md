@@ -564,13 +564,13 @@ All slash commands must be run in a valid `#bot-log`. Inputs marked “optional�
 - **Rules:** the initial Head receives Researcher, university, and scoped Head roles. The Head role itself grants division access.
 - **Activity:** the new division, Head, colour, and created resources are posted.
 
-#### `/division-rename`
+#### `/division-update`
 
-- **Why:** rename a division consistently across the database, roles, and channels.
+- **Why:** update a division name or colour consistently across the database, roles, and channels.
 - **Who:** Global Presidents and the selected university’s President.
-- **Inputs:** `university`, `current_name`, `new_name`.
-- **Returns:** private confirmation after all managed names are reconciled.
-- **Activity:** old and new names are posted.
+- **Inputs:** `university`, `current_name`, optional `new_name`, optional `color`.
+- **Returns:** private confirmation after all managed names and colours are reconciled.
+- **Activity:** changed names and colours are posted.
 
 #### `/division-add-member`
 
