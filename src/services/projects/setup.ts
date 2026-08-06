@@ -8,6 +8,7 @@ import { assertUser } from '../../errors.js';
 import { logger } from '../../logger.js';
 import {
   cancelledPayload,
+  createdPayload,
   detailsPayload,
   participantsPayload,
   parseProjectSetupId,
@@ -79,7 +80,10 @@ function payloadForScreen(session) {
 
 async function respondToModal(interaction, payload) {
   if (interaction.isFromMessage?.()) return interaction.update(payload);
-  return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
+  return interaction.reply({
+    ...payload,
+    flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+  });
 }
 
 export function createProjectSetupService({
@@ -277,7 +281,7 @@ export function createProjectSetupService({
         });
         acknowledgement += ' The project was saved, but its activity message could not be posted.';
       }
-      await interaction.editReply({ content: acknowledgement, components: [], embeds: [] });
+      await interaction.editReply(createdPayload(acknowledgement));
     } catch (error) {
       session.busy = false;
       touch(session);
