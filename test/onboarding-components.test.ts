@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { reviewPayload, reviewedPayload } from '../src/onboarding/components.js';
+import {
+  confirmPayload,
+  divisionPayload,
+  memberTypePayload,
+  reviewPayload,
+  reviewedPayload,
+  universityPayload,
+} from '../src/onboarding/components.js';
 
 const university = { id: '1', name: 'Bocconi' };
 const reapplication = {
@@ -42,4 +49,20 @@ test('onboarding review messages omit removal history for first-time applicants'
   const payload = reviewPayload({ ...reapplication, previously_removed: false }, university, []);
 
   assert.equal(fields(payload).some((field) => field.name === 'Member history'), false);
+});
+
+test('onboarding embeds omit helper footers and review timestamps', () => {
+  const embeds = [
+    memberTypePayload('10').embeds[0],
+    universityPayload('10', [university]).embeds[0],
+    divisionPayload('10', [{ id: '2', name: 'Analysis', color: 'orange' }]).embeds[0],
+    confirmPayload('10', { full_name: 'Ada Lovelace', member_type: 'alumni' }, university, []).embeds[0],
+    reviewPayload(reapplication, university, []).embeds[0],
+    reviewedPayload({ ...reapplication, status: 'approved' }, university, [], '200').embeds[0],
+  ];
+
+  for (const embed of embeds) {
+    assert.equal(embed.data.footer, undefined);
+    assert.equal(embed.data.timestamp, undefined);
+  }
 });
