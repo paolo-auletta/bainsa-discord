@@ -51,10 +51,7 @@ export function memberTypePayload(requestId) {
             name: "🎓 Alumni",
             value: "A former BAINSA member who remains part of the community.",
           },
-        )
-        .setFooter({
-          text: "Your request will be reviewed by the relevant university board.",
-        }),
+        ),
     ],
     components: [
       new ActionRowBuilder().addComponents(
@@ -118,10 +115,7 @@ export function universityPayload(
           selectedUniversity
             ? `**Selected:** ${selectedUniversity.name}\n\nConfirm this choice to continue.`
             : "Select the university you currently belong to, or the one you were part of as an Alumni.",
-        )
-        .setFooter({
-          text: `University list · Page ${slice.page + 1} of ${slice.totalPages} · Your choice is not submitted yet`,
-        }),
+        ),
     ],
     components: [
       new ActionRowBuilder().addComponents(menu),
@@ -179,10 +173,7 @@ export function divisionPayload(
       onboardingEmbed("Step 4 of 4 · Choose your division")
         .setDescription(
           "Choose the one division where you will contribute. You can update this later through the university board if your role changes.",
-        )
-        .setFooter({
-          text: `Division list · Page ${slice.page + 1} of ${slice.totalPages}`,
-        }),
+        ),
     ],
     components: [
       new ActionRowBuilder().addComponents(menu),
@@ -238,10 +229,7 @@ export function confirmPayload(requestId, draft, university, divisions) {
           },
           { name: "University", value: university.name, inline: true },
           { name: "Division", value: divisionNames },
-        )
-        .setFooter({
-          text: "You can cancel now and restart whenever you are ready.",
-        }),
+        ),
     ],
     components: [
       new ActionRowBuilder().addComponents(
@@ -285,12 +273,15 @@ export function reviewPayload(request, university, divisions) {
           },
           { name: "University", value: university.name, inline: true },
           { name: "Division", value: divisionNames, inline: true },
+          ...(request.previously_removed
+            ? [{
+              name: "Member history",
+              value: "⚠️ Previously removed from the server; this is a reapplication.",
+              inline: false,
+            }]
+            : []),
           { name: "Review status", value: "🟡 Pending review", inline: true },
-        )
-        .setFooter({
-          text: "Confirm the applicant’s member status, university, and division before deciding.",
-        })
-        .setTimestamp(new Date()),
+        ),
     ],
     components: [
       new ActionRowBuilder().addComponents(
@@ -334,8 +325,7 @@ export function reviewedPayload(
         inline: true,
       },
       { name: "Reviewed by", value: `<@${reviewerId}>`, inline: true },
-    )
-    .setFooter({ text: "This request has been closed." });
+    );
 
   if (reason) embed.addFields({ name: "Reason", value: reason });
 

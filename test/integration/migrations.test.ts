@@ -89,6 +89,19 @@ test('runs every migration against a fresh database and keeps the final contract
   `);
   assert.equal(indexes.rowCount, 4);
 
+  const reapplicationColumn = await database.query(`
+    SELECT data_type, is_nullable, column_default
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'onboarding_requests'
+       AND column_name = 'previously_removed'
+  `);
+  assert.deepEqual(reapplicationColumn.rows[0], {
+    data_type: 'boolean',
+    is_nullable: 'NO',
+    column_default: 'false',
+  });
+
   const universityId = await insertUniversity('Bocconi');
   const otherUniversityId = await insertUniversity('Sapienza');
   await database.query(

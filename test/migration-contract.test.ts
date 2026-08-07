@@ -26,6 +26,11 @@ const immutableDivisionUniversityMigrationUrl = projectPath(
   'migrations',
   '011_make_division_university_immutable.sql',
 );
+const removedMemberOnboardingMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '012_removed_member_onboarding.sql',
+);
 
 async function migrationSql() {
   return readFile(migrationUrl, 'utf8');
@@ -63,6 +68,10 @@ async function immutableDivisionUniversityMigrationSql() {
   return readFile(immutableDivisionUniversityMigrationUrl, 'utf8');
 }
 
+async function removedMemberOnboardingMigrationSql() {
+  return readFile(removedMemberOnboardingMigrationUrl, 'utf8');
+}
+
 function assertIncludes(sql, snippet) {
   assert.ok(sql.includes(snippet), `Expected migration to include: ${snippet}`);
 }
@@ -82,6 +91,7 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '009_clear_division_roles_on_executive_promotion.sql',
     '010_enforce_executive_division_exclusivity.sql',
     '011_make_division_university_immutable.sql',
+    '012_removed_member_onboarding.sql',
   ]);
 });
 
@@ -91,6 +101,14 @@ test('prevents division university changes from bypassing scoped invariants', as
   assertIncludes(sql, 'CREATE OR REPLACE FUNCTION prevent_division_university_change()');
   assertIncludes(sql, 'NEW.university_id IS DISTINCT FROM OLD.university_id');
   assertIncludes(sql, 'BEFORE UPDATE OF university_id ON divisions');
+});
+
+test('records when an onboarding application follows a member removal', async () => {
+  const sql = await removedMemberOnboardingMigrationSql();
+
+  assertIncludes(sql, 'ADD COLUMN IF NOT EXISTS previously_removed boolean NOT NULL DEFAULT false');
+  assert.equal(/\bdrop\s+table\b/i.test(sql), false);
+  assert.equal(/\btruncate\b/i.test(sql), false);
 });
 
 test('allows multiple active university Presidents', async () => {
