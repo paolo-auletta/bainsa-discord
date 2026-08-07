@@ -509,20 +509,18 @@ test('project creation retains its committed record and records a pending reconc
     },
   };
 
-  await assert.rejects(
-    createProject({
-      interaction: { guild, member: actor, user: { id: actor.id } },
-      name: 'Signals',
-      university: 'Bocconi',
-      division: 'Analysis',
-      startDate: '2026-07-01',
-      expectedEnd: '2026-08-01',
-      notes: null,
-      members: member.id,
-      supervisors: supervisor.id,
-    }, { db: database }),
-    /committed to the database, but Discord reconciliation is pending/i,
-  );
+  const created = await createProject({
+    interaction: { guild, member: actor, user: { id: actor.id } },
+    name: 'Signals',
+    university: 'Bocconi',
+    division: 'Analysis',
+    startDate: '2026-07-01',
+    expectedEnd: '2026-08-01',
+    notes: null,
+    members: member.id,
+    supervisors: supervisor.id,
+  }, { db: database });
+  assert.equal(created.reconciliation_pending, true);
   const project = await database.query('SELECT status, notes FROM projects');
   assert.equal(project.rows[0].status, 'active');
   assert.equal(project.rows[0].notes, null);

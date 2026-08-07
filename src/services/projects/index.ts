@@ -10,7 +10,8 @@ import {
   PROJECT_STATUSES,
 } from '../../constants.js';
 import { query, transaction } from '../../db.js';
-import { UserFacingError, assertUser } from '../../errors.js';
+import { assertUser } from '../../errors.js';
+import { logger } from '../../logger.js';
 import { uniqueIds } from './permissions.js';
 import {
   assertActiveProjectMembers,
@@ -76,29 +77,36 @@ function assertProjectViewAuthority(member, project, people) {
 }
 
 async function createProjectHistory(guild, db, project, people) {
-  await updateProjectChannel(guild, project, people);
+  try {
+    await updateProjectChannel(guild, project, people);
+  } catch (error) {
+    logger.error('Project creation channel history could not be posted', {
+      projectId: project.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
   try {
     const thread = await createShowcaseThread(guild, project, people);
     if (!thread) return;
     await setProjectShowcaseThreadId(db, project.id, thread.id);
     project.showcase_thread_id = thread.id;
-  } catch {
+  } catch (error) {
     // Showcase posts are intentionally one-shot best effort, never replayed by reconciliation.
+    logger.error('Project creation showcase history could not be posted', {
+      projectId: project.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
 async function reconcileCommittedProject({ projectId, guild, db }) {
   const reconciliation = await reconcileProject({ projectId, guild, db });
-  if (reconciliation.status === 'failed') {
-    throw new UserFacingError(
-      `Project #${projectId} was committed to the database, but Discord reconciliation is pending. It will retry automatically.`,
-    );
-  }
   if (reconciliation.status === 'succeeded') return reconciliation;
 
-  // A worker may have claimed this generation after the write transaction
-  // committed. The mutation is valid; return its persisted state without
-  // attempting duplicate Discord work while that worker is in progress.
+  // The write transaction already committed. Return its persisted state for
+  // every retryable reconciliation outcome so callers acknowledge the saved
+  // mutation instead of offering an unsafe retry.
   const [project, people] = await Promise.all([
     getProject(db, projectId),
     getProjectPeople(db, projectId),
@@ -108,20 +116,15 @@ async function reconcileCommittedProject({ projectId, guild, db }) {
     [projectId],
   );
   const status = statusResult.rows[0]?.status;
-  if (status === 'failed') {
-    throw new UserFacingError(
-      `Project #${projectId} was committed to the database, but Discord reconciliation is pending. It will retry automatically.`,
-    );
-  }
   if (status === 'succeeded') return { status, project, people };
-  return { status: 'pending', project, people };
+  return { status: status === 'failed' ? 'failed' : 'pending', project, people };
 }
 
 function projectResult(reconciliation) {
   return {
     ...reconciliation.project,
     people: reconciliation.people,
-    reconciliation_pending: reconciliation.status === 'pending',
+    reconciliation_pending: reconciliation.status !== 'succeeded',
   };
 }
 

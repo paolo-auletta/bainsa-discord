@@ -205,6 +205,7 @@ test('project setup renders a polished five-step wizard and creates only from re
     division_name: 'Projects',
     start_date: '2026-08-01',
     expected_end: '2026-09-01',
+    reconciliation_pending: true,
     people: [
       { discord_user_id: MEMBER_ID, role: 'member' },
       { discord_user_id: SUPERVISOR_ID, role: 'supervisor' },
@@ -297,6 +298,46 @@ test('project setup renders a polished five-step wizard and creates only from re
   );
   assert.equal(finalReply.flags, MessageFlags.IsComponentsV2);
   assert.match(allText(finalReply), /Created \*\*Native project\*\*/);
+  assert.match(allText(finalReply), /Discord reconciliation is pending and will retry automatically/);
+  await assert.rejects(
+    () => service.handleButton({
+      ...baseInteraction(componentForAction(review, PROJECT_SETUP_ACTIONS.CREATE).custom_id),
+      deferUpdate: async () => assert.fail('must not retry project creation'),
+    }),
+    /expired/,
+  );
+});
+
+test('project setup preserves its last valid scope when loading a new university fails', async () => {
+  const service = setupService({
+    findDivisions: async (university) => {
+      if (university === 'Sapienza') throw new Error('Division lookup unavailable');
+      return [{ name: 'Projects', color: 'blue' }];
+    },
+  });
+  const scope = await beginSetup(service, 'Scope recovery');
+  let selectedScope;
+  await service.handleStringSelect({
+    ...baseInteraction(componentForAction(scope, PROJECT_SETUP_ACTIONS.UNIVERSITY).custom_id),
+    values: ['0'],
+    update: async (payload) => { selectedScope = payload; },
+  });
+
+  await assert.rejects(
+    () => service.handleStringSelect({
+      ...baseInteraction(componentForAction(selectedScope, PROJECT_SETUP_ACTIONS.UNIVERSITY).custom_id),
+      values: ['1'],
+      update: async () => assert.fail('must not update after a failed lookup'),
+    }),
+    /Division lookup unavailable/,
+  );
+
+  await service.handleStringSelect({
+    ...baseInteraction(componentForAction(selectedScope, PROJECT_SETUP_ACTIONS.DIVISION).custom_id),
+    values: ['0'],
+    update: async (payload) => { selectedScope = payload; },
+  });
+  assert.match(summaryContent(selectedScope), /Bocconi · 🟦 Projects/);
 });
 
 test('project setup rejects the Bot and cross-role duplicate selections', async () => {

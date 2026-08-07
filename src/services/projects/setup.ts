@@ -276,6 +276,9 @@ export function createProjectSetupService({
         },
       });
       let acknowledgement = `Created **${result.name}** (#${result.id}).`;
+      if (result.reconciliation_pending) {
+        acknowledgement += ' Discord reconciliation is pending and will retry automatically.';
+      }
       try {
         await interaction.channel.send({ allowedMentions: { parse: [] }, ...activity });
         acknowledgement += ' Activity posted in this channel.';
@@ -304,6 +307,8 @@ export function createProjectSetupService({
 
     if (parsed.action === PROJECT_SETUP_ACTIONS.UNIVERSITY) {
       const university = selectedIndex(interaction, session.universities, 'university');
+      const divisions = await findDivisions(university.name, '');
+      assertUser(divisions.length > 0, `No divisions are available for ${university.name}.`);
       if (session.university !== university.name) {
         session.university = university.name;
         session.division = null;
@@ -312,8 +317,7 @@ export function createProjectSetupService({
         session.supervisorIds = [];
         session.participantUsers.clear();
       }
-      session.divisions = await findDivisions(session.university, '');
-      assertUser(session.divisions.length > 0, `No divisions are available for ${session.university}.`);
+      session.divisions = divisions;
       await interaction.update(scopePayload(session));
       return;
     }
