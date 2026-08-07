@@ -438,10 +438,6 @@ async function applyMemberMembership(interaction, options, deps: GovernanceDepen
   };
 }
 
-export async function addMember(interaction, options, deps: GovernanceDependencies = {}) {
-  return applyMemberMembership(interaction, { ...options, auditAction: 'member.add' }, deps);
-}
-
 export async function updateMember(interaction, options, deps: GovernanceDependencies = {}) {
   const db = dbFrom(deps);
   const previous = await getMemberRecord(db, options.user.id);

@@ -101,22 +101,6 @@ function reconciliationField(project, successText) {
     : field('Discord state', successText);
 }
 
-function memberAdd({ actorId, result }) {
-  const divisions = names(result.divisions);
-  return activity({
-    kind: 'add',
-    title: 'Member added',
-    subjectLabel: 'Member',
-    subject: mention(result.target),
-    universityName: result.university.name,
-    fields: [
-      field('Member type', memberTypeLabel(result.memberType)),
-      ...(divisions.length ? [field('Divisions', list(divisions))] : []),
-    ],
-    actorId,
-  });
-}
-
 function memberUpdate({ actorId, result }) {
   const before = result.previousRecord ?? {};
   const previousDivisions = names(result.previousDivisions);
@@ -330,7 +314,6 @@ function projectClose({ actorId, result }) {
 }
 
 const FORMATTERS = Object.freeze({
-  'member-add': memberAdd,
   'member-update': memberUpdate,
   'member-remove': memberRemove,
   'division-create': divisionCreate,

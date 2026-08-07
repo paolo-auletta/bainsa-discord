@@ -511,14 +511,7 @@ All slash commands must be run in a valid `#bot-log`. Inputs marked â€œoptionalâ
 
 ### Member commands
 
-#### `/member-add`
-
-- **Why:** initialise or add a member without manually reproducing the role model.
-- **Who:** Global Presidents; University Presidents and Vice Presidents inside their university.
-- **Inputs:** `user`, `member_type` (`Researcher` or `Alumni`), `university`; optional comma-separated `divisions` and private `notes`.
-- **Returns:** a private confirmation after the member record and Discord roles are reconciled.
-- **Rules:** Alumni cannot receive division roles. The Bot account cannot be targeted.
-- **Activity:** member, university, type, and visible role changes are posted; notes are omitted.
+New members enter through onboarding. A board approval creates the member record, assigns the managed roles, records the decision, and sets the verified full-name nickname.
 
 #### `/member-update`
 

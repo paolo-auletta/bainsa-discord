@@ -105,7 +105,6 @@ Private project channels use direct user overwrites for members and supervisors.
 
 Membership:
 
-- `/member-add`
 - `/member-update`
 - `/member-remove`
 - `/member-info`

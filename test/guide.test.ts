@@ -56,7 +56,6 @@ test('a division Head sees only Head commands in the owned division scope', () =
     ],
   );
   assert.equal(guideScopeLabel(access, { scopeKind: 'division' }), 'Bocconi › Culture');
-  assert.equal(access.availableCommands.has('member-add'), false);
   assert.equal(access.availableCommands.has('board-assign'), false);
 });
 
@@ -72,7 +71,6 @@ test('multiple board roles combine their current effective access', () => {
 
   assert.equal(access.vicePresident, true);
   assert.deepEqual(access.divisions, ['Culture']);
-  assert.equal(access.availableCommands.has('member-add'), true);
   assert.equal(access.availableCommands.has('division-create'), false);
   assert.equal(access.availableCommands.has('board-assign'), true);
   assert.equal(access.availableCommands.has('board-remove'), true);

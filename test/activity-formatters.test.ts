@@ -27,7 +27,6 @@ test('activity policy contains every state-changing command and no lookup comman
     'division-create',
     'division-remove-member',
     'division-update',
-    'member-add',
     'member-remove',
     'member-update',
     'project-add-member',
@@ -39,28 +38,6 @@ test('activity policy contains every state-changing command and no lookup comman
   for (const command of ['guide', 'member-info', 'board-info', 'project-info']) {
     assert.equal(formatBoardActivity(command, { actorId, result: {} }), null);
   }
-});
-
-test('member activity includes scope and actor but excludes private notes and reasons', () => {
-  const payload = formatBoardActivity('member-add', {
-    actorId,
-    result: {
-      target,
-      university,
-      memberType: 'researcher',
-      divisions: [division],
-      notes: 'PRIVATE MEMBER NOTE',
-      reason: 'PRIVATE REASON',
-    },
-  });
-  const serialized = JSON.stringify(embedJson(payload));
-  assert.match(serialized, /Member added/);
-  assert.equal(fieldValue(embedJson(payload), 'Member'), '<@100>');
-  assert.equal(fieldValue(embedJson(payload), 'Member type'), 'Researcher');
-  assert.match(serialized, /Bocconi/);
-  assert.match(serialized, /Culture/);
-  assert.match(serialized, /<@900>/);
-  assert.doesNotMatch(serialized, /PRIVATE/);
 });
 
 test('member update shows only visible before-and-after changes', () => {

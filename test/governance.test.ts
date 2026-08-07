@@ -139,7 +139,6 @@ test('governanceCommands exposes only the approved v1 governance commands', () =
     'division-create',
     'division-remove-member',
     'division-update',
-    'member-add',
     'member-info',
     'member-remove',
     'member-update',

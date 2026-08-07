@@ -9,7 +9,6 @@ import * as projectService from '../src/services/projects/index.js';
 
 const GOVERNANCE_PUBLIC_API = [
   'addDivisionMember',
-  'addMember',
   'assignBoardRole',
   'createDivision',
   'divisionChannelName',
