@@ -240,7 +240,7 @@ export async function addProjectMember(input, deps: ProjectDependencies = {}) {
   return {
     project: projectResult(reconciliation),
     people: reconciliation.people,
-    participant: { userId: input.user.id, role, previousRole },
+    participant: { user: input.user, userId: input.user.id, role, previousRole },
   };
 }
 
@@ -280,7 +280,7 @@ export async function removeProjectMember(input, deps: ProjectDependencies = {})
   return {
     project: projectResult(reconciliation),
     people: reconciliation.people,
-    participant: { userId: input.user.id, role: previousRole },
+    participant: { user: input.user, userId: input.user.id, role: previousRole },
   };
 }
 

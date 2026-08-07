@@ -161,6 +161,7 @@ export function createProjectSetupService({
       divisions: [],
       memberIds: [],
       supervisorIds: [],
+      participantUsers: new Map(),
       startDate: null,
       expectedEnd: null,
       notes: null,
@@ -266,7 +267,13 @@ export function createProjectSetupService({
 
       const activity = formatBoardActivity('project-create', {
         actorId: interaction.user.id,
-        result,
+        result: {
+          ...result,
+          people: result.people.map((person) => ({
+            ...person,
+            user: session.participantUsers.get(String(person.discord_user_id)),
+          })),
+        },
       });
       let acknowledgement = `Created **${result.name}** (#${result.id}).`;
       try {
@@ -303,6 +310,7 @@ export function createProjectSetupService({
         session.divisionColor = null;
         session.memberIds = [];
         session.supervisorIds = [];
+        session.participantUsers.clear();
       }
       session.divisions = await findDivisions(session.university, '');
       assertUser(session.divisions.length > 0, `No divisions are available for ${session.university}.`);
@@ -316,6 +324,7 @@ export function createProjectSetupService({
       session.divisionColor = division.color;
       session.memberIds = [];
       session.supervisorIds = [];
+      session.participantUsers.clear();
     }
     await interaction.update(scopePayload(session));
   }
@@ -330,6 +339,14 @@ export function createProjectSetupService({
       `Choose between 1 and ${PROJECT_SETUP_SELECTION_LIMIT} users.`,
     );
     assertNoBotUserIds(interaction, selectedIds);
+
+    for (const id of selectedIds) {
+      const member = interaction.members?.get(id);
+      session.participantUsers.set(
+        id,
+        member?.displayName ? member : interaction.users?.get(id) ?? member ?? null,
+      );
+    }
 
     const memberIds = parsed.action === PROJECT_SETUP_ACTIONS.MEMBERS ? selectedIds : session.memberIds;
     const supervisorIds = parsed.action === PROJECT_SETUP_ACTIONS.SUPERVISORS ? selectedIds : session.supervisorIds;

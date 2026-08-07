@@ -132,12 +132,14 @@ async function chooseTeam(service, initialPayload) {
   await service.handleUserSelect({
     ...baseInteraction(componentForAction(initialPayload, PROJECT_SETUP_ACTIONS.MEMBERS).custom_id),
     values: [MEMBER_ID, MEMBER_ID],
+    users: new Map([[MEMBER_ID, { id: MEMBER_ID, username: 'member-name' }]]),
     update: async (next) => { payload = next; },
   });
 
   await service.handleUserSelect({
     ...baseInteraction(componentForAction(payload, PROJECT_SETUP_ACTIONS.SUPERVISORS).custom_id),
     values: [SUPERVISOR_ID],
+    users: new Map([[SUPERVISOR_ID, { id: SUPERVISOR_ID, username: 'supervisor-name' }]]),
     update: async (next) => { payload = next; },
   });
   return payload;
@@ -284,6 +286,15 @@ test('project setup renders a polished five-step wizard and creates only from re
   assert.equal(createdInput.expectedEnd, result.expected_end);
   assert.equal(createdInput.notes, 'Private context');
   assert.equal(activity.allowedMentions.parse.length, 0);
+  const activityEmbed = activity.embeds[0].toJSON();
+  assert.equal(
+    activityEmbed.fields.find((field) => field.name === 'Members').value,
+    `member-name (<@${MEMBER_ID}>)`,
+  );
+  assert.equal(
+    activityEmbed.fields.find((field) => field.name === 'Supervisors').value,
+    `supervisor-name (<@${SUPERVISOR_ID}>)`,
+  );
   assert.equal(finalReply.flags, MessageFlags.IsComponentsV2);
   assert.match(allText(finalReply), /Created \*\*Native project\*\*/);
 });
