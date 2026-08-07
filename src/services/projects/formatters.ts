@@ -12,19 +12,24 @@ function formatMessage(lines) {
   return truncateMessage(lines.filter(Boolean).join('\n'));
 }
 
-export function formatPeopleLine(people, role, maxLength = PEOPLE_LINE_LIMIT) {
-  const ids = people.filter((person) => person.role === role).map((person) => `<@${person.discord_user_id}>`);
-  if (!ids.length) return 'None yet';
+export function formatPeopleLine(
+  people,
+  role,
+  maxLength = PEOPLE_LINE_LIMIT,
+  formatPerson = (person) => `<@${person.discord_user_id}>`,
+) {
+  const references = people.filter((person) => person.role === role).map(formatPerson);
+  if (!references.length) return 'None yet';
 
   const rendered = [];
-  for (let index = 0; index < ids.length; index += 1) {
-    const remaining = ids.length - index - 1;
+  for (let index = 0; index < references.length; index += 1) {
+    const remaining = references.length - index - 1;
     const suffix = remaining > 0 ? `, … (+${remaining} more)` : '';
-    const candidate = [...rendered, ids[index]].join(', ');
+    const candidate = [...rendered, references[index]].join(', ');
     if (`${candidate}${suffix}`.length > maxLength) {
-      return `${rendered.join(', ')}, … (+${ids.length - index} more)`;
+      return `${rendered.join(', ')}, … (+${references.length - index} more)`;
     }
-    rendered.push(ids[index]);
+    rendered.push(references[index]);
   }
   return rendered.join(', ');
 }

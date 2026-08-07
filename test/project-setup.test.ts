@@ -132,12 +132,14 @@ async function chooseTeam(service, initialPayload) {
   await service.handleUserSelect({
     ...baseInteraction(componentForAction(initialPayload, PROJECT_SETUP_ACTIONS.MEMBERS).custom_id),
     values: [MEMBER_ID, MEMBER_ID],
+    users: new Map([[MEMBER_ID, { id: MEMBER_ID, username: 'member-name' }]]),
     update: async (next) => { payload = next; },
   });
 
   await service.handleUserSelect({
     ...baseInteraction(componentForAction(payload, PROJECT_SETUP_ACTIONS.SUPERVISORS).custom_id),
     values: [SUPERVISOR_ID],
+    users: new Map([[SUPERVISOR_ID, { id: SUPERVISOR_ID, username: 'supervisor-name' }]]),
     update: async (next) => { payload = next; },
   });
   return payload;
@@ -203,6 +205,7 @@ test('project setup renders a polished five-step wizard and creates only from re
     division_name: 'Projects',
     start_date: '2026-08-01',
     expected_end: '2026-09-01',
+    reconciliation_pending: true,
     people: [
       { discord_user_id: MEMBER_ID, role: 'member' },
       { discord_user_id: SUPERVISOR_ID, role: 'supervisor' },
@@ -289,8 +292,102 @@ test('project setup renders a polished five-step wizard and creates only from re
   assert.equal(createdInput.expectedEnd, result.expected_end);
   assert.equal(createdInput.notes, 'Private context');
   assert.equal(activity.allowedMentions.parse.length, 0);
+  const activityEmbed = activity.embeds[0].toJSON();
+  assert.equal(
+    activityEmbed.fields.find((field) => field.name === 'Members').value,
+    `member-name (<@${MEMBER_ID}>)`,
+  );
+  assert.equal(
+    activityEmbed.fields.find((field) => field.name === 'Supervisors').value,
+    `supervisor-name (<@${SUPERVISOR_ID}>)`,
+  );
   assert.equal(finalReply.flags, MessageFlags.IsComponentsV2);
   assert.match(allText(finalReply), /Created \*\*Native project\*\*/);
+  assert.match(allText(finalReply), /Discord reconciliation is pending and will retry automatically/);
+  await assert.rejects(
+    () => service.handleButton({
+      ...baseInteraction(componentForAction(review, PROJECT_SETUP_ACTIONS.CREATE).custom_id),
+      deferUpdate: async () => assert.fail('must not retry project creation'),
+    }),
+    /expired/,
+  );
+});
+
+test('project setup preserves its last valid scope when loading a new university fails', async () => {
+  const service = setupService({
+    findDivisions: async (university) => {
+      if (university === 'Sapienza') throw new Error('Division lookup unavailable');
+      return [{ name: 'Projects', color: 'blue' }];
+    },
+  });
+  const scope = await beginSetup(service, 'Scope recovery');
+  let selectedScope;
+  await service.handleStringSelect({
+    ...baseInteraction(componentForAction(scope, PROJECT_SETUP_ACTIONS.UNIVERSITY).custom_id),
+    values: ['0'],
+    update: async (payload) => { selectedScope = payload; },
+  });
+
+  await assert.rejects(
+    () => service.handleStringSelect({
+      ...baseInteraction(componentForAction(selectedScope, PROJECT_SETUP_ACTIONS.UNIVERSITY).custom_id),
+      values: ['1'],
+      update: async () => assert.fail('must not update after a failed lookup'),
+    }),
+    /Division lookup unavailable/,
+  );
+
+  await service.handleStringSelect({
+    ...baseInteraction(componentForAction(selectedScope, PROJECT_SETUP_ACTIONS.DIVISION).custom_id),
+    values: ['0'],
+    update: async (payload) => { selectedScope = payload; },
+  });
+  assert.match(summaryContent(selectedScope), /Bocconi · 🟦 Projects/);
+});
+
+test('project setup keeps a committed project closed when acknowledgement delivery fails', async () => {
+  let createCalls = 0;
+  let followUp;
+  const service = setupService({
+    createProject: async () => {
+      createCalls += 1;
+      return {
+        id: '8',
+        name: 'Native project',
+        university_name: 'Bocconi',
+        division_name: 'Projects',
+        start_date: '2026-08-01',
+        expected_end: '2026-09-01',
+        reconciliation_pending: false,
+        people: [
+          { discord_user_id: MEMBER_ID, role: 'member' },
+          { discord_user_id: SUPERVISOR_ID, role: 'supervisor' },
+        ],
+      };
+    },
+  });
+  const participants = await chooseScope(service, await beginSetup(service));
+  const review = await completeDetails(service, await chooseTeam(service, participants));
+  const createId = componentForAction(review, PROJECT_SETUP_ACTIONS.CREATE).custom_id;
+
+  await service.handleButton({
+    ...baseInteraction(createId),
+    channel: { send: async () => undefined },
+    deferUpdate: async () => undefined,
+    editReply: async () => { throw new Error('Discord acknowledgement unavailable'); },
+    followUp: async (payload) => { followUp = payload; },
+  });
+
+  assert.equal(createCalls, 1);
+  assert.match(followUp.content, /Created \*\*Native project\*\* \(#8\)/);
+  assert.equal(followUp.flags, MessageFlags.Ephemeral);
+  await assert.rejects(
+    () => service.handleButton({
+      ...baseInteraction(createId),
+      deferUpdate: async () => assert.fail('must not retry project creation'),
+    }),
+    /expired/,
+  );
 });
 
 test('project setup rejects the Bot and cross-role duplicate selections', async () => {

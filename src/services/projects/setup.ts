@@ -161,6 +161,7 @@ export function createProjectSetupService({
       divisions: [],
       memberIds: [],
       supervisorIds: [],
+      participantUsers: new Map(),
       startDate: null,
       expectedEnd: null,
       notes: null,
@@ -250,8 +251,9 @@ export function createProjectSetupService({
     session.busy = true;
     await interaction.deferUpdate();
 
+    let result;
     try {
-      const result = await createProject({
+      result = await createProject({
         interaction,
         name: session.name,
         university: session.university,
@@ -262,13 +264,31 @@ export function createProjectSetupService({
         members: session.memberIds.join(','),
         supervisors: session.supervisorIds.join(','),
       });
-      deleteSession(session);
+    } catch (error) {
+      session.busy = false;
+      touch(session);
+      throw error;
+    }
 
+    // The database transaction committed. Never reactivate this setup after
+    // this point: a retry could create a duplicate project.
+    deleteSession(session);
+
+    try {
       const activity = formatBoardActivity('project-create', {
         actorId: interaction.user.id,
-        result,
+        result: {
+          ...result,
+          people: result.people.map((person) => ({
+            ...person,
+            user: session.participantUsers.get(String(person.discord_user_id)),
+          })),
+        },
       });
       let acknowledgement = `Created **${result.name}** (#${result.id}).`;
+      if (result.reconciliation_pending) {
+        acknowledgement += ' Discord reconciliation is pending and will retry automatically.';
+      }
       try {
         await interaction.channel.send({ allowedMentions: { parse: [] }, ...activity });
         acknowledgement += ' Activity posted in this channel.';
@@ -283,9 +303,27 @@ export function createProjectSetupService({
       }
       await interaction.editReply(createdPayload(acknowledgement));
     } catch (error) {
-      session.busy = false;
-      touch(session);
-      throw error;
+      logger.error('Project creation acknowledgement could not be delivered', {
+        command: 'project-create',
+        userId: interaction.user.id,
+        projectId: result.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (typeof interaction.followUp === 'function') {
+        try {
+          await interaction.followUp({
+            content: `Created **${result.name}** (#${result.id}), but the initial confirmation could not be delivered.`,
+            flags: MessageFlags.Ephemeral,
+          });
+        } catch (followUpError) {
+          logger.error('Project creation follow-up acknowledgement could not be delivered', {
+            command: 'project-create',
+            userId: interaction.user.id,
+            projectId: result.id,
+            error: followUpError instanceof Error ? followUpError.message : String(followUpError),
+          });
+        }
+      }
     }
   }
 
@@ -297,15 +335,17 @@ export function createProjectSetupService({
 
     if (parsed.action === PROJECT_SETUP_ACTIONS.UNIVERSITY) {
       const university = selectedIndex(interaction, session.universities, 'university');
+      const divisions = await findDivisions(university.name, '');
+      assertUser(divisions.length > 0, `No divisions are available for ${university.name}.`);
       if (session.university !== university.name) {
         session.university = university.name;
         session.division = null;
         session.divisionColor = null;
         session.memberIds = [];
         session.supervisorIds = [];
+        session.participantUsers.clear();
       }
-      session.divisions = await findDivisions(session.university, '');
-      assertUser(session.divisions.length > 0, `No divisions are available for ${session.university}.`);
+      session.divisions = divisions;
       await interaction.update(scopePayload(session));
       return;
     }
@@ -316,6 +356,7 @@ export function createProjectSetupService({
       session.divisionColor = division.color;
       session.memberIds = [];
       session.supervisorIds = [];
+      session.participantUsers.clear();
     }
     await interaction.update(scopePayload(session));
   }
@@ -330,6 +371,14 @@ export function createProjectSetupService({
       `Choose between 1 and ${PROJECT_SETUP_SELECTION_LIMIT} users.`,
     );
     assertNoBotUserIds(interaction, selectedIds);
+
+    for (const id of selectedIds) {
+      const member = interaction.members?.get(id);
+      session.participantUsers.set(
+        id,
+        member?.displayName ? member : interaction.users?.get(id) ?? member ?? null,
+      );
+    }
 
     const memberIds = parsed.action === PROJECT_SETUP_ACTIONS.MEMBERS ? selectedIds : session.memberIds;
     const supervisorIds = parsed.action === PROJECT_SETUP_ACTIONS.SUPERVISORS ? selectedIds : session.supervisorIds;

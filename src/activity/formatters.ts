@@ -1,4 +1,4 @@
-import { EmbedBuilder } from 'discord.js';
+import { EmbedBuilder, userMention } from 'discord.js';
 
 import { BOARD_ROLES, divisionColorDetails, PROJECT_PERSON_ROLES } from '../constants.js';
 import { boardRoleLabel, memberTypeLabel } from '../services/governance/policy.js';
@@ -29,7 +29,15 @@ function truncate(value, limit = FIELD_VALUE_LIMIT) {
 
 function mention(userOrId) {
   const id = typeof userOrId === 'object' ? userOrId?.id : userOrId;
-  return id ? `<@${id}>` : 'Unknown member';
+  const displayName = typeof userOrId === 'object'
+    ? userOrId?.displayName ?? userOrId?.user?.globalName ?? userOrId?.user?.username ?? userOrId?.username
+    : null;
+  if (!id) return displayName ?? 'Unknown member';
+
+  const nativeMention = userMention(id);
+  // People who cannot view #bot-log are not resolved by Discord's client, so
+  // retain their known display name beside the native mention as a fallback.
+  return displayName ? `${displayName} (${nativeMention})` : nativeMention;
 }
 
 function channelMention(channelOrId, fallback = 'Not provisioned') {
@@ -47,6 +55,19 @@ function names(values = []) {
 
 function list(values = []) {
   return values.length ? values.join(', ') : 'None';
+}
+
+function activityPeopleLine(people, role) {
+  return formatPeopleLine(
+    people,
+    role,
+    900,
+    (person) => mention({ ...(person.user ?? {}), id: person.discord_user_id }),
+  );
+}
+
+function participantMention(participant) {
+  return mention({ ...(participant.user ?? {}), id: participant.userId });
 }
 
 function sameList(left, right) {
@@ -217,8 +238,8 @@ function projectCreate({ actorId, result }) {
     universityName: project.university_name,
     divisionName: project.division_name,
     fields: [
-      field('Members', formatPeopleLine(project.people ?? [], PROJECT_PERSON_ROLES.MEMBER, 900)),
-      field('Supervisors', formatPeopleLine(project.people ?? [], PROJECT_PERSON_ROLES.SUPERVISOR, 900)),
+      field('Members', activityPeopleLine(project.people ?? [], PROJECT_PERSON_ROLES.MEMBER)),
+      field('Supervisors', activityPeopleLine(project.people ?? [], PROJECT_PERSON_ROLES.SUPERVISOR)),
       field('Timeline', `${project.start_date} → ${project.expected_end}`),
       reconciliationField(
         project,
@@ -243,10 +264,10 @@ function projectParticipant({ actorId, result }, kind) {
       : 'Project participant added';
   const activityKind = roleChanged ? 'update' : kind;
   const details = roleChanged
-    ? `${mention(participant.userId)}\nRole: ${projectRoleLabel(participant.previousRole)} → ${projectRoleLabel(participant.role)}`
+    ? `${participantMention(participant)}\nRole: ${projectRoleLabel(participant.previousRole)} → ${projectRoleLabel(participant.role)}`
     : kind === 'remove'
-      ? mention(participant.userId)
-      : `${mention(participant.userId)} · ${projectRoleLabel(participant.role)}`;
+      ? participantMention(participant)
+      : `${participantMention(participant)} · ${projectRoleLabel(participant.role)}`;
 
   return activity({
     kind: activityKind,

@@ -318,6 +318,116 @@ test('executive appointments clear division memberships and Head assignments in 
   ]);
 });
 
+test('executive exclusivity backfills legacy member divisions and Head assignments', async () => {
+  await database.resetPublicSchema();
+  const temporaryDir = await mkdtemp(path.join(os.tmpdir(), 'bainsa-migrations-before-010-'));
+
+  try {
+    for (const filename of await readdir(migrationsDir)) {
+      if (!filename.endsWith('.sql') || filename === '010_enforce_executive_division_exclusivity.sql') continue;
+      await copyFile(path.join(migrationsDir, filename), path.join(temporaryDir, filename));
+    }
+    await migrate({ migrationsDir: temporaryDir });
+
+    const universityId = await insertUniversity('Bocconi');
+    const division = await database.query(
+      `INSERT INTO divisions (university_id, name, color)
+       VALUES ($1, 'Analysis', 'orange') RETURNING id`,
+      [universityId],
+    );
+    await database.query(
+      `INSERT INTO members (discord_user_id, university_id, member_type)
+       VALUES ('legacy-executive', $1, 'researcher')`,
+      [universityId],
+    );
+    await database.query('ALTER TABLE board_assignments DISABLE TRIGGER USER');
+    try {
+      await database.query(
+        `INSERT INTO member_divisions (discord_user_id, division_id)
+         VALUES ('legacy-executive', $1)`,
+        [division.rows[0].id],
+      );
+      await database.query(
+        `INSERT INTO board_assignments (discord_user_id, university_id, division_id, role)
+         VALUES
+           ('legacy-executive', $1, $2, 'head'),
+           ('legacy-executive', $1, NULL, 'vice_president')`,
+        [universityId, division.rows[0].id],
+      );
+    } finally {
+      await database.query('ALTER TABLE board_assignments ENABLE TRIGGER USER');
+    }
+
+    const migrated = await migrate();
+    assert.deepEqual(
+      migrated.appliedNow.map((migration) => migration.filename),
+      ['010_enforce_executive_division_exclusivity.sql'],
+    );
+    assert.equal(
+      (await database.query(
+        "SELECT count(*)::int AS count FROM member_divisions WHERE discord_user_id = 'legacy-executive'",
+      )).rows[0].count,
+      0,
+    );
+    const assignments = await database.query(
+      `SELECT role, active
+         FROM board_assignments
+        WHERE discord_user_id = 'legacy-executive'
+        ORDER BY role`,
+    );
+    assert.deepEqual(assignments.rows, [
+      { role: 'head', active: false },
+      { role: 'vice_president', active: true },
+    ]);
+  } finally {
+    await rm(temporaryDir, { recursive: true, force: true });
+  }
+});
+
+test('executive exclusivity fails closed above READ COMMITTED isolation', async () => {
+  await resetAndMigrate();
+  const universityId = await insertUniversity('Bocconi');
+  const division = await database.query(
+    `INSERT INTO divisions (university_id, name, color)
+     VALUES ($1, 'Analysis', 'orange') RETURNING id`,
+    [universityId],
+  );
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type)
+     VALUES ('repeatable-read-member', $1, 'researcher')`,
+    [universityId],
+  );
+
+  await assert.rejects(
+    database.transaction(async (q) => {
+      await q.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+      await q.query(
+        `INSERT INTO board_assignments (discord_user_id, university_id, role)
+         VALUES ('repeatable-read-member', $1, 'vice_president')`,
+        [universityId],
+      );
+    }),
+    /requires READ COMMITTED/i,
+  );
+
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, role)
+     VALUES ('repeatable-read-member', $1, 'vice_president')`,
+    [universityId],
+  );
+  await assert.rejects(
+    database.transaction(async (q) => {
+      await q.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+      await q.query(
+        `INSERT INTO member_divisions (discord_user_id, division_id)
+         VALUES ('repeatable-read-member', $1)`,
+        [division.rows[0].id],
+      );
+    }),
+    /requires READ COMMITTED/i,
+  );
+});
+
 test('refuses checksum drift after migrations have been applied', async () => {
   await resetAndMigrate();
   const temporaryDir = await mkdtemp(path.join(os.tmpdir(), 'bainsa-migrations-test-'));

@@ -103,6 +103,27 @@ test('division and board activity use consistent action, scope, and role fields'
   assert.equal(fieldValue(boardEmbed, 'Role'), 'Head of Culture');
 });
 
+test('activity keeps a member display name when Discord cannot resolve their bot-log mention', () => {
+  const nonBoardMember = {
+    id: '100',
+    displayName: 'Sellaceo',
+    user: { username: 'sellaceo' },
+  };
+
+  for (const command of ['board-assign', 'board-remove']) {
+    const payload = formatBoardActivity(command, {
+      actorId,
+      result: { target: nonBoardMember, university, division, role: 'head' },
+    });
+
+    assert.equal(
+      fieldValue(embedJson(payload), 'Member'),
+      'Sellaceo (<@100>)',
+      `${command} should retain both the display name and native mention`,
+    );
+  }
+});
+
 test('division update activity reports a color-only change without inventing a name change', () => {
   const payload = formatBoardActivity('division-update', {
     actorId,
@@ -133,13 +154,13 @@ test('project creation lists the team and reports pending Discord reconciliation
       reconciliation_pending: true,
       notes: 'PRIVATE PROJECT NOTE',
       people: [
-        { discord_user_id: '100', role: 'member' },
+        { discord_user_id: '100', role: 'member', user: { username: 'Sellaceo' } },
         { discord_user_id: '101', role: 'supervisor' },
       ],
     },
   });
   const embed = embedJson(payload);
-  assert.equal(fieldValue(embed, 'Members'), '<@100>');
+  assert.equal(fieldValue(embed, 'Members'), 'Sellaceo (<@100>)');
   assert.equal(fieldValue(embed, 'Supervisors'), '<@101>');
   assert.match(fieldValue(embed, 'Discord state'), /in progress/);
   assert.doesNotMatch(JSON.stringify(embed), /PRIVATE PROJECT NOTE/);
@@ -155,10 +176,11 @@ test('project participant role changes and project field changes use old-to-new 
         division_name: 'Culture',
         reconciliation_pending: false,
       },
-      participant: { userId: '100', role: 'supervisor', previousRole: 'member' },
+      participant: { userId: '100', user: { username: 'Sellaceo' }, role: 'supervisor', previousRole: 'member' },
     },
   });
   assert.equal(embedJson(participant).title, '🟠 Project participant updated');
+  assert.match(fieldValue(embedJson(participant), 'Participant'), /Sellaceo \(<@100>\)/);
   assert.match(fieldValue(embedJson(participant), 'Participant'), /Member → Supervisor/);
 
   const updated = formatBoardActivity('project-update', {
