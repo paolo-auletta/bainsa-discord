@@ -384,6 +384,50 @@ test('executive exclusivity backfills legacy member divisions and Head assignmen
   }
 });
 
+test('executive exclusivity fails closed above READ COMMITTED isolation', async () => {
+  await resetAndMigrate();
+  const universityId = await insertUniversity('Bocconi');
+  const division = await database.query(
+    `INSERT INTO divisions (university_id, name, color)
+     VALUES ($1, 'Analysis', 'orange') RETURNING id`,
+    [universityId],
+  );
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type)
+     VALUES ('repeatable-read-member', $1, 'researcher')`,
+    [universityId],
+  );
+
+  await assert.rejects(
+    database.transaction(async (q) => {
+      await q.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+      await q.query(
+        `INSERT INTO board_assignments (discord_user_id, university_id, role)
+         VALUES ('repeatable-read-member', $1, 'vice_president')`,
+        [universityId],
+      );
+    }),
+    /requires READ COMMITTED/i,
+  );
+
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, role)
+     VALUES ('repeatable-read-member', $1, 'vice_president')`,
+    [universityId],
+  );
+  await assert.rejects(
+    database.transaction(async (q) => {
+      await q.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+      await q.query(
+        `INSERT INTO member_divisions (discord_user_id, division_id)
+         VALUES ('repeatable-read-member', $1)`,
+        [division.rows[0].id],
+      );
+    }),
+    /requires READ COMMITTED/i,
+  );
+});
+
 test('refuses checksum drift after migrations have been applied', async () => {
   await resetAndMigrate();
   const temporaryDir = await mkdtemp(path.join(os.tmpdir(), 'bainsa-migrations-test-'));

@@ -26,7 +26,7 @@ export function query<Row extends QueryResultRow = QueryResultRow>(
 export async function transaction<Result>(work: (client: PoolClient) => Promise<Result>): Promise<Result> {
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
+    await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
     const result = await work(client);
     await client.query('COMMIT');
     return result;

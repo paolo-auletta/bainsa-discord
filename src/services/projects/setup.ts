@@ -251,8 +251,9 @@ export function createProjectSetupService({
     session.busy = true;
     await interaction.deferUpdate();
 
+    let result;
     try {
-      const result = await createProject({
+      result = await createProject({
         interaction,
         name: session.name,
         university: session.university,
@@ -263,8 +264,17 @@ export function createProjectSetupService({
         members: session.memberIds.join(','),
         supervisors: session.supervisorIds.join(','),
       });
-      deleteSession(session);
+    } catch (error) {
+      session.busy = false;
+      touch(session);
+      throw error;
+    }
 
+    // The database transaction committed. Never reactivate this setup after
+    // this point: a retry could create a duplicate project.
+    deleteSession(session);
+
+    try {
       const activity = formatBoardActivity('project-create', {
         actorId: interaction.user.id,
         result: {
@@ -293,9 +303,27 @@ export function createProjectSetupService({
       }
       await interaction.editReply(createdPayload(acknowledgement));
     } catch (error) {
-      session.busy = false;
-      touch(session);
-      throw error;
+      logger.error('Project creation acknowledgement could not be delivered', {
+        command: 'project-create',
+        userId: interaction.user.id,
+        projectId: result.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (typeof interaction.followUp === 'function') {
+        try {
+          await interaction.followUp({
+            content: `Created **${result.name}** (#${result.id}), but the initial confirmation could not be delivered.`,
+            flags: MessageFlags.Ephemeral,
+          });
+        } catch (followUpError) {
+          logger.error('Project creation follow-up acknowledgement could not be delivered', {
+            command: 'project-create',
+            userId: interaction.user.id,
+            projectId: result.id,
+            error: followUpError instanceof Error ? followUpError.message : String(followUpError),
+          });
+        }
+      }
     }
   }
 

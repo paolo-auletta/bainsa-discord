@@ -340,6 +340,51 @@ test('project setup preserves its last valid scope when loading a new university
   assert.match(summaryContent(selectedScope), /Bocconi · 🟦 Projects/);
 });
 
+test('project setup keeps a committed project closed when acknowledgement delivery fails', async () => {
+  let createCalls = 0;
+  let followUp;
+  const service = setupService({
+    createProject: async () => {
+      createCalls += 1;
+      return {
+        id: '8',
+        name: 'Native project',
+        university_name: 'Bocconi',
+        division_name: 'Projects',
+        start_date: '2026-08-01',
+        expected_end: '2026-09-01',
+        reconciliation_pending: false,
+        people: [
+          { discord_user_id: MEMBER_ID, role: 'member' },
+          { discord_user_id: SUPERVISOR_ID, role: 'supervisor' },
+        ],
+      };
+    },
+  });
+  const participants = await chooseScope(service, await beginSetup(service));
+  const review = await completeDetails(service, await chooseTeam(service, participants));
+  const createId = componentForAction(review, PROJECT_SETUP_ACTIONS.CREATE).custom_id;
+
+  await service.handleButton({
+    ...baseInteraction(createId),
+    channel: { send: async () => undefined },
+    deferUpdate: async () => undefined,
+    editReply: async () => { throw new Error('Discord acknowledgement unavailable'); },
+    followUp: async (payload) => { followUp = payload; },
+  });
+
+  assert.equal(createCalls, 1);
+  assert.match(followUp.content, /Created \*\*Native project\*\* \(#8\)/);
+  assert.equal(followUp.flags, MessageFlags.Ephemeral);
+  await assert.rejects(
+    () => service.handleButton({
+      ...baseInteraction(createId),
+      deferUpdate: async () => assert.fail('must not retry project creation'),
+    }),
+    /expired/,
+  );
+});
+
 test('project setup rejects the Bot and cross-role duplicate selections', async () => {
   const service = setupService();
   const participants = await chooseScope(service, await beginSetup(service, 'Safety'));

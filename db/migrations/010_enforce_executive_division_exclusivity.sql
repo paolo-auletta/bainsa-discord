@@ -39,6 +39,10 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'Executive division exclusivity requires READ COMMITTED transactions.';
+  END IF;
+
   IF NEW.university_id IS NULL THEN
     RETURN NEW;
   END IF;
@@ -82,6 +86,10 @@ AS $$
 DECLARE
   member_university_id bigint;
 BEGIN
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'Executive division exclusivity requires READ COMMITTED transactions.';
+  END IF;
+
   SELECT university_id
     INTO member_university_id
     FROM divisions
