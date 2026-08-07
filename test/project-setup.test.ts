@@ -234,6 +234,7 @@ test('project setup renders a polished five-step wizard and creates only from re
   assertConsistentSummary(participants, result.name);
   assert.match(allText(participants), /\*\*Members\*\*/);
   assert.match(allText(participants), /\*\*Supervisors\*\*/);
+  assert.doesNotMatch(allText(participants), /Division oversight/);
   assert.doesNotMatch(allText(participants), /support multiple people|Select one or more people/);
   const members = componentForAction(participants, PROJECT_SETUP_ACTIONS.MEMBERS);
   const supervisors = componentForAction(participants, PROJECT_SETUP_ACTIONS.SUPERVISORS);
@@ -261,6 +262,10 @@ test('project setup renders a polished five-step wizard and creates only from re
   );
   assert.doesNotMatch(allText(review), /Project summary|Check the complete setup/);
   assert.match(allText(review), /Private context/);
+  assert.match(
+    allText(review),
+    /The selected division's active Head\(s\) will automatically be included in the project channel as supervisors\./,
+  );
   assert.deepEqual(bottomButtons(review).map((button) => button.label), [
     'Create project',
     'Back to details',

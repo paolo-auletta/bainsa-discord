@@ -47,6 +47,19 @@ export async function findActiveDivision(db, universityName, divisionName) {
   return result.rows[0];
 }
 
+export async function findActiveDivisionHeadIds(db, divisionId) {
+  const result = await db.query(
+    `SELECT discord_user_id
+       FROM board_assignments
+      WHERE division_id = $1
+        AND role = 'head'
+        AND active = true
+      ORDER BY discord_user_id`,
+    [divisionId],
+  );
+  return result.rows.map((row) => String(row.discord_user_id));
+}
+
 export async function assertActiveUniversityMembers(db, universityId, userIds, fieldName) {
   const result = await db.query(
     `SELECT discord_user_id

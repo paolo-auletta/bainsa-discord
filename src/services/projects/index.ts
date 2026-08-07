@@ -16,6 +16,7 @@ import {
   assertActiveProjectMembers,
   assertActiveUniversityMembers,
   findActiveDivision,
+  findActiveDivisionHeadIds,
   getProject,
   getProjectPerson,
   getProjectPeople,
@@ -148,10 +149,6 @@ export async function createProject(input, deps: ProjectDependencies = {}) {
   assertNoBotUserIds(guild, [...memberIds, ...supervisorIds]);
   assertNoUserOverlap(memberIds, supervisorIds, 'members', 'supervisors');
   assertProjectParticipantCapacity([...memberIds, ...supervisorIds]);
-  const people = [
-    ...memberIds.map((id) => ({ discord_user_id: id, role: PROJECT_PERSON_ROLES.MEMBER })),
-    ...supervisorIds.map((id) => ({ discord_user_id: id, role: PROJECT_PERSON_ROLES.SUPERVISOR })),
-  ];
 
   const divisionRecord = await findActiveDivision(db, university, division);
   assertDivisionAuthority(actor, divisionRecord.university_name, divisionRecord.division_name, [
@@ -159,9 +156,20 @@ export async function createProject(input, deps: ProjectDependencies = {}) {
     BOARD_ROLES.VICE_PRESIDENT,
     BOARD_ROLES.PRESIDENT,
   ]);
-  await assertGuildMembers(guild, uniqueIds([...memberIds, ...supervisorIds]));
+  const divisionHeadIds = await findActiveDivisionHeadIds(db, divisionRecord.division_id);
+  assertUser(divisionHeadIds.length > 0, `No active Head is assigned to ${divisionRecord.division_name}.`);
+  const resolvedSupervisorIds = uniqueIds([...supervisorIds, ...divisionHeadIds]);
+  assertNoUserOverlap(memberIds, resolvedSupervisorIds, 'members', 'supervisors');
+  assertProjectParticipantCapacity([...memberIds, ...resolvedSupervisorIds]);
+  const people = [
+    ...memberIds.map((id) => ({ discord_user_id: id, role: PROJECT_PERSON_ROLES.MEMBER })),
+    ...resolvedSupervisorIds.map((id) => ({ discord_user_id: id, role: PROJECT_PERSON_ROLES.SUPERVISOR })),
+  ];
+
+  assertNoBotUserIds(guild, uniqueIds([...memberIds, ...resolvedSupervisorIds]));
+  await assertGuildMembers(guild, uniqueIds([...memberIds, ...resolvedSupervisorIds]));
   await assertActiveProjectMembers(db, divisionRecord.university_id, divisionRecord.division_id, memberIds, 'members');
-  await assertActiveUniversityMembers(db, divisionRecord.university_id, supervisorIds, 'supervisors');
+  await assertActiveUniversityMembers(db, divisionRecord.university_id, resolvedSupervisorIds, 'supervisors');
 
   const project = await db.transaction(async (client) => {
     await lockAndAssertProjectPeopleEligibility(client, divisionRecord, people);
