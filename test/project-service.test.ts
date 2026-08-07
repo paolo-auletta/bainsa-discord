@@ -288,6 +288,125 @@ test('project creation rejects capacity-incompatible participants before databas
   assert.equal(memberFetches, 0);
 });
 
+test('project creation adds every active division Head as a supervisor without duplicating a selected Head', async () => {
+  const memberId = '111111111111111111';
+  const headId = '222222222222222222';
+  const coHeadId = '333333333333333333';
+  const division = {
+    university_id: 10,
+    university_name: 'Bocconi',
+    category_id: null,
+    showcase_channel_id: null,
+    division_id: 20,
+    division_name: 'Analysis',
+    division_color: 'orange',
+    division_role_id: null,
+    division_head_role_id: null,
+  };
+  const createdProject = {
+    id: 42,
+    name: 'Signals',
+    university_id: 10,
+    division_id: 20,
+    start_date: '2026-07-01',
+    expected_end: '2026-08-01',
+    notes: null,
+    status: PROJECT_STATUSES.ACTIVE,
+    discord_channel_id: null,
+    showcase_thread_id: null,
+    ...division,
+  };
+  const persistedPeople = [
+    { discord_user_id: memberId, role: 'member' },
+    { discord_user_id: headId, role: 'supervisor' },
+    { discord_user_id: coHeadId, role: 'supervisor' },
+  ];
+  let insertedPeople;
+  let transactionCount = 0;
+  const client = {
+    async query(text, values) {
+      if (text.includes('SELECT discord_user_id') && text.includes('FOR UPDATE')) return { rows: [] };
+      if (text.includes('LEFT JOIN member_divisions')) {
+        return {
+          rows: [
+            { discord_user_id: memberId, member_type: 'researcher', university_id: 10, status: 'active', division_id: 20, is_university_board_member: false },
+            { discord_user_id: headId, member_type: 'researcher', university_id: 10, status: 'active', division_id: 20, is_university_board_member: true },
+            { discord_user_id: coHeadId, member_type: 'researcher', university_id: 10, status: 'active', division_id: 20, is_university_board_member: true },
+          ],
+        };
+      }
+      if (text.includes('INSERT INTO projects')) return { rows: [createdProject] };
+      if (text.includes('INSERT INTO project_people')) {
+        insertedPeople = values;
+        return { rows: [] };
+      }
+      if (text.includes('INSERT INTO project_reconciliation')) return { rows: [{ desired_generation: 1 }] };
+      if (text.includes('INSERT INTO audit_log')) return { rows: [] };
+      throw new Error(`Unexpected project creation query: ${text}`);
+    },
+  };
+  const db = {
+    async query(text, values) {
+      if (text.includes('FROM universities u') && text.includes('JOIN divisions d')) {
+        return { rowCount: 1, rows: [division] };
+      }
+      if (text.includes('SELECT discord_user_id\n       FROM board_assignments')) {
+        return { rows: [{ discord_user_id: headId }, { discord_user_id: coHeadId }] };
+      }
+      if (text.includes('FROM members m')) {
+        return { rows: values[2].map((discord_user_id) => ({ discord_user_id })) };
+      }
+      if (text.includes('FROM members')) {
+        return { rows: values[1].map((discord_user_id) => ({ discord_user_id })) };
+      }
+      if (text.includes('FROM projects p')) return { rowCount: 1, rows: [createdProject] };
+      if (text.includes('FROM project_people')) return { rows: persistedPeople };
+      if (text.includes('SELECT status FROM project_reconciliation')) return { rows: [{ status: 'pending' }] };
+      throw new Error(`Unexpected project service query: ${text}`);
+    },
+    async transaction(work) {
+      transactionCount += 1;
+      if (transactionCount === 1) return work(client);
+      return work({
+        async query(text) {
+          if (text.includes('SELECT desired_generation')) return { rowCount: 0, rows: [] };
+          throw new Error(`Unexpected reconciliation query: ${text}`);
+        },
+      });
+    },
+  };
+  const guild = {
+    members: {
+      async fetch(id) {
+        return { id, user: { bot: false } };
+      },
+    },
+  };
+
+  const result = await createProject({
+    interaction: {
+      guild,
+      user: { id: headId },
+      member: memberWithRoles(headId, ['Bocconi - Head of Analysis']),
+    },
+    name: 'Signals',
+    university: 'Bocconi',
+    division: 'Analysis',
+    startDate: '2026-07-01',
+    expectedEnd: '2026-08-01',
+    notes: null,
+    members: memberId,
+    supervisors: headId,
+  }, { db });
+
+  assert.deepEqual(insertedPeople, [
+    42,
+    [memberId, headId, coHeadId],
+    ['member', 'supervisor', 'supervisor'],
+  ]);
+  assert.deepEqual(result.people, persistedPeople);
+});
+
 test('project member fetches are bounded and surface transient fetch failures', async () => {
   const ids = Array.from({ length: PROJECT_MEMBER_FETCH_CONCURRENCY * 3 }, (_, index) => String(index + 1));
   let inFlight = 0;

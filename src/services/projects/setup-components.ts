@@ -427,6 +427,7 @@ export function reviewPayload(session) {
     `**Timeline**\n${timelineSummary(session)}`,
     `**Members · ${session.memberIds.length}**\n${formatPeople(session.memberIds)}`,
     `**Supervisors · ${session.supervisorIds.length}**\n${formatPeople(session.supervisorIds)}`,
+    "**Division oversight**\nThe selected division's active Head(s) will automatically be included in the project channel as supervisors.",
     `**Notes**\n${session.notes?.slice(0, 1_000) || "None"}`,
   ].join("\n\n");
   const container = new ContainerBuilder()
