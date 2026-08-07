@@ -7,7 +7,6 @@ import { serializeCommands } from '../src/runtime/command-registry.js';
 
 const EXPECTED_COMMANDS = {
   guide: [],
-  'member-add': ['user', 'member_type', 'university', 'divisions', 'notes'],
   'member-update': ['user', 'member_type', 'university', 'divisions', 'notes'],
   'member-remove': ['user', 'reason'],
   'member-info': ['user'],
@@ -27,7 +26,6 @@ const EXPECTED_COMMANDS = {
 };
 
 const UNIVERSITY_DEPENDENT_DIVISION_COMMANDS = [
-  'member-add',
   'member-update',
   'division-update',
   'division-add-member',
@@ -51,6 +49,10 @@ test('every v1 command is registered with a complete slash-command contract', ()
   }
 
   assert.equal(serializeCommands(commands).length, Object.keys(EXPECTED_COMMANDS).length);
+});
+
+test('member admission is handled by onboarding, not a slash command', () => {
+  assert.equal(commands.some((command) => command.data.name === 'member-add'), false);
 });
 
 test('university-dependent division selectors expose ordered autocomplete contracts', () => {
@@ -89,7 +91,6 @@ test('every command that accepts a user or project participant blocks the Bot ac
       'division-add-member',
       'division-create',
       'division-remove-member',
-      'member-add',
       'member-info',
       'member-remove',
       'member-update',

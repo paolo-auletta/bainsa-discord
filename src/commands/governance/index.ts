@@ -15,7 +15,6 @@ import {
 } from '../../services/governance/policy.js';
 import {
   addDivisionMember,
-  addMember,
   assignBoardRole,
   createDivision,
   findDivisions,
@@ -169,33 +168,6 @@ async function autocomplete(interaction) {
     await respondAutocomplete(interaction, [], 'Governance autocomplete fallback');
   }
 }
-
-const memberAdd = {
-  data: command('member-add', 'Add a member to a university scope.')
-    .addUserOption((option) => option.setName('user').setDescription('Member to add').setRequired(true))
-    .addStringOption((option) => withMemberTypeChoices(option).setRequired(true))
-    .addStringOption(universityOption)
-    .addStringOption((option) =>
-      option
-        .setName('divisions')
-        .setDescription('Comma-separated divisions for Researchers')
-        .setRequired(false)
-        .setAutocomplete(true),
-    )
-    .addStringOption((option) => option.setName('notes').setDescription('Internal notes').setRequired(false)),
-  autocomplete,
-  execute: (interaction) =>
-    run(interaction, async () => {
-      const result = await addMember(interaction, {
-        user: interaction.options.getUser('user', true),
-        memberType: interaction.options.getString('member_type', true),
-        university: interaction.options.getString('university', true),
-        divisionsText: interaction.options.getString('divisions') ?? '',
-        notes: interaction.options.getString('notes') ?? null,
-      });
-      await postActivity(interaction, 'member-add', result);
-    }),
-};
 
 const memberUpdate = {
   data: command('member-update', 'Update a member type, university, divisions, or notes.')
@@ -402,7 +374,6 @@ const boardInfo = {
 };
 
 export const governanceCommands = [
-  memberAdd,
   memberUpdate,
   memberRemove,
   memberInfo,

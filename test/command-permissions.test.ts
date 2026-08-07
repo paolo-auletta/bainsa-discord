@@ -29,7 +29,6 @@ test('every registered command has a deliberate board-visibility policy', () => 
     'division-remove-member',
     'division-update',
     'guide',
-    'member-add',
     'member-info',
     'member-remove',
     'member-update',
@@ -115,8 +114,6 @@ test('autocomplete visibility applies board tier and university command-channel 
   assert.equal(canDiscoverCommand({ commandName: 'division-create', member: president, channelScope: scope }), true);
   assert.equal(canDiscoverCommand({ commandName: 'division-create', member: vicePresident, channelScope: scope }), false);
   assert.equal(canDiscoverCommand({ commandName: 'division-create', member: head, channelScope: scope }), false);
-  assert.equal(canDiscoverCommand({ commandName: 'member-add', member: vicePresident, channelScope: scope }), true);
-  assert.equal(canDiscoverCommand({ commandName: 'member-add', member: head, channelScope: scope }), false);
   assert.equal(canDiscoverCommand({ commandName: 'project-create', member: head, channelScope: scope }), true);
   assert.equal(canDiscoverCommand({ commandName: 'project-create', member: ordinaryMember, channelScope: scope }), false);
   assert.equal(canDiscoverCommand({ commandName: 'guide', member: head, channelScope: scope }), true);

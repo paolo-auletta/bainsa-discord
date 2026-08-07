@@ -91,7 +91,6 @@ must be shortened safely before reaching Discord limits.
 
 | Command or outcome | Activity entry | Visible content |
 |---|---|---|
-| `/member-add` | Always after success | Member, type, university, and initial divisions when present |
 | `/member-update` | Only for type, university, or division changes | Member, scope, and each visible `old -> new` change |
 | Member notes-only update | Never | Durable audit only |
 | `/member-remove` | Always after success | Member, university, and that the member was removed from the server |

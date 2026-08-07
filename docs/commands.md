@@ -72,19 +72,7 @@ Buttons and command selectors update the same ephemeral message in place. Every 
 
 ## Member Commands
 
-### `/member-add`
-
-**Who can use it:** Global Presidents, university Presidents, and university Vice Presidents. The target must belong to the actor's university unless the actor is a Global President.
-
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `user` | Yes | Discord member to add or initialize |
-| `member_type` | Yes | `Researcher` or `Alumni` |
-| `university` | Yes | University membership scope |
-| `divisions` | No | Comma-separated division names for a Researcher; leave empty for no division |
-| `notes` | No | Internal member notes stored in Postgres |
-
-The bot verifies the target, creates or updates the member record, assigns the base member and university roles, assigns Researcher division roles when requested, removes incompatible roles, and records an audit entry. Alumni cannot receive division roles.
+New members are admitted through the onboarding flow and a board approval. That workflow creates the active member record, applies managed roles, records the review, and sets the verified full-name nickname.
 
 ### `/member-update`
 

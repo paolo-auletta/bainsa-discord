@@ -31,17 +31,6 @@ function entry({
 
 export const GUIDE_CATALOG = Object.freeze([
   entry({
-    command: 'member-add',
-    title: 'Add a university member',
-    topic: GUIDE_TOPICS.MEMBERS,
-    summary: 'Add or initialise a Researcher or Alumni member.',
-    scopeKind: 'university',
-    before: ['Confirm the member type and university.', 'For Researchers, know the divisions they should join.'],
-    inputs: ['Member', 'Member type', 'University', 'Optional divisions and internal notes'],
-    success: 'The member record and managed Discord roles are updated.',
-    activity: 'A concise member-added entry is posted in #bot-log; internal notes are never shown.',
-  }),
-  entry({
     command: 'member-update',
     title: 'Update a university member',
     topic: GUIDE_TOPICS.MEMBERS,

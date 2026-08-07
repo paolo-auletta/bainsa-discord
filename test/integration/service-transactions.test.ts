@@ -6,7 +6,7 @@ import { ChannelType } from 'discord.js';
 import { ONBOARDING_ACTIONS, onboardingId } from '../../src/onboarding/custom-ids.js';
 import { createOnboardingService } from '../../src/onboarding/service.js';
 import { MAX_PROJECT_PARTICIPANTS, ROLE_NAMES } from '../../src/constants.js';
-import { addMember, removeMember, updateMember } from '../../src/services/governance/service.js';
+import { removeMember, updateMember } from '../../src/services/governance/service.js';
 import { lockMemberEligibilityRows } from '../../src/services/projects/eligibility.js';
 import { addProjectMember, closeProject, createProject, updateProject } from '../../src/services/projects/index.js';
 import { runMigrations } from '../../src/migrations/runner.js';
@@ -375,9 +375,14 @@ test('onboarding approval rolls back its PostgreSQL transaction and Discord role
   );
 });
 
-test('governance membership restores mocked Discord roles when its PostgreSQL transaction fails', async () => {
+test('member-update restores mocked Discord roles when its PostgreSQL transaction fails', async () => {
   await resetAndMigrate();
-  await seedUniversityAndDivision();
+  const { universityId } = await seedUniversityAndDivision();
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type, status)
+     VALUES ($1, $2, 'researcher', 'active')`,
+    ['governance-user', universityId],
+  );
 
   const guild = { id: 'guild' };
   guild.roles = {
@@ -394,7 +399,7 @@ test('governance membership restores mocked Discord roles when its PostgreSQL tr
   const failingDatabase = failTransactionQuery(database, (text) => text.includes('INSERT INTO audit_log'));
 
   await assert.rejects(
-    addMember(
+    updateMember(
       { guild, user: { id: actor.id }, member: actor },
       { user: { id: target.id }, university: 'Bocconi', memberType: 'researcher', divisionsText: 'Analysis' },
       { db: failingDatabase },
@@ -404,7 +409,7 @@ test('governance membership restores mocked Discord roles when its PostgreSQL tr
   assert.equal(target.roles.cache.has('researcher-role'), false);
   assert.equal(target.roles.cache.has('bocconi-role'), false);
   assert.equal(target.roles.cache.has('analysis-role'), false);
-  assert.equal((await database.query('SELECT count(*)::int AS count FROM members')).rows[0].count, 0);
+  assert.equal((await database.query('SELECT count(*)::int AS count FROM members')).rows[0].count, 1);
 });
 
 test('member-update rejects an ineligible active PostgreSQL project assignment before Discord or transaction side effects', async () => {

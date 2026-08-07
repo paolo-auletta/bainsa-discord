@@ -8,8 +8,8 @@ import { createInteractionDispatcher, routeInteraction } from '../src/runtime/di
 
 test('command registry rejects duplicate command names', () => {
   assert.throws(
-    () => assertUniqueCommandNames([{ name: 'member-add' }, { data: { name: 'member-add' } }]),
-    /Duplicate slash command name: member-add/,
+    () => assertUniqueCommandNames([{ name: 'test-command' }, { data: { name: 'test-command' } }]),
+    /Duplicate slash command name: test-command/,
   );
 });
 
@@ -17,15 +17,15 @@ test('command registry serializes builder-like command data', () => {
   const commands = [
     {
       data: {
-        name: 'member-add',
-        toJSON: () => ({ name: 'member-add', description: 'Add member' }),
+        name: 'test-command',
+        toJSON: () => ({ name: 'test-command', description: 'Test command' }),
       },
       execute: async () => undefined,
     },
   ];
 
-  assert.equal(buildCommandMap(commands).get('member-add'), commands[0]);
-  assert.deepEqual(serializeCommands(commands), [{ name: 'member-add', description: 'Add member' }]);
+  assert.equal(buildCommandMap(commands).get('test-command'), commands[0]);
+  assert.deepEqual(serializeCommands(commands), [{ name: 'test-command', description: 'Test command' }]);
 });
 
 test('command registry uses the serialized name for dispatch and uniqueness', () => {
@@ -271,7 +271,7 @@ test('private-only updates never send a board activity message', async () => {
 test('activity delivery failures report that the change was saved', async () => {
   let edited;
   await replyBoardActivity({
-    commandName: 'member-add',
+    commandName: 'test-command',
     user: { id: 'actor' },
     deferred: true,
     replied: false,

@@ -20,7 +20,6 @@ interface DiscordRateLimitResponse {
 
 export const COMMAND_VISIBILITY = Object.freeze({
   guide: 'board',
-  'member-add': 'executive',
   'member-update': 'executive',
   'member-remove': 'executive',
   'member-info': 'board',
