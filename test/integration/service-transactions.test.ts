@@ -487,12 +487,19 @@ test('project creation retains its committed record and records a pending reconc
   const { universityId, divisionId } = await seedUniversityAndDivision();
   await database.query(
     `INSERT INTO members (discord_user_id, university_id, member_type, status)
-     VALUES ($1, $2, 'researcher', 'active'), ($3, $2, 'alumni', 'active')`,
-    ['111111111111111111', universityId, '222222222222222222'],
+     VALUES ($1, $2, 'researcher', 'active'),
+            ($3, $2, 'alumni', 'active'),
+            ($4, $2, 'researcher', 'active')`,
+    ['111111111111111111', universityId, '222222222222222222', '333333333333333333'],
   );
   await database.query(
     'INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)',
     ['111111111111111111', divisionId],
+  );
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, division_id, role, active)
+     VALUES ($1, $2, $3, 'head', true)`,
+    ['333333333333333333', universityId, divisionId],
   );
 
   const guild = { id: 'guild' };
@@ -619,10 +626,17 @@ test('successful project create, update, and close retain their one-shot history
   await database.query('UPDATE universities SET showcase_channel_id = $1 WHERE id = $2', ['showcase', universityId]);
   await database.query(
     `INSERT INTO members (discord_user_id, university_id, member_type, status)
-     VALUES ($1, $2, 'researcher', 'active'), ($3, $2, 'alumni', 'active')`,
-    ['111111111111111111', universityId, '222222222222222222'],
+     VALUES ($1, $2, 'researcher', 'active'),
+            ($3, $2, 'alumni', 'active'),
+            ($4, $2, 'researcher', 'active')`,
+    ['111111111111111111', universityId, '222222222222222222', '333333333333333333'],
   );
   await database.query('INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)', ['111111111111111111', divisionId]);
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, division_id, role, active)
+     VALUES ($1, $2, $3, 'head', true)`,
+    ['333333333333333333', universityId, divisionId],
+  );
 
   const channels = new Map();
   const workspaceMessages = [];
@@ -712,14 +726,22 @@ async function seedEligibilityRace() {
   );
   const userId = '333333333333333333';
   const supervisorId = '444444444444444444';
+  const headId = '555555555555555555';
   await database.query(
     `INSERT INTO members (discord_user_id, university_id, member_type, status)
-     VALUES ($1, $2, 'researcher', 'active'), ($3, $2, 'alumni', 'active')`,
-    [userId, universityId, supervisorId],
+     VALUES ($1, $2, 'researcher', 'active'),
+            ($3, $2, 'alumni', 'active'),
+            ($4, $2, 'researcher', 'active')`,
+    [userId, universityId, supervisorId, headId],
   );
   await database.query(
     'INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)',
     [userId, divisionId],
+  );
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, division_id, role, active)
+     VALUES ($1, $2, $3, 'head', true)`,
+    [headId, universityId, divisionId],
   );
   const project = await database.query(
     `INSERT INTO projects (name, university_id, division_id, start_date, expected_end, status)
