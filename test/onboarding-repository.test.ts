@@ -9,6 +9,7 @@ import {
   listDivisionsByIds,
   listUniversities,
   markReviewed,
+  upsertActiveMember,
   updateDraft,
 } from '../src/onboarding/repository.js';
 
@@ -27,7 +28,7 @@ function fakeDb(responses = []) {
 }
 
 test('createDraft rejects already-active members', async () => {
-  const db = fakeDb([{ rows: [{ discord_user_id: '100' }] }]);
+  const db = fakeDb([{ rows: [{ discord_user_id: '100', status: 'active' }] }]);
 
   await assert.rejects(() => createDraft(db, '100'), UserFacingError);
   assert.equal(db.calls.length, 1);
@@ -52,6 +53,21 @@ test('createDraft inserts bigint-array draft with canonical required fields', as
   assert.match(insert.sql, /member_type, university_id, status, division_ids, full_name, full_name_required/);
   assert.match(insert.sql, /ARRAY\[\]::bigint\[\]/);
   assert.doesNotMatch(insert.sql, /jsonb/);
+});
+
+test('createDraft records reapplications from members previously removed from the server', async () => {
+  const inserted = { id: '8', status: 'draft', previously_removed: true };
+  const db = fakeDb([
+    { rows: [{ discord_user_id: '100', status: 'removed' }] },
+    { rows: [] },
+    { rows: [{ id: '1', name: 'Bocconi' }] },
+    { rows: [inserted] },
+  ]);
+
+  assert.equal(await createDraft(db, '100'), inserted);
+  const insert = db.calls.at(-1);
+  assert.match(insert.sql, /previously_removed/);
+  assert.equal(insert.values.at(-1), true);
 });
 
 test('createDraft recovers from concurrent open-request unique races', async () => {
@@ -268,6 +284,27 @@ test('onboarding nickname and role compensation respect Discord limits and previ
       add: ['alumni-role', 'sapienza-role'],
     },
   );
+});
+
+test('onboarding approval reactivates a removed member and clears their removal timestamp', async () => {
+  const request = {
+    discord_user_id: '100',
+    member_type: 'alumni',
+    university_id: '1',
+    division_ids: [],
+    full_name: 'Ada Lovelace',
+  };
+  const db = fakeDb([
+    { rows: [] },
+    { rows: [] },
+    { rows: [] },
+  ]);
+
+  await upsertActiveMember(db, request);
+
+  const upsert = db.calls.find((call) => /INSERT INTO members/.test(call.sql));
+  assert.match(upsert.sql, /status = 'active'/);
+  assert.match(upsert.sql, /removed_at = NULL/);
 });
 
 test('a Division Head can approve, and Discord roles roll back when a later DB write fails', async () => {

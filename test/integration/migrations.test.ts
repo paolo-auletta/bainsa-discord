@@ -48,9 +48,9 @@ test.after(async () => {
 test('runs every migration against a fresh database and keeps the final contract idempotent', async () => {
   const first = await resetAndMigrate();
   assert.equal(first.pending, 0);
-  assert.equal(first.appliedNow.length, 8);
+  assert.equal(first.appliedNow.length, 9);
   assert.deepEqual(first.status.map((row) => row.status), [
-    'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
+    'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
   ]);
 
   const tables = await database.query(`
@@ -88,6 +88,19 @@ test('runs every migration against a fresh database and keeps the final contract
        )
   `);
   assert.equal(indexes.rowCount, 4);
+
+  const reapplicationColumn = await database.query(`
+    SELECT data_type, is_nullable, column_default
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'onboarding_requests'
+       AND column_name = 'previously_removed'
+  `);
+  assert.deepEqual(reapplicationColumn.rows[0], {
+    data_type: 'boolean',
+    is_nullable: 'NO',
+    column_default: 'false',
+  });
 
   const universityId = await insertUniversity('Bocconi');
   const otherUniversityId = await insertUniversity('Sapienza');
@@ -139,11 +152,11 @@ test('runs every migration against a fresh database and keeps the final contract
 
   const second = await migrate();
   assert.deepEqual(second.appliedNow, []);
-  assert.equal(second.applied, 8);
+  assert.equal(second.applied, 9);
   assert.equal(second.pending, 0);
 
   const status = await migrate({ statusOnly: true });
-  assert.equal(status.applied, 8);
+  assert.equal(status.applied, 9);
   assert.equal(status.pending, 0);
 });
 

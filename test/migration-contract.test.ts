@@ -21,6 +21,11 @@ const executiveExclusivityMigrationUrl = projectPath(
   'migrations',
   '010_enforce_executive_division_exclusivity.sql',
 );
+const removedMemberOnboardingMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '011_removed_member_onboarding.sql',
+);
 
 async function migrationSql() {
   return readFile(migrationUrl, 'utf8');
@@ -54,6 +59,10 @@ async function executiveExclusivityMigrationSql() {
   return readFile(executiveExclusivityMigrationUrl, 'utf8');
 }
 
+async function removedMemberOnboardingMigrationSql() {
+  return readFile(removedMemberOnboardingMigrationUrl, 'utf8');
+}
+
 function assertIncludes(sql, snippet) {
   assert.ok(sql.includes(snippet), `Expected migration to include: ${snippet}`);
 }
@@ -72,7 +81,16 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '008_allow_co_presidents.sql',
     '009_clear_division_roles_on_executive_promotion.sql',
     '010_enforce_executive_division_exclusivity.sql',
+    '011_removed_member_onboarding.sql',
   ]);
+});
+
+test('records when an onboarding application follows a member removal', async () => {
+  const sql = await removedMemberOnboardingMigrationSql();
+
+  assertIncludes(sql, 'ADD COLUMN IF NOT EXISTS previously_removed boolean NOT NULL DEFAULT false');
+  assert.equal(/\bdrop\s+table\b/i.test(sql), false);
+  assert.equal(/\btruncate\b/i.test(sql), false);
 });
 
 test('allows multiple active university Presidents', async () => {

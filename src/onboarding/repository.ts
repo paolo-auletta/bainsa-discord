@@ -7,8 +7,8 @@ import {
 } from '../services/projects/eligibility.js';
 
 export async function createDraft(db, discordUserId) {
-  const activeMember = await getActiveMember(db, discordUserId);
-  if (activeMember) {
+  const member = await getMember(db, discordUserId);
+  if (member?.status === 'active') {
     throw new UserFacingError('You are already an active BAINSA member.');
   }
 
@@ -23,10 +23,16 @@ export async function createDraft(db, discordUserId) {
   try {
     const { rows } = await db.query(
       `INSERT INTO onboarding_requests
-        (discord_user_id, member_type, university_id, status, division_ids, full_name, full_name_required)
-       VALUES ($1, $2, $3, $4, ARRAY[]::bigint[], NULL, true)
+        (discord_user_id, member_type, university_id, status, division_ids, full_name, full_name_required, previously_removed)
+       VALUES ($1, $2, $3, $4, ARRAY[]::bigint[], NULL, true, $5)
        RETURNING *`,
-      [discordUserId, MEMBER_TYPES.RESEARCHER, defaultUniversity.id, ONBOARDING_STATUSES.DRAFT],
+      [
+        discordUserId,
+        MEMBER_TYPES.RESEARCHER,
+        defaultUniversity.id,
+        ONBOARDING_STATUSES.DRAFT,
+        member?.status === 'removed',
+      ],
     );
     return rows[0];
   } catch (error) {
@@ -38,11 +44,11 @@ export async function createDraft(db, discordUserId) {
   }
 }
 
-export async function getActiveMember(db, discordUserId) {
+export async function getMember(db, discordUserId) {
   const { rows } = await db.query(
-    `SELECT discord_user_id
+    `SELECT discord_user_id, status
      FROM members
-     WHERE discord_user_id = $1 AND status = 'active'
+     WHERE discord_user_id = $1
      LIMIT 1`,
     [discordUserId],
   );
@@ -250,6 +256,7 @@ export async function upsertActiveMember(db, request) {
        member_type = EXCLUDED.member_type,
        full_name = EXCLUDED.full_name,
        status = 'active',
+       removed_at = NULL,
        updated_at = NOW()`,
     [request.discord_user_id, request.university_id, request.member_type, request.full_name],
   );

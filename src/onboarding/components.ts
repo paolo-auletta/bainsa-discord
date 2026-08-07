@@ -285,6 +285,13 @@ export function reviewPayload(request, university, divisions) {
           },
           { name: "University", value: university.name, inline: true },
           { name: "Division", value: divisionNames, inline: true },
+          ...(request.previously_removed
+            ? [{
+              name: "Member history",
+              value: "⚠️ Previously removed from the server; this is a reapplication.",
+              inline: false,
+            }]
+            : []),
           { name: "Review status", value: "🟡 Pending review", inline: true },
         )
         .setFooter({
