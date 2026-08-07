@@ -39,6 +39,10 @@ const BUTTON_ACTIONS = new Set<string>([
   PROJECT_SETUP_ACTIONS.BACK_DETAILS,
   PROJECT_SETUP_ACTIONS.CREATE,
   PROJECT_SETUP_ACTIONS.CANCEL,
+  PROJECT_SETUP_ACTIONS.UNIVERSITY_PREVIOUS,
+  PROJECT_SETUP_ACTIONS.UNIVERSITY_NEXT,
+  PROJECT_SETUP_ACTIONS.DIVISION_PREVIOUS,
+  PROJECT_SETUP_ACTIONS.DIVISION_NEXT,
 ]);
 const STRING_SELECT_ACTIONS = new Set<string>([
   PROJECT_SETUP_ACTIONS.UNIVERSITY,
@@ -159,6 +163,8 @@ export function createProjectSetupService({
       divisionColor: null,
       universities: [],
       divisions: [],
+      universityPage: 0,
+      divisionPage: 0,
       memberIds: [],
       supervisorIds: [],
       participantUsers: new Map(),
@@ -243,6 +249,19 @@ export function createProjectSetupService({
     if (parsed.action === PROJECT_SETUP_ACTIONS.CANCEL) {
       deleteSession(session);
       await interaction.update(cancelledPayload());
+      return;
+    }
+
+    const pagination = {
+      [PROJECT_SETUP_ACTIONS.UNIVERSITY_PREVIOUS]: { field: 'universityPage', delta: -1, count: session.universities.length },
+      [PROJECT_SETUP_ACTIONS.UNIVERSITY_NEXT]: { field: 'universityPage', delta: 1, count: session.universities.length },
+      [PROJECT_SETUP_ACTIONS.DIVISION_PREVIOUS]: { field: 'divisionPage', delta: -1, count: session.divisions.length },
+      [PROJECT_SETUP_ACTIONS.DIVISION_NEXT]: { field: 'divisionPage', delta: 1, count: session.divisions.length },
+    }[parsed.action];
+    if (pagination) {
+      const lastPage = Math.max(0, Math.ceil(pagination.count / 25) - 1);
+      session[pagination.field] = Math.min(lastPage, Math.max(0, session[pagination.field] + pagination.delta));
+      await interaction.update(scopePayload(session));
       return;
     }
 
@@ -344,6 +363,7 @@ export function createProjectSetupService({
         session.memberIds = [];
         session.supervisorIds = [];
         session.participantUsers.clear();
+        session.divisionPage = 0;
       }
       session.divisions = divisions;
       await interaction.update(scopePayload(session));

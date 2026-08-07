@@ -48,9 +48,9 @@ test.after(async () => {
 test('runs every migration against a fresh database and keeps the final contract idempotent', async () => {
   const first = await resetAndMigrate();
   assert.equal(first.pending, 0);
-  assert.equal(first.appliedNow.length, 8);
+  assert.equal(first.appliedNow.length, 9);
   assert.deepEqual(first.status.map((row) => row.status), [
-    'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
+    'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
   ]);
 
   const tables = await database.query(`
@@ -139,11 +139,11 @@ test('runs every migration against a fresh database and keeps the final contract
 
   const second = await migrate();
   assert.deepEqual(second.appliedNow, []);
-  assert.equal(second.applied, 8);
+  assert.equal(second.applied, 9);
   assert.equal(second.pending, 0);
 
   const status = await migrate({ statusOnly: true });
-  assert.equal(status.applied, 8);
+  assert.equal(status.applied, 9);
   assert.equal(status.pending, 0);
 });
 
@@ -428,6 +428,34 @@ test('executive exclusivity fails closed above READ COMMITTED isolation', async 
   );
 });
 
+test('division university ownership is immutable', async () => {
+  await resetAndMigrate();
+  const bocconiId = await insertUniversity('Bocconi');
+  const sapienzaId = await insertUniversity('Sapienza');
+  const division = await database.query(
+    `INSERT INTO divisions (university_id, name, color)
+     VALUES ($1, 'Analysis', 'orange') RETURNING id`,
+    [bocconiId],
+  );
+
+  await assert.rejects(
+    database.query(
+      'UPDATE divisions SET university_id = $1 WHERE id = $2',
+      [sapienzaId, division.rows[0].id],
+    ),
+    /division university_id is immutable/i,
+  );
+  await database.query(
+    'UPDATE divisions SET university_id = $1 WHERE id = $2',
+    [bocconiId, division.rows[0].id],
+  );
+  assert.equal(
+    (await database.query('SELECT university_id FROM divisions WHERE id = $1', [division.rows[0].id])).rows[0]
+      .university_id,
+    bocconiId,
+  );
+});
+
 test('refuses checksum drift after migrations have been applied', async () => {
   await resetAndMigrate();
   const temporaryDir = await mkdtemp(path.join(os.tmpdir(), 'bainsa-migrations-test-'));
@@ -492,7 +520,7 @@ test('upgrades the tracked legacy university and division shape in place', async
   );
 
   const result = await migrate();
-  assert.equal(result.applied, 8);
+  assert.equal(result.applied, 9);
   assert.equal(result.recordedNotLocal, 1);
 
   const university = await database.query(

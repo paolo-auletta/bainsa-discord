@@ -345,6 +345,52 @@ test('project setup preserves its last valid scope when loading a new university
   assert.match(summaryContent(selectedScope), /Bocconi · 🟦 Projects/);
 });
 
+test('project setup pagination makes universities and divisions after the first 25 selectable', async () => {
+  const universities = Array.from({ length: 26 }, (_, index) => ({
+    name: `University ${String(index + 1).padStart(2, '0')}`,
+  }));
+  const divisions = Array.from({ length: 26 }, (_, index) => ({
+    name: `Division ${String(index + 1).padStart(2, '0')}`,
+    color: 'blue',
+  }));
+  const service = setupService({
+    findUniversities: async () => universities,
+    findDivisions: async () => divisions,
+  });
+  let payload = await beginSetup(service, 'Paginated project');
+  const firstUniversityMenu = componentForAction(payload, PROJECT_SETUP_ACTIONS.UNIVERSITY);
+  assert.equal(firstUniversityMenu.options.length, 25);
+  assert.equal(componentForAction(payload, PROJECT_SETUP_ACTIONS.UNIVERSITY_PREVIOUS).disabled, true);
+
+  await service.handleButton({
+    ...baseInteraction(componentForAction(payload, PROJECT_SETUP_ACTIONS.UNIVERSITY_NEXT).custom_id),
+    update: async (next) => { payload = next; },
+  });
+  const lastUniversityMenu = componentForAction(payload, PROJECT_SETUP_ACTIONS.UNIVERSITY);
+  assert.deepEqual(lastUniversityMenu.options.map((option) => option.value), ['25']);
+  await service.handleStringSelect({
+    ...baseInteraction(lastUniversityMenu.custom_id),
+    values: ['25'],
+    update: async (next) => { payload = next; },
+  });
+
+  assert.equal(componentForAction(payload, PROJECT_SETUP_ACTIONS.DIVISION).options.length, 25);
+  await service.handleButton({
+    ...baseInteraction(componentForAction(payload, PROJECT_SETUP_ACTIONS.DIVISION_NEXT).custom_id),
+    update: async (next) => { payload = next; },
+  });
+  const lastDivisionMenu = componentForAction(payload, PROJECT_SETUP_ACTIONS.DIVISION);
+  assert.deepEqual(lastDivisionMenu.options.map((option) => option.value), ['25']);
+  await service.handleStringSelect({
+    ...baseInteraction(lastDivisionMenu.custom_id),
+    values: ['25'],
+    update: async (next) => { payload = next; },
+  });
+
+  assert.match(summaryContent(payload), /University 26 · 🟦 Division 26/);
+  assert.ok(componentPayload(payload).length <= 10, 'Discord containers support at most 10 child components');
+});
+
 test('project setup keeps a committed project closed when acknowledgement delivery fails', async () => {
   let createCalls = 0;
   let followUp;

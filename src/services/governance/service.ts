@@ -19,6 +19,7 @@ import {
   universityRoleColor,
 } from '../../constants.js';
 import { assertUser, UserFacingError } from '../../errors.js';
+import { logger } from '../../logger.js';
 import {
   divisionHeadRoleName,
   divisionRoleName,
@@ -40,6 +41,7 @@ import {
 } from './policy.js';
 import {
   assertMemberProjectAssignmentEligibility,
+  lockDivisionHeadEligibilityRows,
   lockMemberEligibilityRows,
 } from '../projects/eligibility.js';
 import {
@@ -55,7 +57,7 @@ import {
   divisionOverwriteRoles,
   persistedUniversityCategory,
   removeProjectPermissionOverwrites,
-  renameChannelById,
+  renameChannelByIdWithPreviousName,
   targetGuildMember,
 } from './gateway.js';
 import {
@@ -75,6 +77,7 @@ import {
   getMemberDivisions,
   getMemberRecord,
   getProjectAssignmentsForRemoval,
+  getUniversityDivisionDiscordRoleIds,
   getUniversityByName,
   removeMemberDivisionRow,
   replaceMemberDivisionRows,
@@ -172,17 +175,43 @@ async function removeRolesByName(member, guild, roleNames, reason) {
   return roles;
 }
 
-async function replaceMemberRoles(member, guild, desiredRoleNames, removableRoleNames, reason) {
+async function removeSpecificRoles(member, roles, reason) {
+  const uniqueRoles = [...new Map(
+    roles
+      .filter((role) => role && member.roles.cache.has(role.id))
+      .map((role) => [String(role.id), role]),
+  ).values()];
+  if (uniqueRoles.length) await member.roles.remove(uniqueRoles, reason);
+  return uniqueRoles;
+}
+
+async function replaceMemberRoles(
+  member,
+  guild,
+  desiredRoleNames,
+  removableRoleNames,
+  reason,
+  removableRoles = [],
+) {
   const roleResults = await ensureRoles(guild, desiredRoleNames, reason);
   const desiredRoles = roleResults.map(({ role }) => role);
-  const removedRoles = await removeRolesByName(
+  const removedByName = await removeRolesByName(
     member,
     guild,
     removableRoleNames.filter((roleName) => !desiredRoleNames.includes(roleName)),
     reason,
   );
+  const desiredRoleIds = new Set(desiredRoles.map((role) => String(role.id)));
+  const removedById = await removeSpecificRoles(
+    member,
+    removableRoles.filter((role) => !desiredRoleIds.has(String(role.id))),
+    reason,
+  );
   const addedRoles = await addRoles(member, desiredRoles, reason);
-  return { addedRoles, removedRoles };
+  return {
+    addedRoles,
+    removedRoles: [...new Map([...removedByName, ...removedById].map((role) => [String(role.id), role])).values()],
+  };
 }
 
 function stableRoleNames(roleNames) {
@@ -194,7 +223,7 @@ async function enforceResearcherRoles(
   guild,
   desiredRoleNames,
   reason,
-  { removableRoleNames = [] } = {},
+  { removableRoleNames = [], removableRoles = [] } = {},
 ) {
   return replaceMemberRoles(
     member,
@@ -202,6 +231,7 @@ async function enforceResearcherRoles(
     stableRoleNames([ROLE_NAMES.RESEARCHER, ...desiredRoleNames]),
     stableRoleNames([ROLE_NAMES.ALUMNI, ...removableRoleNames]),
     reason,
+    removableRoles,
   );
 }
 
@@ -231,26 +261,12 @@ function removableMembershipRoleNames(previousRecord, previousDivisions, nextUni
   return [...new Set(names)];
 }
 
-function removableDivisionRoleNamesForExecutivePromotion(universityName, divisions, boardRoles) {
-  return stableRoleNames([
-    ...divisions
-      .filter((division) => division.university_name === universityName)
-      .map((division) => divisionRoleName(universityName, division.name)),
-    ...boardRoles
-      .filter((boardRole) =>
-        boardRole.role === BOARD_ROLES.HEAD &&
-        boardRole.university_name === universityName &&
-        boardRole.division_name,
-      )
-      .map((boardRole) => divisionHeadRoleName(universityName, boardRole.division_name)),
-  ]);
-}
-
-function discordDivisionRoleNamesForUniversity(member, universityName) {
-  const prefix = `${universityName} - `;
-  return [...member.roles.cache.values()]
-    .map((role) => role.name)
-    .filter((roleName) => roleName.startsWith(prefix) && isDivisionScopedRoleName(roleName));
+function discordDivisionRolesForUniversity(member, guild, divisionRoleIds) {
+  const roleIds = divisionRoleIds.flatMap((division) => [division.member_role_id, division.head_role_id]);
+  return roleIds
+    .filter(Boolean)
+    .map((roleId) => guild.roles.cache.get(String(roleId)))
+    .filter((role) => role && member.roles.cache.has(role.id));
 }
 
 function assertNoSilentUniversityMove(previousRecord, universityName, commandName) {
@@ -484,6 +500,12 @@ export async function removeMember(interaction, options, deps: GovernanceDepende
 
   try {
     await db.transaction(async (q) => {
+      await lockDivisionHeadEligibilityRows(
+        q,
+        boardRoles
+          .filter((boardRole) => boardRole.role === BOARD_ROLES.HEAD && boardRole.division_id != null)
+          .map((boardRole) => boardRole.division_id),
+      );
       await lockMemberEligibilityRows(q, [target.id]);
       const boardUpdate = await q.query(
         `UPDATE board_assignments
@@ -764,6 +786,7 @@ export async function updateDivision(interaction, options, deps: GovernanceDepen
     { role: accessRole, oldName: oldAccessName, oldColor: accessRole.hexColor },
     { role: headRole, oldName: oldHeadName, oldColor: headRole.hexColor },
   ];
+  const updatedChannels = [];
 
   try {
     if (nameChanged) {
@@ -775,18 +798,20 @@ export async function updateDivision(interaction, options, deps: GovernanceDepen
       await headRole.edit({ colors: { primaryColor: divisionColor.hex }, reason });
     }
     if (nameChanged || colorChanged) {
-      await renameChannelById(
+      const renamedTextChannel = await renameChannelByIdWithPreviousName(
         interaction.guild,
         division.text_channel_id,
         divisionChannelName(newName, ChannelType.GuildText, divisionColor.key).slice(0, 100),
         reason,
       );
-      await renameChannelById(
+      if (renamedTextChannel?.previousName != null) updatedChannels.push(renamedTextChannel);
+      const renamedVoiceChannel = await renameChannelByIdWithPreviousName(
         interaction.guild,
         division.voice_channel_id,
         divisionChannelName(newName, ChannelType.GuildVoice, divisionColor.key).slice(0, 100),
         reason,
       );
+      if (renamedVoiceChannel?.previousName != null) updatedChannels.push(renamedVoiceChannel);
     }
 
     await db.transaction(async (q) => {
@@ -813,16 +838,28 @@ export async function updateDivision(interaction, options, deps: GovernanceDepen
     });
     if (!deps.db) invalidateGovernanceAutocompleteCache();
   } catch (error) {
-    await Promise.allSettled(
-      updatedRoles.map(async ({ role, oldName, oldColor }) => {
+    const compensationResults = await Promise.allSettled([
+      ...updatedRoles.map(async ({ role, oldName, oldColor }) => {
         if (role.name !== oldName) await role.setName(oldName, 'Compensating failed division update');
         if (oldColor && role.hexColor?.toLowerCase() !== oldColor.toLowerCase()) {
           await role.edit({ colors: { primaryColor: oldColor }, reason: 'Compensating failed division update' });
         }
       }),
-    );
+      ...[...updatedChannels].reverse().map(({ channel, previousName }) =>
+        channel.setName(previousName, 'Compensating failed division update'),
+      ),
+    ]);
+    const compensationFailures = compensationResults.filter((result) => result.status === 'rejected');
+    if (compensationFailures.length > 0) {
+      logger.error('Division update compensation partially failed', {
+        divisionId: String(division.id),
+        failures: compensationFailures.map((failure) =>
+          failure.reason instanceof Error ? failure.reason.message : String(failure.reason),
+        ),
+      });
+    }
     throw new UserFacingError(
-      `Division update failed. Discord role names and colors were restored where possible; channel names may need review: ${error.message}`,
+      `Division update failed. Discord roles and channels were restored where possible: ${error.message}`,
       { cause: error },
     );
   }
@@ -966,10 +1003,16 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
       ? await getDivisionByName(db, university.id, university.name, divisionName)
       : null;
 
-  const currentDivisions =
-    role === BOARD_ROLES.HEAD ? [] : await getMemberDivisions(db, target.id);
   const currentBoardRoles =
     role === BOARD_ROLES.HEAD ? [] : await getBoardRoles(db, target.id);
+  const universityDivisionRoleIds = role === BOARD_ROLES.HEAD
+    ? []
+    : await getUniversityDivisionDiscordRoleIds(db, university.id);
+  const headEligibilityDivisionIds = role === BOARD_ROLES.HEAD
+    ? [division.id]
+    : currentBoardRoles
+        .filter((boardRole) => boardRole.role === BOARD_ROLES.HEAD && boardRole.division_id != null)
+        .map((boardRole) => boardRole.division_id);
   if (role !== BOARD_ROLES.HEAD) {
     await assertActiveProjectUpdateEligibility(
       db,
@@ -980,17 +1023,9 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
       { universityBoardMember: true },
     );
   }
-  const removableRoleNames =
-    role === BOARD_ROLES.HEAD
-      ? []
-      : stableRoleNames([
-          ...removableDivisionRoleNamesForExecutivePromotion(
-            university.name,
-            currentDivisions,
-            currentBoardRoles,
-          ),
-          ...discordDivisionRoleNamesForUniversity(target, university.name),
-        ]);
+  const removableRoles = role === BOARD_ROLES.HEAD
+    ? []
+    : discordDivisionRolesForUniversity(target, interaction.guild, universityDivisionRoleIds);
 
   const roleNames = [universityAccessRoleName(university.name)];
   if (role === BOARD_ROLES.HEAD) {
@@ -1005,17 +1040,18 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
     interaction.guild,
     roleNames,
     reason,
-    { removableRoleNames },
+    { removableRoles },
   );
 
   try {
     await db.transaction(async (q) => {
+      await lockDivisionHeadEligibilityRows(q, headEligibilityDivisionIds);
       await lockMemberEligibilityRows(q, [target.id]);
       await assertMemberProjectAssignmentEligibility(q, {
         userId: target.id,
         memberType: MEMBER_TYPES.RESEARCHER,
         universityId: university.id,
-        divisionIds: role === BOARD_ROLES.HEAD ? currentDivisions.map((entry) => entry.id) : [],
+        divisionIds: [],
         additionalBoardUniversityIds: [university.id],
       });
       await upsertMemberRecord(q, target.id, MEMBER_TYPES.RESEARCHER, university.id, null);
@@ -1060,24 +1096,27 @@ export async function removeBoardRole(interaction, options, deps: GovernanceDepe
     role === BOARD_ROLES.HEAD && divisionName
       ? await getDivisionByName(db, university.id, university.name, divisionName)
       : null;
-  const rolesToRemove =
-    role === BOARD_ROLES.HEAD
-      ? division
-        ? [divisionHeadRoleName(university.name, division.name)]
-        : (
-            await db.query(
-              `SELECT d.name
-                 FROM board_assignments br
-                 JOIN divisions d ON d.id = br.division_id
-                WHERE br.discord_user_id = $1
-                  AND br.university_id = $2
-                  AND br.role = $3
-                  AND br.active = true
-                  AND d.active = true`,
-              [String(target.id), university.id, BOARD_ROLES.HEAD],
-            )
-          ).rows.map((row) => divisionHeadRoleName(university.name, row.name))
-      : [universityBoardRoleName(university.name, boardRoleLabel(role))];
+  const headAssignments = role !== BOARD_ROLES.HEAD
+    ? []
+    : division
+      ? [division]
+      : (
+          await db.query(
+            `SELECT d.id, d.name
+               FROM board_assignments br
+               JOIN divisions d ON d.id = br.division_id
+              WHERE br.discord_user_id = $1
+                AND br.university_id = $2
+                AND br.role = $3
+                AND br.active = true
+                AND d.active = true
+              ORDER BY d.id`,
+            [String(target.id), university.id, BOARD_ROLES.HEAD],
+          )
+        ).rows;
+  const rolesToRemove = role === BOARD_ROLES.HEAD
+    ? headAssignments.map((assignment) => divisionHeadRoleName(university.name, assignment.name))
+    : [universityBoardRoleName(university.name, boardRoleLabel(role))];
 
   const removedRoles = await removeRolesByName(
     target,
@@ -1088,6 +1127,7 @@ export async function removeBoardRole(interaction, options, deps: GovernanceDepe
 
   try {
     await db.transaction(async (q) => {
+      await lockDivisionHeadEligibilityRows(q, headAssignments.map((assignment) => assignment.id));
       await lockMemberEligibilityRows(q, [target.id]);
       await q.query(
         `UPDATE board_assignments

@@ -352,6 +352,78 @@ test('a Division Head can approve, and Discord roles roll back when a later DB w
   assert.deepEqual(target.nicknameHistory, ['Ada Lovelace', 'Previous nickname']);
 });
 
+test('onboarding approval succeeds without a nickname change for an unmanageable member', async () => {
+  process.env.DISCORD_TOKEN ??= 'test-token';
+  process.env.DISCORD_CLIENT_ID ??= 'test-client';
+  process.env.DISCORD_GUILD_ID ??= 'test-guild';
+  process.env.DATABASE_URL ??= 'postgres://localhost/test';
+  const { createOnboardingService } = await import('../src/onboarding/service.js');
+  const pendingRequest = {
+    id: '10',
+    discord_user_id: 'target',
+    member_type: 'researcher',
+    full_name: 'Ada Lovelace',
+    university_id: '1',
+    division_ids: ['11'],
+    status: 'pending',
+  };
+  const approvedRequest = { ...pendingRequest, status: 'approved', reviewed_by: 'reviewer' };
+  const db = fakeDb([
+    { rows: [pendingRequest] },
+    { rows: [{ id: '1', name: 'Bocconi', discord_role_id: 'bocconi-role', onboarding_review_channel_id: 'review' }] },
+    { rows: [{ id: '11', university_id: '1', name: 'Projects', member_role_id: 'bocconi-projects-role' }] },
+    { rows: [{ id: '11', university_id: '1', university_name: 'Bocconi', name: 'Projects', member_role_id: 'bocconi-projects-role' }] },
+    { rows: [{ id: '1', name: 'Bocconi', discord_role_id: 'bocconi-role' }] },
+    { rows: [{ discord_user_id: 'target' }] },
+    { rows: [] },
+    { rows: [] },
+    { rows: [] },
+    { rows: [] },
+    { rows: [approvedRequest] },
+    { rows: [] },
+  ]);
+  const roles = roleCache([
+    ['guild', '@everyone'],
+    ['researcher-role', 'Researcher'],
+    ['alumni-role', 'Alumni'],
+    ['bocconi-role', 'Bocconi'],
+    ['bocconi-projects-role', 'Bocconi - Projects'],
+    ['bocconi-head-role', 'Bocconi - Head of Projects'],
+  ]);
+  const targetRoleIds = new Set(['guild']);
+  const target = memberWithMutableRoles('target', targetRoleIds, roles);
+  target.manageable = false;
+  target.setNickname = async () => assert.fail('nickname must not be attempted for an unmanageable member');
+  const reviewer = {
+    roles: {
+      cache: {
+        some: (predicate) => predicate({ id: 'bocconi-head-role', name: 'Bocconi - Head of Projects' }),
+      },
+    },
+  };
+  const guild = {
+    id: 'guild',
+    roles: { cache: roles },
+    members: { fetch: async (userId) => (userId === 'reviewer' ? reviewer : target) },
+  };
+  let reviewEdited = false;
+  let reply;
+  const service = createOnboardingService({ db, runTransaction: async (work) => work(db) });
+
+  await service.handleButton({
+    customId: onboardingId(ONBOARDING_ACTIONS.APPROVE, '10'),
+    user: { id: 'reviewer' },
+    guild,
+    message: { editable: true, edit: async () => { reviewEdited = true; } },
+    deferReply: async () => undefined,
+    editReply: async (content) => { reply = content; },
+  });
+
+  assert.deepEqual([...targetRoleIds].sort(), ['bocconi-projects-role', 'bocconi-role', 'guild', 'researcher-role']);
+  assert.equal(reviewEdited, true);
+  assert.equal(reply, 'Onboarding request approved.');
+});
+
 function roleCache(entries) {
   const map = new Map(entries.map(([id, name]) => [id, { id, name }]));
   map.find = function find(predicate) {

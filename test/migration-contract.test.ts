@@ -21,6 +21,11 @@ const executiveExclusivityMigrationUrl = projectPath(
   'migrations',
   '010_enforce_executive_division_exclusivity.sql',
 );
+const immutableDivisionUniversityMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '011_make_division_university_immutable.sql',
+);
 
 async function migrationSql() {
   return readFile(migrationUrl, 'utf8');
@@ -54,6 +59,10 @@ async function executiveExclusivityMigrationSql() {
   return readFile(executiveExclusivityMigrationUrl, 'utf8');
 }
 
+async function immutableDivisionUniversityMigrationSql() {
+  return readFile(immutableDivisionUniversityMigrationUrl, 'utf8');
+}
+
 function assertIncludes(sql, snippet) {
   assert.ok(sql.includes(snippet), `Expected migration to include: ${snippet}`);
 }
@@ -72,7 +81,16 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '008_allow_co_presidents.sql',
     '009_clear_division_roles_on_executive_promotion.sql',
     '010_enforce_executive_division_exclusivity.sql',
+    '011_make_division_university_immutable.sql',
   ]);
+});
+
+test('prevents division university changes from bypassing scoped invariants', async () => {
+  const sql = await immutableDivisionUniversityMigrationSql();
+
+  assertIncludes(sql, 'CREATE OR REPLACE FUNCTION prevent_division_university_change()');
+  assertIncludes(sql, 'NEW.university_id IS DISTINCT FROM OLD.university_id');
+  assertIncludes(sql, 'BEFORE UPDATE OF university_id ON divisions');
 });
 
 test('allows multiple active university Presidents', async () => {

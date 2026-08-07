@@ -107,6 +107,44 @@ export async function findProjectDivisions(universityName, term = '', deps: Proj
   return result.rows;
 }
 
+export async function listProjectUniversities(deps: ProjectDependencies = {}) {
+  if (projectAutocompleteCache.loadedAt) {
+    refreshProjectAutocompleteCacheInBackground(deps);
+    return [...projectAutocompleteCache.universities];
+  }
+  const db = dbClient(deps.db);
+  const result = await db.query(
+    `SELECT name
+       FROM universities
+      WHERE active = true
+      ORDER BY name`,
+  );
+  return result.rows;
+}
+
+export async function listProjectDivisions(universityName, deps: ProjectDependencies = {}) {
+  if (!universityName?.trim()) return [];
+  if (projectAutocompleteCache.loadedAt) {
+    refreshProjectAutocompleteCacheInBackground(deps);
+    const normalizedUniversity = universityName.trim().toLowerCase();
+    return projectAutocompleteCache.divisions
+      .filter((row) => row.university_name.toLowerCase() === normalizedUniversity)
+      .map(({ name, color }) => ({ name, color }));
+  }
+  const db = dbClient(deps.db);
+  const result = await db.query(
+    `SELECT d.name, d.color
+       FROM divisions d
+       JOIN universities u ON u.id = d.university_id
+      WHERE u.active = true
+        AND d.active = true
+        AND lower(u.name) = lower($1)
+      ORDER BY d.name`,
+    [universityName.trim()],
+  );
+  return result.rows;
+}
+
 export async function warmProjectAutocompleteCache(deps: ProjectDependencies = {}) {
   const db = dbClient(deps.db);
   const [universities, divisions] = await Promise.all([

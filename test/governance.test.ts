@@ -281,6 +281,71 @@ test('division-update reconciles renamed and recolored roles, channels, and pers
   assert.equal(audit.values[6], JSON.stringify({ name: 'Innovation', color: 'green' }));
 });
 
+test('division-update restores an already-renamed channel when a later channel rename fails', async () => {
+  const accessRole = testRole('access-role', 'Bocconi - Projects', divisionColorDetails('blue').hex);
+  const headRole = testRole('head-role', 'Bocconi - Head of Projects', divisionColorDetails('blue').hex);
+  const textChannel = testChannel('text-channel', 'manually-named-projects', ChannelType.GuildText);
+  const voiceChannel = testChannel('voice-channel', '🟦-projects-room', ChannelType.GuildVoice);
+  voiceChannel.setName = async () => {
+    throw new Error('Controlled voice rename failure');
+  };
+  const roleCache = cacheFrom([accessRole, headRole]);
+  const channelCache = cacheFrom([textChannel, voiceChannel]);
+  let transactionCalls = 0;
+  const db = {
+    async query(text) {
+      if (text.includes('FROM universities')) {
+        return { rows: [{ id: 2, name: 'Bocconi', category_id: 'bocconi-category' }], rowCount: 1 };
+      }
+      if (text.includes('AND id <>')) return { rows: [], rowCount: 0 };
+      if (text.includes('FROM divisions')) {
+        return {
+          rows: [{
+            id: 7,
+            university_id: 2,
+            name: 'Projects',
+            color: 'blue',
+            access_role_id: accessRole.id,
+            head_role_id: headRole.id,
+            text_channel_id: textChannel.id,
+            voice_channel_id: voiceChannel.id,
+          }],
+          rowCount: 1,
+        };
+      }
+      throw new Error(`Unexpected query: ${text}`);
+    },
+    async transaction() {
+      transactionCalls += 1;
+      assert.fail('database transaction must not run after a Discord rename failure');
+    },
+  };
+
+  await assert.rejects(
+    () => updateDivision(
+      {
+        guild: {
+          roles: { cache: roleCache },
+          channels: { fetch: async (id) => channelCache.get(id) ?? null },
+        },
+        user: { id: 'actor-user' },
+        member: fakeMember([ROLE_NAMES.GLOBAL_PRESIDENT]),
+      },
+      { university: 'Bocconi', currentName: 'Projects', newName: 'Innovation', color: 'green' },
+      { db },
+    ),
+    /Controlled voice rename failure/,
+  );
+
+  assert.equal(transactionCalls, 0);
+  assert.equal(accessRole.name, 'Bocconi - Projects');
+  assert.equal(headRole.name, 'Bocconi - Head of Projects');
+  assert.equal(accessRole.hexColor, divisionColorDetails('blue').hex);
+  assert.equal(headRole.hexColor, divisionColorDetails('blue').hex);
+  assert.equal(textChannel.name, 'manually-named-projects');
+  assert.equal(voiceChannel.name, '🟦-projects-room');
+});
+
 test('board command option shape matches the approved policy', () => {
   const boardAssign = governanceCommands.find((entry) => entry.data.name === 'board-assign').data.toJSON();
   const boardRemove = governanceCommands.find((entry) => entry.data.name === 'board-remove').data.toJSON();
@@ -771,6 +836,15 @@ test('board VP assignment removes Discord division and Head roles even when assi
       if (text.includes('FROM board_assignments br')) {
         return { rows: [], rowCount: 0 };
       }
+      if (text.includes('SELECT id, member_role_id, head_role_id')) {
+        return {
+          rows: [
+            { id: 10, member_role_id: analysisRole.id, head_role_id: analysisHeadRole.id },
+            { id: 11, member_role_id: projectsRole.id, head_role_id: projectsHeadRole.id },
+          ],
+          rowCount: 2,
+        };
+      }
       if (text.includes('FROM project_people pp')) return { rows: [], rowCount: 0 };
       throw new Error(`Unexpected query: ${text}`);
     },
@@ -796,6 +870,70 @@ test('board VP assignment removes Discord division and Head roles even when assi
   assert.deepEqual(
     [...target.roles.cache.values()].map((role) => role.name).sort(),
     [ROLE_NAMES.RESEARCHER, 'Bocconi', 'Bocconi - Vice President'].sort(),
+  );
+});
+
+test('board executive assignment removes division roles by persisted ID without touching a longer university name', async () => {
+  const researcherRole = testRole('researcher-role', ROLE_NAMES.RESEARCHER);
+  const universityRole = testRole('university-a-role', 'A');
+  const divisionRole = testRole('a-division-role', 'A - Robotics');
+  const headRole = testRole('a-head-role', 'A - Head of Robotics');
+  const nestedDivisionRole = testRole('a-b-division-role', 'A - B - Robotics');
+  const nestedHeadRole = testRole('a-b-head-role', 'A - B - Head of Robotics');
+  const vicePresidentRole = testRole('a-vp-role', 'A - Vice President');
+  const roleCache = cacheFrom([
+    researcherRole,
+    universityRole,
+    divisionRole,
+    headRole,
+    nestedDivisionRole,
+    nestedHeadRole,
+    vicePresidentRole,
+  ]);
+  const target = memberWithRoles([
+    researcherRole,
+    universityRole,
+    divisionRole,
+    headRole,
+    nestedDivisionRole,
+    nestedHeadRole,
+  ]);
+  const guild = {
+    roles: { cache: roleCache },
+    members: { fetch: async () => target },
+  };
+  const db = {
+    async query(text) {
+      if (text.includes('FROM universities')) return { rows: [{ id: 1, name: 'A' }], rowCount: 1 };
+      if (text.includes('FROM members m')) return { rows: [{ university_name: 'A' }], rowCount: 1 };
+      if (text.includes('FROM board_assignments br')) return { rows: [], rowCount: 0 };
+      if (text.includes('SELECT id, member_role_id, head_role_id')) {
+        return {
+          rows: [{ id: 10, member_role_id: divisionRole.id, head_role_id: headRole.id }],
+          rowCount: 1,
+        };
+      }
+      if (text.includes('FROM project_people pp')) return { rows: [], rowCount: 0 };
+      throw new Error(`Unexpected query: ${text}`);
+    },
+    async transaction(callback) {
+      return callback({ async query() { return { rows: [], rowCount: 0 }; } });
+    },
+  };
+
+  await assignBoardRole(
+    {
+      guild,
+      user: { id: 'actor-user' },
+      member: fakeMember([ROLE_NAMES.GLOBAL_PRESIDENT]),
+    },
+    { university: 'A', role: BOARD_ROLES.VICE_PRESIDENT, user: { id: 'target-user' } },
+    { db },
+  );
+
+  assert.deepEqual(
+    [...target.roles.cache.values()].map((candidate) => candidate.id).sort(),
+    [researcherRole.id, universityRole.id, nestedDivisionRole.id, nestedHeadRole.id, vicePresidentRole.id].sort(),
   );
 });
 
@@ -826,6 +964,9 @@ test('board executive assignment preserves same-university project membership wi
         return { rows: [{ id: 10, name: 'Analysis', university_name: 'Bocconi' }], rowCount: 1 };
       }
       if (text.includes('FROM board_assignments br')) return { rows: [], rowCount: 0 };
+      if (text.includes('SELECT id, member_role_id, head_role_id')) {
+        return { rows: [{ id: 10, member_role_id: analysisRole.id, head_role_id: null }], rowCount: 1 };
+      }
       if (text.includes('FROM project_people pp')) {
         return { rows: [projectAssignment], rowCount: 1 };
       }

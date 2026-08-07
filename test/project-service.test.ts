@@ -323,8 +323,14 @@ test('project creation adds every active division Head as a supervisor without d
   ];
   let insertedPeople;
   let transactionCount = 0;
+  let headQueryCount = 0;
   const client = {
     async query(text, values) {
+      if (text.includes('FROM divisions') && text.includes('FOR UPDATE')) return { rows: [{ id: division.division_id }] };
+      if (text.includes('FROM board_assignments') && text.includes("role = 'head'")) {
+        headQueryCount += 1;
+        return { rows: [{ discord_user_id: headId }, { discord_user_id: coHeadId }] };
+      }
       if (text.includes('SELECT discord_user_id') && text.includes('FOR UPDATE')) return { rows: [] };
       if (text.includes('LEFT JOIN member_divisions')) {
         return {
@@ -405,6 +411,7 @@ test('project creation adds every active division Head as a supervisor without d
     ['member', 'supervisor', 'supervisor'],
   ]);
   assert.deepEqual(result.people, persistedPeople);
+  assert.equal(headQueryCount, 2);
 });
 
 test('project member fetches are bounded and surface transient fetch failures', async () => {

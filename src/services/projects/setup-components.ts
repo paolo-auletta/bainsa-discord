@@ -30,6 +30,10 @@ export const PROJECT_SETUP_ACTIONS = Object.freeze({
   NAME_MODAL: "nm",
   UNIVERSITY: "uni",
   DIVISION: "div",
+  UNIVERSITY_PREVIOUS: "up",
+  UNIVERSITY_NEXT: "un",
+  DIVISION_PREVIOUS: "dp",
+  DIVISION_NEXT: "dn",
   SCOPE_DONE: "sd",
   MEMBERS: "mem",
   SUPERVISORS: "sup",
@@ -173,16 +177,18 @@ function selectedScope(session) {
 }
 
 function universityMenu(session) {
+  const pageStart = session.universityPage * MAX_NATIVE_SELECTIONS;
+  const universities = session.universities.slice(pageStart, pageStart + MAX_NATIVE_SELECTIONS);
   return new StringSelectMenuBuilder()
     .setCustomId(projectSetupId(session.id, PROJECT_SETUP_ACTIONS.UNIVERSITY))
     .setPlaceholder("Choose the owning university")
     .setMinValues(1)
     .setMaxValues(1)
     .addOptions(
-      session.universities.map((university, index) =>
+      universities.map((university, index) =>
         new StringSelectMenuOptionBuilder()
           .setLabel(university.name.slice(0, 100))
-          .setValue(String(index))
+          .setValue(String(pageStart + index))
           .setDefault(university.name === session.university),
       ),
     );
@@ -197,19 +203,34 @@ function divisionMenu(session) {
       .addOptions({ label: "University required", value: "pending" });
   }
 
+  const pageStart = session.divisionPage * MAX_NATIVE_SELECTIONS;
+  const divisions = session.divisions.slice(pageStart, pageStart + MAX_NATIVE_SELECTIONS);
   return new StringSelectMenuBuilder()
     .setCustomId(projectSetupId(session.id, PROJECT_SETUP_ACTIONS.DIVISION))
     .setPlaceholder("Choose the project division")
     .setMinValues(1)
     .setMaxValues(1)
     .addOptions(
-      session.divisions.map((division, index) =>
+      divisions.map((division, index) =>
         new StringSelectMenuOptionBuilder()
           .setLabel(divisionLabel(division.name, division.color).slice(0, 100))
-          .setValue(String(index))
+          .setValue(String(pageStart + index))
           .setDefault(division.name === session.division),
       ),
     );
+}
+
+function paginationRow(session, previousAction, nextAction, page, itemCount, itemLabel) {
+  const pageCount = Math.ceil(itemCount / MAX_NATIVE_SELECTIONS);
+  if (pageCount <= 1) return null;
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    actionButton(session, previousAction, `Previous ${itemLabel}`, ButtonStyle.Secondary, {
+      disabled: page <= 0,
+    }),
+    actionButton(session, nextAction, `Next ${itemLabel}`, ButtonStyle.Secondary, {
+      disabled: page >= pageCount - 1,
+    }),
+  );
 }
 
 function userMenu(session, action, placeholder, selectedIds) {
@@ -294,21 +315,38 @@ export function scopePayload(session) {
     .addTextDisplayComponents(projectSummary(session))
     .addSeparatorComponents(separator())
     .addTextDisplayComponents(
-      sectionHeading("Choose the project scope"),
-      fieldLabel("University"),
+      text("### Choose the project scope\n\n**University**"),
     )
     .addActionRowComponents(
       new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
         universityMenu(session),
       ),
-    )
-    .addTextDisplayComponents(fieldLabel("Division"))
+    );
+  const universityPagination = paginationRow(
+    session,
+    PROJECT_SETUP_ACTIONS.UNIVERSITY_PREVIOUS,
+    PROJECT_SETUP_ACTIONS.UNIVERSITY_NEXT,
+    session.universityPage,
+    session.universities.length,
+    "universities",
+  );
+  if (universityPagination) container.addActionRowComponents(universityPagination);
+  container.addTextDisplayComponents(fieldLabel("Division"))
     .addActionRowComponents(
       new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
         divisionMenu(session),
       ),
-    )
-    .addSeparatorComponents(separator())
+    );
+  const divisionPagination = paginationRow(
+    session,
+    PROJECT_SETUP_ACTIONS.DIVISION_PREVIOUS,
+    PROJECT_SETUP_ACTIONS.DIVISION_NEXT,
+    session.divisionPage,
+    session.divisions.length,
+    "divisions",
+  );
+  if (divisionPagination) container.addActionRowComponents(divisionPagination);
+  container.addSeparatorComponents(separator())
     .addActionRowComponents(
       navigationRow(
         session,

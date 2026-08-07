@@ -39,7 +39,12 @@ import {
   validateExpectedEndUpdate,
   validateProjectDates,
 } from './validation.js';
-import { lockAndAssertProjectPeopleEligibility, lockMemberEligibilityRows } from './eligibility.js';
+import {
+  assertProjectPeopleEligibility,
+  lockAndAssertProjectPeopleEligibility,
+  lockDivisionHeadEligibilityRows,
+  lockMemberEligibilityRows,
+} from './eligibility.js';
 import { enqueueProjectReconciliation, reconcileProject } from './reconciliation.js';
 import {
   assertGuildMembers,
@@ -51,6 +56,8 @@ import {
 import {
   findProjectDivisions,
   findProjectUniversities,
+  listProjectDivisions,
+  listProjectUniversities,
   searchVisibleProjects,
   warmProjectAutocompleteCache,
 } from './autocomplete.js';
@@ -159,23 +166,30 @@ export async function createProject(input, deps: ProjectDependencies = {}) {
     BOARD_ROLES.VICE_PRESIDENT,
     BOARD_ROLES.PRESIDENT,
   ]);
-  const divisionHeadIds = await findActiveDivisionHeadIds(db, divisionRecord.division_id);
-  assertUser(divisionHeadIds.length > 0, `No active Head is assigned to ${divisionRecord.division_name}.`);
-  const resolvedSupervisorIds = uniqueIds([...supervisorIds, ...divisionHeadIds]);
-  assertNoUserOverlap(memberIds, resolvedSupervisorIds, 'members', 'supervisors');
-  assertProjectParticipantCapacity([...memberIds, ...resolvedSupervisorIds]);
-  const people = [
-    ...memberIds.map((id) => ({ discord_user_id: id, role: PROJECT_PERSON_ROLES.MEMBER })),
-    ...resolvedSupervisorIds.map((id) => ({ discord_user_id: id, role: PROJECT_PERSON_ROLES.SUPERVISOR })),
-  ];
-
-  assertNoBotUserIds(guild, uniqueIds([...memberIds, ...resolvedSupervisorIds]));
-  await assertGuildMembers(guild, uniqueIds([...memberIds, ...resolvedSupervisorIds]));
+  await assertGuildMembers(guild, uniqueIds([...memberIds, ...supervisorIds]));
   await assertActiveProjectMembers(db, divisionRecord.university_id, divisionRecord.division_id, memberIds, 'members');
-  await assertActiveUniversityMembers(db, divisionRecord.university_id, resolvedSupervisorIds, 'supervisors');
+  await assertActiveUniversityMembers(db, divisionRecord.university_id, supervisorIds, 'supervisors');
 
   const project = await db.transaction(async (client) => {
-    await lockAndAssertProjectPeopleEligibility(client, divisionRecord, people);
+    await lockDivisionHeadEligibilityRows(client, [divisionRecord.division_id]);
+    const divisionHeadIds = await findActiveDivisionHeadIds(client, divisionRecord.division_id);
+    assertUser(divisionHeadIds.length > 0, `No active Head is assigned to ${divisionRecord.division_name}.`);
+    const resolvedSupervisorIds = uniqueIds([...supervisorIds, ...divisionHeadIds]);
+    assertNoUserOverlap(memberIds, resolvedSupervisorIds, 'members', 'supervisors');
+    assertProjectParticipantCapacity([...memberIds, ...resolvedSupervisorIds]);
+    assertNoBotUserIds(guild, uniqueIds([...memberIds, ...resolvedSupervisorIds]));
+    const people = [
+      ...memberIds.map((id) => ({ discord_user_id: id, role: PROJECT_PERSON_ROLES.MEMBER })),
+      ...resolvedSupervisorIds.map((id) => ({ discord_user_id: id, role: PROJECT_PERSON_ROLES.SUPERVISOR })),
+    ];
+    await lockMemberEligibilityRows(client, people.map((person) => person.discord_user_id));
+    const lockedDivisionHeadIds = await findActiveDivisionHeadIds(client, divisionRecord.division_id);
+    assertUser(
+      lockedDivisionHeadIds.length === divisionHeadIds.length &&
+        lockedDivisionHeadIds.every((headId, index) => headId === divisionHeadIds[index]),
+      `The active Head assignments for ${divisionRecord.division_name} changed while the project was being created. Try again.`,
+    );
+    await assertProjectPeopleEligibility(client, divisionRecord, people);
     const result = await client.query(
       `INSERT INTO projects
         (name, university_id, division_id, start_date, expected_end, notes, status)
@@ -390,8 +404,8 @@ export async function getProjectInfo(input, deps: ProjectDependencies = {}) {
 
 export const projectCreateSetup = createProjectSetupService({
   createProject,
-  findUniversities: findProjectUniversities,
-  findDivisions: findProjectDivisions,
+  findUniversities: listProjectUniversities,
+  findDivisions: listProjectDivisions,
 });
 
 export {

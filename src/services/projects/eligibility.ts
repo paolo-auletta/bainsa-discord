@@ -31,6 +31,24 @@ export async function lockMemberEligibilityRows(q, userIds) {
   return ids;
 }
 
+// Project creation and every governance write that can change active Heads
+// acquire these rows before member locks. This makes the Head set for a
+// division a short, transactionally stable application boundary.
+export async function lockDivisionHeadEligibilityRows(q, divisionIds) {
+  const ids = [...new Set<string>(divisionIds.filter((id) => id != null).map((id) => String(id)))]
+    .sort((left, right) => left.localeCompare(right));
+  if (ids.length === 0) return ids;
+  await q.query(
+    `SELECT id
+       FROM divisions
+      WHERE id = ANY($1::bigint[])
+      ORDER BY id
+      FOR UPDATE`,
+    [ids],
+  );
+  return ids;
+}
+
 async function membershipRows(q, userIds) {
   const result = await q.query(
     `SELECT m.discord_user_id, m.member_type, m.university_id, m.status, md.division_id,

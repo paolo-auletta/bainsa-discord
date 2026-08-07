@@ -453,6 +453,7 @@ async function assignApprovedDiscordState(guild, request, university, divisions,
   const member = await guild.members.fetch(request.discord_user_id);
   const previousRoleIds = new Set(member.roles.cache.keys());
   const previousNickname = member.nickname ?? null;
+  let nicknameChangeAttempted = false;
   const targetRoleIds = new Set();
   targetRoleIds.add(await resolveRoleId(guild, request.member_type === MEMBER_TYPES.ALUMNI ? ROLE_NAMES.ALUMNI : ROLE_NAMES.RESEARCHER));
   targetRoleIds.add(await resolveRoleId(guild, university.discord_role_id, university.name));
@@ -479,18 +480,30 @@ async function assignApprovedDiscordState(guild, request, university, divisions,
   try {
     if (removableIds.length > 0) await member.roles.remove(removableIds);
     await member.roles.add([...targetRoleIds]);
-    await member.setNickname(
-      discordNicknameFromFullName(request.full_name),
-      `BAINSA onboarding approval ${request.id}`,
-    );
   } catch (error) {
-    await restoreMemberDiscordState(
-      guild,
-      request.discord_user_id,
-      previousRoleIds,
-      previousNickname,
-    );
+    await restoreMemberRoles(guild, request.discord_user_id, previousRoleIds);
     throw error;
+  }
+
+  if (member.manageable === false) {
+    logger.warn('Onboarding approved without updating the Discord nickname because the member is not manageable', {
+      requestId: String(request.id),
+      userId: String(request.discord_user_id),
+    });
+  } else {
+    nicknameChangeAttempted = true;
+    try {
+      await member.setNickname(
+        discordNicknameFromFullName(request.full_name),
+        `BAINSA onboarding approval ${request.id}`,
+      );
+    } catch (error) {
+      logger.warn('Onboarding approved without updating the Discord nickname', {
+        requestId: String(request.id),
+        userId: String(request.discord_user_id),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   return () => restoreMemberDiscordState(
@@ -498,6 +511,7 @@ async function assignApprovedDiscordState(guild, request, university, divisions,
     request.discord_user_id,
     previousRoleIds,
     previousNickname,
+    { restoreNickname: nicknameChangeAttempted },
   );
 }
 
@@ -523,13 +537,22 @@ async function restoreMemberRoles(guild, userId, previousRoleIds) {
   if (add.length > 0) await member.roles.add(add);
 }
 
-async function restoreMemberDiscordState(guild, userId, previousRoleIds, previousNickname) {
-  const results = await Promise.allSettled([
-    restoreMemberRoles(guild, userId, previousRoleIds),
-    guild.members.fetch(userId).then((member) =>
-      member.setNickname(previousNickname, 'Compensating failed BAINSA onboarding approval'),
-    ),
-  ]);
+async function restoreMemberDiscordState(
+  guild,
+  userId,
+  previousRoleIds,
+  previousNickname,
+  { restoreNickname = true } = {},
+) {
+  const operations = [restoreMemberRoles(guild, userId, previousRoleIds)];
+  if (restoreNickname) {
+    operations.push(
+      guild.members.fetch(userId).then((member) =>
+        member.setNickname(previousNickname, 'Compensating failed BAINSA onboarding approval'),
+      ),
+    );
+  }
+  const results = await Promise.allSettled(operations);
   const failures = results.filter((result) => result.status === 'rejected');
   if (failures.length > 0) {
     throw new AggregateError(failures.map((failure) => failure.reason), 'Could not restore Discord member state.');

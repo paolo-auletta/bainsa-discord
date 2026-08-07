@@ -7,7 +7,10 @@ import { ONBOARDING_ACTIONS, onboardingId } from '../../src/onboarding/custom-id
 import { createOnboardingService } from '../../src/onboarding/service.js';
 import { MAX_PROJECT_PARTICIPANTS, ROLE_NAMES } from '../../src/constants.js';
 import { removeMember, updateMember } from '../../src/services/governance/service.js';
-import { lockMemberEligibilityRows } from '../../src/services/projects/eligibility.js';
+import {
+  lockDivisionHeadEligibilityRows,
+  lockMemberEligibilityRows,
+} from '../../src/services/projects/eligibility.js';
 import { addProjectMember, closeProject, createProject, updateProject } from '../../src/services/projects/index.js';
 import { runMigrations } from '../../src/migrations/runner.js';
 import {
@@ -532,6 +535,82 @@ test('project creation retains its committed record and records a pending reconc
   const reconciliation = await database.query('SELECT status, last_error FROM project_reconciliation');
   assert.equal(reconciliation.rows[0].status, 'failed');
   assert.match(reconciliation.rows[0].last_error, /Controlled Discord channel failure/);
+});
+
+test('project creation excludes a Head removal that commits before the locked Head snapshot', async () => {
+  await resetAndMigrate();
+  const { universityId, divisionId } = await seedUniversityAndDivision();
+  const memberId = '111111111111111111';
+  const headId = '222222222222222222';
+  const supervisorId = '333333333333333333';
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type, status)
+     VALUES ($1, $4, 'researcher', 'active'),
+            ($2, $4, 'researcher', 'active'),
+            ($3, $4, 'alumni', 'active')`,
+    [memberId, headId, supervisorId, universityId],
+  );
+  await database.query(
+    'INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)',
+    [memberId, divisionId],
+  );
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, division_id, role, active)
+     VALUES ($1, $2, $3, 'head', true)`,
+    [headId, universityId, divisionId],
+  );
+
+  const locked = deferred();
+  const release = deferred();
+  const removingHead = database.transaction(async (q) => {
+    await lockDivisionHeadEligibilityRows(q, [divisionId]);
+    await q.query(
+      `UPDATE board_assignments
+          SET active = false, updated_at = now()
+        WHERE discord_user_id = $1 AND division_id = $2 AND role = 'head'`,
+      [headId, divisionId],
+    );
+    locked.resolve();
+    await release.promise;
+  });
+  await locked.promise;
+
+  const guild = { id: 'guild' };
+  guild.roles = { cache: roleCache([role('global-president', ROLE_NAMES.GLOBAL_PRESIDENT)]) };
+  const member = managedMember(memberId, guild);
+  const supervisor = managedMember(supervisorId, guild);
+  guild.members = {
+    async fetch(id) {
+      if (String(id) === memberId) return member;
+      if (String(id) === supervisorId) return supervisor;
+      throw new Error(`Unexpected guild member fetch: ${id}`);
+    },
+  };
+  const creating = createProject({
+    interaction: {
+      guild,
+      user: { id: 'actor' },
+      member: globalPresident('actor'),
+    },
+    name: 'Locked Head snapshot',
+    university: 'Bocconi',
+    division: 'Analysis',
+    startDate: '2026-07-01',
+    expectedEnd: '2026-08-01',
+    members: memberId,
+    supervisors: supervisorId,
+  }, { db: database });
+  const creationRejected = assert.rejects(creating, /No active Head is assigned to Analysis/);
+  await new Promise((resolve) => setImmediate(resolve));
+  release.resolve();
+  await removingHead;
+
+  await creationRejected;
+  assert.equal(
+    (await database.query("SELECT count(*)::int AS count FROM projects WHERE name = 'Locked Head snapshot'"))
+      .rows[0].count,
+    0,
+  );
 });
 
 test('successful project create, update, and close retain their one-shot history posts', async () => {

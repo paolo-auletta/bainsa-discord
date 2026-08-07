@@ -88,6 +88,17 @@ export async function getBoardRoles(db, userId) {
   return result.rows;
 }
 
+export async function getUniversityDivisionDiscordRoleIds(db, universityId) {
+  const result = await db.query(
+    `SELECT id, member_role_id, head_role_id
+       FROM divisions
+      WHERE university_id = $1
+      ORDER BY id`,
+    [universityId],
+  );
+  return result.rows;
+}
+
 export async function getActiveProjectAssignments(db, userId) {
   const result = await db.query(
     `SELECT p.id, p.name, p.status, p.channel_id, pp.role, u.name AS university_name, d.name AS division_name

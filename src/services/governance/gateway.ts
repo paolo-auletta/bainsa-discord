@@ -183,6 +183,11 @@ export async function createDivisionChannel(guild, divisionName, color, type, pa
 }
 
 export async function renameChannelById(guild, channelId, newName, reason) {
+  const renamed = await renameChannelByIdWithPreviousName(guild, channelId, newName, reason);
+  return renamed?.channel ?? null;
+}
+
+export async function renameChannelByIdWithPreviousName(guild, channelId, newName, reason) {
   if (!channelId) return null;
   let channel;
   try {
@@ -192,6 +197,8 @@ export async function renameChannelById(guild, channelId, newName, reason) {
     throw error;
   }
   if (!channel) return null;
-  if (channel.name === newName) return channel;
-  return channel.setName(newName, reason);
+  if (channel.name === newName) return { channel, previousName: null };
+  const previousName = channel.name;
+  const renamedChannel = await channel.setName(newName, reason);
+  return { channel: renamedChannel, previousName };
 }
