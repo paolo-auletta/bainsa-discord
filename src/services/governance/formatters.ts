@@ -1,6 +1,18 @@
+import {
+  ContainerBuilder,
+  escapeMarkdown,
+  MessageFlags,
+  TextDisplayBuilder,
+} from 'discord.js';
+
 import { BOARD_ROLES, divisionLabel, MEMBER_TYPES } from '../../constants.js';
 import { divisionHeadRoleName, normalizeDisplayName } from '../../naming.js';
 import { boardRoleLabel, memberTypeLabel } from './policy.js';
+
+const MEMBER_PROFILE_COLOR = 0x5865f2;
+const TEXT_DISPLAY_LIMIT = 4_000;
+const INLINE_SUMMARY_LIMIT = 600;
+const PROJECT_SUMMARY_LIMIT = 2_400;
 
 function universityAccessRoleName(universityName) {
   return normalizeDisplayName(universityName);
@@ -40,28 +52,95 @@ export function resolveDivisionTextForMemberUpdate(memberType, previousDivisions
   return previousDivisions.map((division) => division.name).join(', ');
 }
 
-export function formatMemberInfo(info) {
-  const divisions = info.divisions.map((division) => divisionLabel(division.name, division.color)).join(', ') || 'None';
-  const board = info.boardRoles
-    .map((role) =>
-      role.role === BOARD_ROLES.HEAD
-        ? `Head of ${role.division_name}`
-        : boardRoleLabel(role.role),
-    )
-    .join(', ') || 'None';
-  const projects = info.projects
-    .map((project) => `${project.name} (${project.role}, ${project.status})`)
-    .join('\n') || 'None';
+function profileName(target, member) {
+  return member.full_name ?? target.displayName ?? target.user?.globalName ?? target.user?.username ?? target.id;
+}
 
-  return [
-    `**${info.target.user.tag ?? info.target.displayName ?? info.target.id}**`,
-    `Name: ${info.member.full_name ?? 'Not recorded'}`,
-    `Type: ${memberTypeLabel(info.member.member_type)}`,
-    `University: ${info.member.university_name ?? 'None'}`,
-    `Divisions: ${divisions}`,
-    `Board roles: ${board}`,
-    `Projects:\n${projects}`,
+function accountName(target) {
+  return target.user?.username ?? target.user?.tag ?? target.displayName ?? 'Discord member';
+}
+
+function projectRoleLabel(role) {
+  return String(role ?? 'member')
+    .split('_')
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(' ');
+}
+
+function projectStatusLabel(status) {
+  const label = String(status ?? 'active');
+  return `${label.slice(0, 1).toUpperCase()}${label.slice(1)}`;
+}
+
+function compactList(values, emptyLabel, separator = ', ', limit = INLINE_SUMMARY_LIMIT) {
+  const text = values.filter(Boolean).join(separator);
+  if (!text) return emptyLabel;
+  return text.length <= limit
+    ? text
+    : `${text.slice(0, limit - 1).trimEnd()}…`;
+}
+
+function escaped(value) {
+  return escapeMarkdown(String(value ?? ''));
+}
+
+function accountLine(target) {
+  const mention = target.id ? `<@${target.id}>` : escaped(target.displayName ?? 'Discord member');
+  const handle = accountName(target).replaceAll('`', 'ʼ');
+  return `${mention}  \`@${handle}\``;
+}
+
+function membershipLine(member) {
+  const icon = member.member_type === MEMBER_TYPES.ALUMNI ? '🎓' : '🔬';
+  const university = escaped(member.university_name ?? 'Not assigned');
+  return `${icon} **${memberTypeLabel(member.member_type)}** — 🏛️ **${university}**`;
+}
+
+export function formatMemberInfo(info) {
+  const divisions = compactList(
+    info.divisions.map((division) => escaped(divisionLabel(division.name, division.color))),
+    'None',
+  );
+  const leadership = compactList(
+    info.boardRoles
+      .map((role) =>
+        escaped(
+          role.role === BOARD_ROLES.HEAD
+            ? `Head of ${role.division_name}`
+            : boardRoleLabel(role.role),
+        ),
+    ),
+    'None',
+  );
+  const projects = compactList(
+    info.projects.map((project) =>
+      `**${escaped(project.name)}** — ${projectRoleLabel(project.role)} — ${projectStatusLabel(project.status)}`,
+    ),
+    'None',
+    '\n',
+    PROJECT_SUMMARY_LIMIT,
+  );
+  const content = [
+    `## ${escaped(profileName(info.target, info.member))}`,
+    accountLine(info.target),
+    '',
+    membershipLine(info.member),
+    `🧭 **Divisions:** ${divisions}`,
+    `🛡️ **Leadership:** ${leadership}`,
+    `🚀 **Projects:**${info.projects.length > 0 ? `\n${projects}` : ` ${projects}`}`,
   ].join('\n');
+  if (content.length > TEXT_DISPLAY_LIMIT) {
+    throw new Error('Member profile summary exceeds the Discord text display limit.');
+  }
+  const container = new ContainerBuilder()
+    .setAccentColor(MEMBER_PROFILE_COLOR)
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(content));
+
+  return {
+    components: [container],
+    flags: MessageFlags.IsComponentsV2,
+    allowedMentions: { parse: [] },
+  };
 }
 
 export function formatBoardInfo(info) {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ChannelType, PermissionFlagsBits } from 'discord.js';
+import { ChannelType, ComponentType, MessageFlags, PermissionFlagsBits } from 'discord.js';
 
 import {
   divisionAutocompleteChoice,
@@ -1181,14 +1181,32 @@ test('governance autocomplete cache loads only active universities and divisions
 
 test('member-info formats nullable global president board rows', () => {
   const output = formatMemberInfo({
-    target: { user: { tag: 'Global#0001' } },
-    member: { member_type: MEMBER_TYPES.RESEARCHER, university_name: 'Bocconi' },
+    target: { id: 'global-user', user: { tag: 'Global#0001', username: 'Global' } },
+    member: { full_name: 'Global President', member_type: MEMBER_TYPES.RESEARCHER, university_name: 'Bocconi' },
     divisions: [],
     boardRoles: [{ role: BOARD_ROLES.GLOBAL_PRESIDENT, university_name: null, division_name: null }],
     projects: [],
   });
 
-  assert.match(output, /Board roles: Global President/);
+  assert.equal(output.flags, MessageFlags.IsComponentsV2);
+  assert.deepEqual(output.allowedMentions, { parse: [] });
+  const container = output.components[0].toJSON();
+  assert.equal(container.type, ComponentType.Container);
+  assert.equal(container.components.length, 1);
+  assert.equal(container.components[0].type, ComponentType.TextDisplay);
+  assert.equal(
+    container.components[0].content,
+    [
+      '## Global President',
+      '<@global-user>  `@Global`',
+      '',
+      '🔬 **Researcher** — 🏛️ **Bocconi**',
+      '🧭 **Divisions:** None',
+      '🛡️ **Leadership:** Global President',
+      '🚀 **Projects:** None',
+    ].join('\n'),
+  );
+  assert.doesNotMatch(container.components[0].content, / · /);
 });
 
 test('member removal cleanup targets project channel overwrites once', () => {
