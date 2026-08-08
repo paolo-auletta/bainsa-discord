@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ChannelType, ComponentType, MessageFlags, PermissionFlagsBits } from 'discord.js';
+import { ChannelType, PermissionFlagsBits } from 'discord.js';
 
 import {
   divisionAutocompleteChoice,
@@ -1179,34 +1179,66 @@ test('governance autocomplete cache loads only active universities and divisions
   assert.deepEqual(snapshot.divisions, [{ university_name: 'Bocconi', name: 'Robotics', color: 'green' }]);
 });
 
-test('member-info formats nullable global president board rows', () => {
-  const output = formatMemberInfo({
-    target: { id: 'global-user', user: { tag: 'Global#0001', username: 'Global' } },
-    member: { full_name: 'Global President', member_type: MEMBER_TYPES.RESEARCHER, university_name: 'Bocconi' },
-    divisions: [],
+test('member-info follows the stored-message embed design system', () => {
+  const payload = formatMemberInfo({
+    target: { id: '100', user: { tag: 'Global#0001' } },
+    member: { full_name: 'Ada Lovelace', member_type: MEMBER_TYPES.RESEARCHER, university_name: 'Bocconi' },
+    divisions: [{ name: 'Robotics', color: 'yellow' }],
     boardRoles: [{ role: BOARD_ROLES.GLOBAL_PRESIDENT, university_name: null, division_name: null }],
-    projects: [],
+    projects: [{ name: 'Research sprint', role: 'member', status: 'active' }],
   });
 
-  assert.equal(output.flags, MessageFlags.IsComponentsV2);
-  assert.deepEqual(output.allowedMentions, { parse: [] });
-  const container = output.components[0].toJSON();
-  assert.equal(container.type, ComponentType.Container);
-  assert.equal(container.components.length, 1);
-  assert.equal(container.components[0].type, ComponentType.TextDisplay);
-  assert.equal(
-    container.components[0].content,
-    [
-      '## Global President',
-      '<@global-user>  `@Global`',
-      '',
-      '🔬 **Researcher** — 🏛️ **Bocconi**',
-      '🧭 **Divisions:** None',
-      '🛡️ **Leadership:** Global President',
-      '🚀 **Projects:** None',
-    ].join('\n'),
-  );
-  assert.doesNotMatch(container.components[0].content, / · /);
+  assert.deepEqual(payload.allowedMentions, { parse: [] });
+  assert.equal(payload.embeds.length, 1);
+
+  const embed = payload.embeds[0].toJSON();
+  assert.equal(embed.title, '🔵 Member information');
+  assert.equal(embed.color, 0x5865f2);
+  assert.deepEqual(embed.fields, [
+    { name: 'Member', value: 'Ada Lovelace (<@100>)', inline: false },
+    { name: 'Type', value: 'Researcher', inline: false },
+    { name: 'Affiliation', value: 'Bocconi › 🟨 Robotics', inline: false },
+    { name: 'Board roles', value: 'Global President', inline: false },
+    { name: 'Projects', value: 'Research sprint — Member, Active', inline: false },
+  ]);
+});
+
+test('member-info keeps empty assignments compact and readable', () => {
+  const payload = formatMemberInfo({
+    target: { id: '100', displayName: 'Greek', user: { tag: 'Greek#0001' } },
+    member: { full_name: null, member_type: MEMBER_TYPES.ALUMNI, university_name: null },
+    divisions: [],
+    boardRoles: [],
+    projects: [],
+  });
+  const fields = payload.embeds[0].toJSON().fields;
+
+  assert.equal(fields.find((field) => field.name === 'Member').value, 'Not recorded (<@100>)');
+  assert.equal(fields.find((field) => field.name === 'Type').value, 'Alumni');
+  assert.equal(fields.find((field) => field.name === 'Affiliation').value, 'Not assigned');
+  assert.equal(fields.find((field) => field.name === 'Board roles').value, 'None');
+  assert.equal(fields.find((field) => field.name === 'Projects').value, 'None');
+});
+
+test('member-info keeps every stored-message field within Discord limits', () => {
+  const payload = formatMemberInfo({
+    target: { id: '100', user: { tag: 'Greek#0001' } },
+    member: { full_name: 'Greek', member_type: MEMBER_TYPES.RESEARCHER, university_name: 'Bocconi' },
+    divisions: Array.from({ length: 30 }, (_, index) => ({ name: `Division ${index}`, color: 'blue' })),
+    boardRoles: Array.from({ length: 10 }, (_, index) => ({
+      role: BOARD_ROLES.HEAD,
+      division_name: `Division ${index}`,
+    })),
+    projects: Array.from({ length: 100 }, (_, index) => ({
+      name: `Project ${index}`,
+      role: 'member',
+      status: 'active',
+    })),
+  });
+  const fields = payload.embeds[0].toJSON().fields;
+
+  assert.ok(fields.every((field) => field.value.length <= 1_024));
+  assert.match(fields.find((field) => field.name === 'Projects').value, /more/);
 });
 
 test('member removal cleanup targets project channel overwrites once', () => {
