@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ChannelType, PermissionFlagsBits } from 'discord.js';
+import { ChannelType, ComponentType, MessageFlags, PermissionFlagsBits } from 'discord.js';
 
 import {
   divisionAutocompleteChoice,
@@ -1179,16 +1179,79 @@ test('governance autocomplete cache loads only active universities and divisions
   assert.deepEqual(snapshot.divisions, [{ university_name: 'Bocconi', name: 'Robotics', color: 'green' }]);
 });
 
-test('member-info formats nullable global president board rows', () => {
-  const output = formatMemberInfo({
+test('member-info renders a structured private profile with all recorded sections', () => {
+  const payload = formatMemberInfo({
     target: { user: { tag: 'Global#0001' } },
-    member: { member_type: MEMBER_TYPES.RESEARCHER, university_name: 'Bocconi' },
-    divisions: [],
+    member: { full_name: 'Ada Lovelace', member_type: MEMBER_TYPES.RESEARCHER, university_name: 'Bocconi' },
+    divisions: [{ name: 'Robotics', color: 'yellow' }],
     boardRoles: [{ role: BOARD_ROLES.GLOBAL_PRESIDENT, university_name: null, division_name: null }],
-    projects: [],
+    projects: [{ name: 'Research sprint', role: 'member', status: 'active' }],
   });
 
-  assert.match(output, /Board roles: Global President/);
+  assert.equal(payload.flags, MessageFlags.IsComponentsV2);
+  assert.deepEqual(payload.allowedMentions, { parse: [] });
+  assert.equal(payload.components.length, 1);
+
+  const container = payload.components[0].toJSON();
+  assert.equal(container.type, ComponentType.Container);
+  const text = container.components
+    .filter((component) => component.type === ComponentType.TextDisplay)
+    .map((component) => component.content)
+    .join('\n');
+
+  assert.match(text, /^## Ada Lovelace$/m);
+  assert.match(text, /Global#0001/);
+  assert.match(text, /🔬 Researcher/);
+  assert.match(text, /Bocconi/);
+  assert.match(text, /🟨 Robotics/);
+  assert.match(text, /Global President/);
+  assert.match(text, /• \*\*Research sprint\*\* · member · active/);
+});
+
+test('member-info keeps empty assignments readable instead of collapsing sections', () => {
+  const payload = formatMemberInfo({
+    target: { id: '100', displayName: 'Greek', user: { tag: 'Greek#0001' } },
+    member: { full_name: null, member_type: MEMBER_TYPES.ALUMNI, university_name: null },
+    divisions: [],
+    boardRoles: [],
+    projects: [],
+  });
+  const text = payload.components[0]
+    .toJSON()
+    .components.filter((component) => component.type === ComponentType.TextDisplay)
+    .map((component) => component.content)
+    .join('\n');
+
+  assert.match(text, /^## Not recorded$/m);
+  assert.match(text, /🎓 Alumni/);
+  assert.match(text, /\*\*University\*\* · None/);
+  assert.match(text, /\*\*Divisions\*\*\nNone/);
+  assert.match(text, /\*\*Board roles\*\*\nNone/);
+  assert.match(text, /\*\*Projects\*\*\n\nNone/);
+});
+
+test('member-info keeps Components V2 text within Discord limits for large assignments', () => {
+  const payload = formatMemberInfo({
+    target: { id: '100', user: { tag: 'Greek#0001' } },
+    member: { full_name: 'Greek', member_type: MEMBER_TYPES.RESEARCHER, university_name: 'Bocconi' },
+    divisions: Array.from({ length: 30 }, (_, index) => ({ name: `Division ${index}`, color: 'blue' })),
+    boardRoles: Array.from({ length: 10 }, (_, index) => ({
+      role: BOARD_ROLES.HEAD,
+      division_name: `Division ${index}`,
+    })),
+    projects: Array.from({ length: 100 }, (_, index) => ({
+      name: `Project ${index}`,
+      role: 'member',
+      status: 'active',
+    })),
+  });
+  const textDisplays = payload.components[0]
+    .toJSON()
+    .components.filter((component) => component.type === ComponentType.TextDisplay);
+
+  assert.ok(textDisplays.every((component) => component.content.length <= 4_000));
+  assert.ok(textDisplays.reduce((total, component) => total + component.content.length, 0) <= 4_000);
+  assert.match(textDisplays.at(-1).content, /more/);
 });
 
 test('member removal cleanup targets project channel overwrites once', () => {
