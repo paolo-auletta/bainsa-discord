@@ -203,7 +203,7 @@ test('project participant role changes and project field changes use old-to-new 
   });
   const changes = fieldValue(embedJson(updated), 'Changes');
   assert.match(changes, /2026-12-15 → 2026-12-22/);
-  assert.match(changes, /active → paused/);
+  assert.match(changes, /Active → Paused/);
 });
 
 test('reapplying the same project role does not create a board activity entry', () => {

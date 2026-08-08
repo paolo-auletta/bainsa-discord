@@ -2,7 +2,7 @@ import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 
 import { formatBoardActivity } from '../../activity/formatters.js';
 import { respondAutocomplete } from '../../discord/autocomplete.js';
-import { PROJECT_PERSON_ROLES, PROJECT_STATUSES } from '../../constants.js';
+import { OPEN_PROJECT_STATUSES, PROJECT_PERSON_ROLES, PROJECT_STATUSES } from '../../constants.js';
 import {
   handleInteractionError,
   replyBoardActivity,
@@ -61,6 +61,7 @@ async function autocompleteProjects(interaction) {
     const choices = await searchVisibleProjects({
       interaction,
       query: interaction.options.getFocused(),
+      statuses: interaction.commandName === 'project-close' ? OPEN_PROJECT_STATUSES : undefined,
     });
     await respondAutocomplete(interaction, choices);
   } catch {
