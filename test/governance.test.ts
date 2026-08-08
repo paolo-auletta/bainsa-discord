@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ChannelType, ComponentType, MessageFlags, PermissionFlagsBits } from 'discord.js';
+import { ChannelType, PermissionFlagsBits } from 'discord.js';
 
 import {
   divisionAutocompleteChoice,
@@ -1179,36 +1179,31 @@ test('governance autocomplete cache loads only active universities and divisions
   assert.deepEqual(snapshot.divisions, [{ university_name: 'Bocconi', name: 'Robotics', color: 'green' }]);
 });
 
-test('member-info renders a structured private profile with all recorded sections', () => {
+test('member-info follows the stored-message embed design system', () => {
   const payload = formatMemberInfo({
-    target: { user: { tag: 'Global#0001' } },
+    target: { id: '100', user: { tag: 'Global#0001' } },
     member: { full_name: 'Ada Lovelace', member_type: MEMBER_TYPES.RESEARCHER, university_name: 'Bocconi' },
     divisions: [{ name: 'Robotics', color: 'yellow' }],
     boardRoles: [{ role: BOARD_ROLES.GLOBAL_PRESIDENT, university_name: null, division_name: null }],
     projects: [{ name: 'Research sprint', role: 'member', status: 'active' }],
   });
 
-  assert.equal(payload.flags, MessageFlags.IsComponentsV2);
   assert.deepEqual(payload.allowedMentions, { parse: [] });
-  assert.equal(payload.components.length, 1);
+  assert.equal(payload.embeds.length, 1);
 
-  const container = payload.components[0].toJSON();
-  assert.equal(container.type, ComponentType.Container);
-  const text = container.components
-    .filter((component) => component.type === ComponentType.TextDisplay)
-    .map((component) => component.content)
-    .join('\n');
-
-  assert.match(text, /^## Ada Lovelace$/m);
-  assert.match(text, /Global#0001/);
-  assert.match(text, /🔬 Researcher/);
-  assert.match(text, /Bocconi/);
-  assert.match(text, /🟨 Robotics/);
-  assert.match(text, /Global President/);
-  assert.match(text, /• \*\*Research sprint\*\* · member · active/);
+  const embed = payload.embeds[0].toJSON();
+  assert.equal(embed.title, '🔵 Member information');
+  assert.equal(embed.color, 0x5865f2);
+  assert.deepEqual(embed.fields, [
+    { name: 'Member', value: 'Ada Lovelace (<@100>)', inline: false },
+    { name: 'Type', value: 'Researcher', inline: false },
+    { name: 'Affiliation', value: 'Bocconi › 🟨 Robotics', inline: false },
+    { name: 'Board roles', value: 'Global President', inline: false },
+    { name: 'Projects', value: 'Research sprint — Member, Active', inline: false },
+  ]);
 });
 
-test('member-info keeps empty assignments readable instead of collapsing sections', () => {
+test('member-info keeps empty assignments compact and readable', () => {
   const payload = formatMemberInfo({
     target: { id: '100', displayName: 'Greek', user: { tag: 'Greek#0001' } },
     member: { full_name: null, member_type: MEMBER_TYPES.ALUMNI, university_name: null },
@@ -1216,21 +1211,16 @@ test('member-info keeps empty assignments readable instead of collapsing section
     boardRoles: [],
     projects: [],
   });
-  const text = payload.components[0]
-    .toJSON()
-    .components.filter((component) => component.type === ComponentType.TextDisplay)
-    .map((component) => component.content)
-    .join('\n');
+  const fields = payload.embeds[0].toJSON().fields;
 
-  assert.match(text, /^## Not recorded$/m);
-  assert.match(text, /🎓 Alumni/);
-  assert.match(text, /\*\*University\*\* · None/);
-  assert.match(text, /\*\*Divisions\*\*\nNone/);
-  assert.match(text, /\*\*Board roles\*\*\nNone/);
-  assert.match(text, /\*\*Projects\*\*\n\nNone/);
+  assert.equal(fields.find((field) => field.name === 'Member').value, 'Not recorded (<@100>)');
+  assert.equal(fields.find((field) => field.name === 'Type').value, 'Alumni');
+  assert.equal(fields.find((field) => field.name === 'Affiliation').value, 'Not assigned');
+  assert.equal(fields.find((field) => field.name === 'Board roles').value, 'None');
+  assert.equal(fields.find((field) => field.name === 'Projects').value, 'None');
 });
 
-test('member-info keeps Components V2 text within Discord limits for large assignments', () => {
+test('member-info keeps every stored-message field within Discord limits', () => {
   const payload = formatMemberInfo({
     target: { id: '100', user: { tag: 'Greek#0001' } },
     member: { full_name: 'Greek', member_type: MEMBER_TYPES.RESEARCHER, university_name: 'Bocconi' },
@@ -1245,13 +1235,10 @@ test('member-info keeps Components V2 text within Discord limits for large assig
       status: 'active',
     })),
   });
-  const textDisplays = payload.components[0]
-    .toJSON()
-    .components.filter((component) => component.type === ComponentType.TextDisplay);
+  const fields = payload.embeds[0].toJSON().fields;
 
-  assert.ok(textDisplays.every((component) => component.content.length <= 4_000));
-  assert.ok(textDisplays.reduce((total, component) => total + component.content.length, 0) <= 4_000);
-  assert.match(textDisplays.at(-1).content, /more/);
+  assert.ok(fields.every((field) => field.value.length <= 1_024));
+  assert.match(fields.find((field) => field.name === 'Projects').value, /more/);
 });
 
 test('member removal cleanup targets project channel overwrites once', () => {

@@ -1,24 +1,17 @@
 import {
-  ContainerBuilder,
+  EmbedBuilder,
   escapeMarkdown,
-  MessageFlags,
-  SeparatorBuilder,
-  SeparatorSpacingSize,
-  TextDisplayBuilder,
 } from 'discord.js';
 
 import { BOARD_ROLES, divisionLabel, MEMBER_TYPES } from '../../constants.js';
 import { divisionHeadRoleName, normalizeDisplayName } from '../../naming.js';
 import { boardRoleLabel, memberTypeLabel } from './policy.js';
 
-const MEMBER_INFO_ACCENT_COLOR = 0x5865f2;
-const TEXT_DISPLAY_LIMIT = 4_000;
-const HEADER_SECTION_LIMIT = 400;
-const PROFILE_SECTION_LIMIT = 400;
-const ACCESS_SECTION_LIMIT = 1_300;
-const DIVISION_LIST_LIMIT = 700;
-const BOARD_LIST_LIMIT = 450;
-const PROJECT_LIST_LIMIT = 1_800;
+const MEMBER_INFO_COLOR = 0x5865f2;
+const FIELD_VALUE_LIMIT = 1_024;
+const DIVISION_LIST_LIMIT = 800;
+const BOARD_LIST_LIMIT = 800;
+const PROJECT_LIST_LIMIT = FIELD_VALUE_LIMIT;
 
 function universityAccessRoleName(universityName) {
   return normalizeDisplayName(universityName);
@@ -58,29 +51,18 @@ export function resolveDivisionTextForMemberUpdate(memberType, previousDivisions
   return previousDivisions.map((division) => division.name).join(', ');
 }
 
-function textDisplay(content) {
-  return new TextDisplayBuilder().setContent(content);
-}
-
-function separator() {
-  return new SeparatorBuilder()
-    .setDivider(true)
-    .setSpacing(SeparatorSpacingSize.Large);
-}
-
 function safeText(value, fallback = 'None') {
   const text = String(value ?? '').trim();
   return escapeMarkdown(text || fallback);
 }
 
-function truncateText(value, limit = TEXT_DISPLAY_LIMIT) {
+function truncateText(value, limit = FIELD_VALUE_LIMIT) {
   if (value.length <= limit) return value;
   return `${value.slice(0, limit - 1).trimEnd()}…`;
 }
 
 function memberTypeDisplay(memberType) {
-  const icon = memberType === MEMBER_TYPES.ALUMNI ? '🎓' : '🔬';
-  return `${icon} ${memberTypeLabel(memberType)}`;
+  return memberTypeLabel(memberType);
 }
 
 function formatBoardRole(role) {
@@ -90,82 +72,72 @@ function formatBoardRole(role) {
   return safeText(boardRoleLabel(role.role));
 }
 
-function formatProject(project) {
-  return `• **${safeText(project.name, 'Unnamed project')}** · ${safeText(project.role, 'Unknown role')} · ${safeText(project.status, 'Unknown status')}`;
+function titleCase(value, fallback) {
+  return safeText(value, fallback)
+    .split('_')
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(' ');
 }
 
-function formatBoundedLines(lines, limit) {
+function formatProject(project) {
+  return `${safeText(project.name, 'Unnamed project')} — ${titleCase(project.role, 'Unknown role')}, ${titleCase(project.status, 'Unknown status')}`;
+}
+
+function formatBoundedLines(lines, limit, separator = '\n') {
   if (!lines.length) return 'None';
 
   const rendered = [];
   for (let index = 0; index < lines.length; index += 1) {
     const remaining = lines.length - index - 1;
-    const suffix = remaining > 0 ? `\n… (+${remaining} more)` : '';
-    const candidate = [...rendered, lines[index]].join('\n');
+    const suffix = remaining > 0 ? `${separator}… (+${remaining} more)` : '';
+    const candidate = [...rendered, lines[index]].join(separator);
     if (`${candidate}${suffix}`.length > limit) {
       if (!rendered.length) return truncateText(lines[index], limit);
-      return truncateText(`${rendered.join('\n')}\n… (+${lines.length - index} more)`, limit);
+      return truncateText(`${rendered.join(separator)}${separator}… (+${lines.length - index} more)`, limit);
     }
     rendered.push(lines[index]);
   }
 
-  return rendered.join('\n');
+  return rendered.join(separator);
 }
 
 function formatProjectList(projects) {
   return formatBoundedLines(projects.map(formatProject), PROJECT_LIST_LIMIT);
 }
 
+function memberDisplay(info) {
+  const name = safeText(info.member.full_name, 'Not recorded');
+  return info.target.id ? `${name} (<@${info.target.id}>)` : name;
+}
+
+function affiliationDisplay(info, divisions) {
+  const university = safeText(info.member.university_name, 'Not assigned');
+  return divisions === 'None' ? university : `${university} › ${divisions}`;
+}
+
+function infoField(name, value) {
+  return { name, value: truncateText(value), inline: false };
+}
+
 export function formatMemberInfo(info) {
-  const targetTag = info.target.user?.tag ?? info.target.displayName ?? info.target.id;
-  const targetMention = info.target.id ? `<@${info.target.id}>` : 'Unknown member';
   const divisions = formatBoundedLines(info.divisions
     .map((division) => divisionLabel(division.name, division.color))
-    .map((division) => safeText(division)), DIVISION_LIST_LIMIT);
-  const board = formatBoundedLines(info.boardRoles.map(formatBoardRole), BOARD_LIST_LIMIT);
+    .map((division) => safeText(division)), DIVISION_LIST_LIMIT, ', ');
+  const board = formatBoundedLines(info.boardRoles.map(formatBoardRole), BOARD_LIST_LIMIT, ', ');
   const projects = formatProjectList(info.projects);
-
-  const container = new ContainerBuilder()
-    .setAccentColor(MEMBER_INFO_ACCENT_COLOR)
-    .addTextDisplayComponents(
-      textDisplay(truncateText([
-        `## ${safeText(info.member.full_name, 'Not recorded')}`,
-        `${safeText(targetTag)} · ${targetMention}`,
-      ].join('\n'), HEADER_SECTION_LIMIT)),
-    )
-    .addSeparatorComponents(separator())
-    .addTextDisplayComponents(
-      textDisplay(truncateText([
-        '**Profile**',
-        '',
-        `**Type** · ${memberTypeDisplay(info.member.member_type)}`,
-        `**University** · ${safeText(info.member.university_name)}`,
-      ].join('\n'), PROFILE_SECTION_LIMIT)),
-    )
-    .addSeparatorComponents(separator())
-    .addTextDisplayComponents(
-      textDisplay(truncateText([
-        '**Access & leadership**',
-        '',
-        '**Divisions**',
-        divisions,
-        '',
-        '**Board roles**',
-        board,
-      ].join('\n'), ACCESS_SECTION_LIMIT)),
-    )
-    .addSeparatorComponents(separator())
-    .addTextDisplayComponents(
-      textDisplay([
-        '**Projects**',
-        '',
-        projects,
-      ].join('\n')),
+  const embed = new EmbedBuilder()
+    .setColor(MEMBER_INFO_COLOR)
+    .setTitle('🔵 Member information')
+    .addFields(
+      infoField('Member', memberDisplay(info)),
+      infoField('Type', memberTypeDisplay(info.member.member_type)),
+      infoField('Affiliation', affiliationDisplay(info, divisions)),
+      infoField('Board roles', board),
+      infoField('Projects', projects),
     );
 
   return {
-    components: [container],
-    flags: MessageFlags.IsComponentsV2,
+    embeds: [embed],
     allowedMentions: { parse: [] },
   };
 }
