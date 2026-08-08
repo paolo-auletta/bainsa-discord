@@ -31,6 +31,12 @@ const removedMemberOnboardingMigrationUrl = projectPath(
   'migrations',
   '012_removed_member_onboarding.sql',
 );
+const memberProfilesMigrationUrl = projectPath('db', 'migrations', '013_member_profiles.sql');
+const executiveExclusivityRepairMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '014_repair_executive_exclusivity.sql',
+);
 
 async function migrationSql() {
   return readFile(migrationUrl, 'utf8');
@@ -72,6 +78,14 @@ async function removedMemberOnboardingMigrationSql() {
   return readFile(removedMemberOnboardingMigrationUrl, 'utf8');
 }
 
+async function memberProfilesMigrationSql() {
+  return readFile(memberProfilesMigrationUrl, 'utf8');
+}
+
+async function executiveExclusivityRepairMigrationSql() {
+  return readFile(executiveExclusivityRepairMigrationUrl, 'utf8');
+}
+
 function assertIncludes(sql, snippet) {
   assert.ok(sql.includes(snippet), `Expected migration to include: ${snippet}`);
 }
@@ -92,7 +106,42 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '010_enforce_executive_division_exclusivity.sql',
     '011_make_division_university_immutable.sql',
     '012_removed_member_onboarding.sql',
+    '013_member_profiles.sql',
+    '014_repair_executive_exclusivity.sql',
   ]);
+});
+
+test('keeps the deployed executive exclusivity migration immutable and upgrades it append-only', async () => {
+  const original = await executiveExclusivityMigrationSql();
+  const repair = await executiveExclusivityRepairMigrationSql();
+
+  assert.equal(original.includes('Executive division exclusivity requires READ COMMITTED transactions.'), false);
+  assertIncludes(repair, 'Executive division exclusivity requires READ COMMITTED transactions.');
+  assertIncludes(repair, 'WITH executive_assignments AS');
+  assertIncludes(repair, 'CREATE OR REPLACE FUNCTION enforce_executive_board_assignment_exclusivity()');
+});
+
+test('adds opt-in member profiles and durable reconciliation state', async () => {
+  const sql = await memberProfilesMigrationSql();
+
+  assertIncludes(sql, 'CREATE TABLE IF NOT EXISTS member_profiles');
+  assertIncludes(sql, 'discord_user_id text PRIMARY KEY REFERENCES members(discord_user_id) ON DELETE CASCADE');
+  assertIncludes(sql, 'selected_tags text[] NOT NULL');
+  assertIncludes(sql, "visibility text NOT NULL DEFAULT 'published'");
+  assertIncludes(sql, "CHECK (visibility IN ('published', 'hidden'))");
+  assertIncludes(sql, 'forum_thread_id text UNIQUE');
+  assertIncludes(sql, 'forum_message_id text UNIQUE');
+  assertIncludes(sql, 'cardinality(selected_tags) BETWEEN 1 AND 4');
+  assertIncludes(sql, 'member_profiles_published_refresh_idx');
+  assertIncludes(sql, 'member_profiles_set_updated_at');
+
+  assertIncludes(sql, 'CREATE TABLE IF NOT EXISTS member_profile_reconciliation');
+  assertIncludes(sql, 'REFERENCES member_profiles(discord_user_id) ON DELETE CASCADE');
+  assertIncludes(sql, 'desired_generation bigint NOT NULL DEFAULT 0 CHECK (desired_generation >= 0)');
+  assertIncludes(sql, "CHECK (status IN ('pending', 'processing', 'succeeded', 'failed'))");
+  assertIncludes(sql, 'attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0)');
+  assertIncludes(sql, 'member_profile_reconciliation_repair_idx');
+  assertIncludes(sql, 'member_profile_reconciliation_set_updated_at');
 });
 
 test('prevents division university changes from bypassing scoped invariants', async () => {

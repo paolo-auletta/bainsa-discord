@@ -48,9 +48,10 @@ test.after(async () => {
 test('runs every migration against a fresh database and keeps the final contract idempotent', async () => {
   const first = await resetAndMigrate();
   assert.equal(first.pending, 0);
-  assert.equal(first.appliedNow.length, 10);
+  assert.equal(first.appliedNow.length, 12);
   assert.deepEqual(first.status.map((row) => row.status), [
     'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
+    'applied', 'applied',
   ]);
 
   const tables = await database.query(`
@@ -64,6 +65,8 @@ test('runs every migration against a fresh database and keeps the final contract
     'board_assignments',
     'divisions',
     'member_divisions',
+    'member_profile_reconciliation',
+    'member_profiles',
     'members',
     'onboarding_requests',
     'projects',
@@ -152,11 +155,11 @@ test('runs every migration against a fresh database and keeps the final contract
 
   const second = await migrate();
   assert.deepEqual(second.appliedNow, []);
-  assert.equal(second.applied, 10);
+  assert.equal(second.applied, 12);
   assert.equal(second.pending, 0);
 
   const status = await migrate({ statusOnly: true });
-  assert.equal(status.applied, 10);
+  assert.equal(status.applied, 12);
   assert.equal(status.pending, 0);
 });
 
@@ -337,7 +340,7 @@ test('executive exclusivity backfills legacy member divisions and Head assignmen
 
   try {
     for (const filename of await readdir(migrationsDir)) {
-      if (!filename.endsWith('.sql') || filename === '010_enforce_executive_division_exclusivity.sql') continue;
+      if (!filename.endsWith('.sql') || ['010_enforce_executive_division_exclusivity.sql', '014_repair_executive_exclusivity.sql'].includes(filename)) continue;
       await copyFile(path.join(migrationsDir, filename), path.join(temporaryDir, filename));
     }
     await migrate({ migrationsDir: temporaryDir });
@@ -374,7 +377,7 @@ test('executive exclusivity backfills legacy member divisions and Head assignmen
     const migrated = await migrate();
     assert.deepEqual(
       migrated.appliedNow.map((migration) => migration.filename),
-      ['010_enforce_executive_division_exclusivity.sql'],
+      ['010_enforce_executive_division_exclusivity.sql', '014_repair_executive_exclusivity.sql'],
     );
     assert.equal(
       (await database.query(
@@ -533,7 +536,7 @@ test('upgrades the tracked legacy university and division shape in place', async
   );
 
   const result = await migrate();
-  assert.equal(result.applied, 10);
+  assert.equal(result.applied, 12);
   assert.equal(result.recordedNotLocal, 1);
 
   const university = await database.query(

@@ -19,6 +19,7 @@ interface InteractionDispatcherOptions {
   onboarding?: ComponentHandler;
   guide?: ComponentHandler;
   projectSetup?: ComponentHandler;
+  profiles?: ComponentHandler;
   onError?: (interaction: unknown, error: unknown) => Promise<void>;
 }
 
@@ -42,6 +43,7 @@ export function createInteractionDispatcher({
   onboarding,
   guide,
   projectSetup,
+  profiles,
   onError = handleInteractionError,
 }: InteractionDispatcherOptions = {}) {
   const commandMap = buildCommandMap(commands ?? []);
@@ -79,6 +81,11 @@ export function createInteractionDispatcher({
         return;
       }
 
+      if (route === 'button' && profiles?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(profiles.handleButton)(interaction);
+        return;
+      }
+
       if (route === 'button' && projectSetup?.canHandle?.(interaction.customId)) {
         await requireComponentHandler(projectSetup.handleButton)(interaction);
         return;
@@ -94,8 +101,18 @@ export function createInteractionDispatcher({
         return;
       }
 
+      if (route === 'stringSelect' && profiles?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(profiles.handleStringSelect)(interaction);
+        return;
+      }
+
       if (route === 'modalSubmit' && projectSetup?.canHandle?.(interaction.customId)) {
         await requireComponentHandler(projectSetup.handleModalSubmit)(interaction);
+        return;
+      }
+
+      if (route === 'modalSubmit' && profiles?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(profiles.handleModalSubmit)(interaction);
         return;
       }
 

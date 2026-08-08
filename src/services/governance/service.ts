@@ -83,13 +83,36 @@ import {
   replaceMemberDivisionRows,
   upsertMemberRecord,
 } from './repository.js';
+import { hideProfileAndEnqueue, requestProfileReconciliation } from '../../profiles/repository.js';
 
-type GovernanceDependencies = { db?: typeof defaultDb };
+type GovernanceDependencies = { db?: Pick<typeof defaultDb, 'query' | 'transaction'> };
 
 const ACTIVE_PROJECT_STATUSES = [PROJECT_STATUSES.ACTIVE, PROJECT_STATUSES.PAUSED];
 
 function dbFrom(deps: GovernanceDependencies = {}) {
   return deps?.db ?? defaultDb;
+}
+
+async function enqueuePublishedProfileReconciliation(client, discordUserId) {
+  const published = await client.query(
+    `SELECT 1
+       FROM member_profiles
+      WHERE discord_user_id = $1 AND visibility = 'published'
+      FOR UPDATE`,
+    [String(discordUserId)],
+  );
+  if (published.rowCount !== 1) return null;
+  return requestProfileReconciliation(client, discordUserId);
+}
+
+function hasCanonicalMembershipChange(previousRecord, previousDivisions, memberType, university, divisions) {
+  if (!previousRecord) return false;
+  if (previousRecord.member_type !== memberType) return true;
+  if (String(previousRecord.university_id) !== String(university.id)) return true;
+  const previousDivisionIds = previousDivisions.map((division) => String(division.id)).sort();
+  const nextDivisionIds = divisions.map((division) => String(division.id)).sort();
+  return previousDivisionIds.length !== nextDivisionIds.length
+    || previousDivisionIds.some((divisionId, index) => divisionId !== nextDivisionIds[index]);
 }
 
 function actorMember(interaction) {
@@ -426,6 +449,15 @@ async function applyMemberMembership(interaction, options, deps: GovernanceDepen
       });
       await upsertMemberRecord(q, target.id, memberType, university.id, options.notes);
       await replaceMemberDivisionRows(q, target.id, divisions);
+      const profileDesiredGeneration = hasCanonicalMembershipChange(
+        previousRecord,
+        previousDivisions,
+        memberType,
+        university,
+        divisions,
+      )
+        ? await enqueuePublishedProfileReconciliation(q, target.id)
+        : null;
       await writeAudit(q, {
         actorId: interaction.user.id,
         action: options.auditAction,
@@ -433,7 +465,14 @@ async function applyMemberMembership(interaction, options, deps: GovernanceDepen
         targetId: target.id,
         universityId: university.id,
         before: { member: previousRecord, divisions: previousDivisions },
-        after: { memberType, university: university.name, divisions: divisions.map((d) => d.name) },
+        after: {
+          memberType,
+          university: university.name,
+          divisions: divisions.map((d) => d.name),
+          profile: profileDesiredGeneration == null
+            ? { reconciliationRequested: false }
+            : { visibility: 'published', desiredGeneration: String(profileDesiredGeneration) },
+        },
       });
     });
   } catch (error) {
@@ -537,6 +576,7 @@ export async function removeMember(interaction, options, deps: GovernanceDepende
           WHERE discord_user_id = $1`,
         [String(target.id)],
       );
+      const profile = await hideProfileAndEnqueue(q, target.id);
       await writeAudit(q, {
         actorId: interaction.user.id,
         action: 'member.remove',
@@ -550,6 +590,13 @@ export async function removeMember(interaction, options, deps: GovernanceDepende
           divisionsCleared: divisionDelete.rowCount,
           projectAssignmentsDeleted: projectDelete.rowCount,
           projectOverwriteCleanup: overwriteCleanup,
+          profile: profile == null
+            ? { visibilityChanged: false, reconciliationRequested: false }
+            : {
+              visibility: 'hidden',
+              desiredGeneration: String(profile.desiredGeneration),
+              reconciliationRequested: true,
+            },
         },
         reason: options.reason ?? null,
       });
@@ -562,6 +609,25 @@ export async function removeMember(interaction, options, deps: GovernanceDepende
   }
 
   return { target, universityName: member.university_name, overwriteCleanup };
+}
+
+/**
+ * Discord can emit a departure event for a voluntary leave or a kick. It must
+ * never alter canonical membership or create a second governance audit entry.
+ */
+export async function hideDepartedMemberProfile(member, deps: GovernanceDependencies = {}) {
+  const db = dbFrom(deps);
+  return db.transaction(async (client) => {
+    const profile = await client.query(
+      `SELECT visibility
+         FROM member_profiles
+        WHERE discord_user_id = $1
+        FOR UPDATE`,
+      [String(member.id)],
+    );
+    if (profile.rows[0]?.visibility === 'hidden') return null;
+    return hideProfileAndEnqueue(client, member.id);
+  });
 }
 
 export async function getMemberInfo(interaction, options, deps: GovernanceDependencies = {}) {

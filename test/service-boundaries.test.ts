@@ -19,6 +19,7 @@ const GOVERNANCE_PUBLIC_API = [
   'formatMemberInfo',
   'getBoardInfo',
   'getMemberInfo',
+  'hideDepartedMemberProfile',
   'invalidateGovernanceAutocompleteCache',
   'memberRemovalCleanupPlan',
   'projectChannelCleanupTargets',

@@ -21,6 +21,8 @@ const applicationTables = [
   'discord_roles',
   'divisions',
   'member_divisions',
+  'member_profile_reconciliation',
+  'member_profiles',
   'members',
   'onboarding_requests',
   'pending_requests',

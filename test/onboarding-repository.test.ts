@@ -459,7 +459,7 @@ test('a Division Head can approve, and Discord roles roll back when a later DB w
   assert.deepEqual(target.nicknameHistory, ['Ada Lovelace', 'Previous nickname']);
 });
 
-test('onboarding approval succeeds without a nickname change for an unmanageable member', async () => {
+test('onboarding approval survives a directory DM failure without creating a profile', async () => {
   process.env.DISCORD_TOKEN ??= 'test-token';
   process.env.DISCORD_CLIENT_ID ??= 'test-client';
   process.env.DISCORD_GUILD_ID ??= 'test-guild';
@@ -515,7 +515,17 @@ test('onboarding approval succeeds without a nickname change for an unmanageable
   };
   let reviewEdited = false;
   let reply;
-  const service = createOnboardingService({ db, runTransaction: async (work) => work(db) });
+  let directoryNotificationAttempts = 0;
+  const service = createOnboardingService({
+    db,
+    runTransaction: async (work) => work(db),
+    notifyApprovedMember: async ({ guild: notifiedGuild, userId }) => {
+      directoryNotificationAttempts += 1;
+      assert.equal(notifiedGuild, guild);
+      assert.equal(userId, 'target');
+      throw new Error('DMs disabled');
+    },
+  });
 
   await service.handleButton({
     customId: onboardingId(ONBOARDING_ACTIONS.APPROVE, '10'),
@@ -529,6 +539,8 @@ test('onboarding approval succeeds without a nickname change for an unmanageable
   assert.deepEqual([...targetRoleIds].sort(), ['bocconi-projects-role', 'bocconi-role', 'guild', 'researcher-role']);
   assert.equal(reviewEdited, true);
   assert.equal(reply, 'Onboarding request approved.');
+  assert.equal(directoryNotificationAttempts, 1);
+  assert.equal(db.calls.some(({ sql }) => /member_profiles/i.test(sql)), false);
 });
 
 function roleCache(entries) {

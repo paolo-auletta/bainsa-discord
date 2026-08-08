@@ -57,6 +57,7 @@ GLOBAL BAINSA — visible to approved members
 ├── #bainsa-board — Global Presidents + University Presidents
 ├── forum: projects-showcase — selected cross-network project stories
 ├── forum: resources — shared knowledge base
+├── forum: people-directory — opt-in, bot-managed member profiles
 ├── forum: channel-proposals — member-led requests for new shared channels
 └── #anonymous-feedback — link to a confidential external form
 
@@ -281,6 +282,57 @@ This is the shared, searchable knowledge base. Suggested resource families inclu
 - Opportunities such as grants, competitions, conferences, and calls for papers.
 
 Posts should use clear titles, appropriate tags, a short explanation of why the resource is useful, and any access or expiry information. Personal data and restricted alumni information should remain in an access-controlled external system rather than being posted openly.
+
+### Forum: `people-directory`
+
+This is a global, opt-in directory for approved Researchers and Alumni to discover each other by
+current work, interests, and future goals. It sits beside `resources`, is hidden from applicants and
+removed members, and is not required for approval or ordinary server access.
+
+After approval, a member may receive a best-effort DM linking here; `Start here` remains the reliable
+entry point. The member presses **Create or update my profile** to open a private, button-driven
+wizard—there is no profile slash command. The wizard asks for:
+
+- **Headline:** one line explaining what the member does.
+- **About:** interests, topics, problems, or industries that matter to them.
+- **Currently:** their current role or activity.
+- **Aiming for:** research, internship, role, or collaboration goals.
+- **Directory tags:** one to four tags that describe their field or environment.
+
+Organisation and location are optional context. Public-to-approved-members email, a LinkedIn profile,
+and a research-profile link are optional too. Discord DM is always the default contact path; contact
+should be respectful and relevant. A private preview explains that publication makes the profile
+visible to every approved BAINSA member, and only **Publish profile** makes it public.
+
+Members cannot write forum posts or replies here. The bot creates and maintains exactly one read-only
+post for each published profile; it derives Researcher/Alumni status, BAINSA university, and a
+Researcher division from the membership record. To change the profile, members return to `Start here`;
+they do not edit the forum post directly. **Unpublish my profile** asks for confirmation, hides the
+saved record for easy republishing, and queues deletion of the Discord post. Removing or departing a
+member also hides the profile and queues deletion. Reapproval does not silently republish it.
+
+Use the forum's native text search and tags to browse. It uses Discord's list layout, not a sortable
+table. The complete managed tag set is:
+
+| Category | Tags |
+| --- | --- |
+| Identity — added by the bot | `Researcher`, `Alumni` |
+| Field | `AI & Data`, `Econ & Finance`, `Neuroscience`, `Biology`, `Eng & Robotics`, `Life & Health Sci`, `Social Sciences`, `Math & Physics`, `Humanities & Design` |
+| Environment | `Academia`, `Industry`, `Entrepreneurship` |
+
+Each profile has one derived identity tag plus one to four selected tags. Treat this as stable,
+managed governance vocabulary: change categories deliberately. Employers, job titles, laboratories,
+technologies, and narrow research topics belong in the searchable free text rather than in new tags.
+
+The bot's reconciliation worker retries pending create, edit, and deletion work if Discord is
+temporarily unavailable. It also performs bounded maintenance to return auto-archived profiles and
+the guide to the browseable list without sending keep-alive replies. Routine updates edit the existing
+bot-owned post instead of adding comments.
+
+V1 adds no people-directory slash commands, LinkedIn imports or scraping, any external sortable
+table or export, phone and social-contact extras, endorsements, recommendations, direct-message
+automation, or staff editing of another member's profile. This describes the intended directory
+behavior; it is not a claim that the release quality gate has passed.
 
 ### Forum: `channel-proposals`
 

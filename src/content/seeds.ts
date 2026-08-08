@@ -111,6 +111,21 @@ export function globalSeeds({ anonymousFeedbackUrl }: { anonymousFeedbackUrl?: s
       title: 'Resources',
       body: 'Post useful datasets, papers, tools, and templates for the whole BAINSA community. Use tags to keep resources searchable.',
     }),
+    peopleDirectory: buildSeedContent({
+      key: 'global:people-directory',
+      title: 'People Directory',
+      body: [
+        'An opt-in directory for approved BAINSA members. Search the post text and forum tags to discover people by interests, current work, and what they want to explore next.',
+        '',
+        '**How it works**',
+        '• Create or update your own profile with the button below. Publishing is optional and your post is managed by the bot.',
+        '• Choose one to four field or environment tags. Your Researcher or Alumni tag is added automatically.',
+        '• Email and professional links are optional. Discord is the default way to contact a member.',
+        '• Update or unpublish your profile at any time with these buttons. Unpublishing removes the directory post while keeping your details ready if you choose to return.',
+        '',
+        'Please contact one another respectfully and keep the directory focused on genuine research, professional interests, and collaboration.',
+      ].join('\n'),
+    }),
     channelProposals: buildSeedContent({
       key: 'global:channel-proposals',
       title: 'Channel Proposals',

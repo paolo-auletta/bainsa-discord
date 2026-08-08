@@ -390,6 +390,44 @@ test('dispatcher routes every project setup component type', async () => {
   ]);
 });
 
+test('dispatcher routes every profile component type without command-channel authorization', async () => {
+  const handled = [];
+  const dispatch = createInteractionDispatcher({
+    commands: [],
+    profiles: {
+      canHandle: (customId) => customId.startsWith('profile:'),
+      handleButton: async (interaction) => handled.push(`button:${interaction.customId}`),
+      handleStringSelect: async (interaction) => handled.push(`strings:${interaction.customId}`),
+      handleModalSubmit: async (interaction) => handled.push(`modal:${interaction.customId}`),
+    },
+    onError: async () => assert.fail('unexpected error handler call'),
+  });
+
+  await dispatch({
+    customId: 'profile:start',
+    channel: { name: 'general' },
+    isButton: () => true,
+  });
+  await dispatch({
+    customId: 'profile:tags',
+    channel: { name: 'general' },
+    isButton: () => false,
+    isStringSelectMenu: () => true,
+  });
+  await dispatch({
+    customId: 'profile:identity-modal',
+    channel: { name: 'general' },
+    isButton: () => false,
+    isModalSubmit: () => true,
+  });
+
+  assert.deepEqual(handled, [
+    'button:profile:start',
+    'strings:profile:tags',
+    'modal:profile:identity-modal',
+  ]);
+});
+
 test('dispatcher reports matched component routes without handlers', async () => {
   const cases = [
     {
@@ -431,6 +469,24 @@ test('dispatcher reports matched component routes without handlers', async () =>
       flags: { isModalSubmit: true },
       projectSetup: true,
     },
+    {
+      label: 'profile button',
+      component: { canHandle: () => true },
+      flags: { isButton: true },
+      profiles: true,
+    },
+    {
+      label: 'profile select',
+      component: { canHandle: () => true },
+      flags: { isStringSelectMenu: true },
+      profiles: true,
+    },
+    {
+      label: 'profile modal',
+      component: { canHandle: () => true },
+      flags: { isModalSubmit: true },
+      profiles: true,
+    },
   ];
 
   for (const testCase of cases) {
@@ -441,7 +497,9 @@ test('dispatcher reports matched component routes without handlers', async () =>
         ? { guide: testCase.component }
         : testCase.projectSetup
           ? { projectSetup: testCase.component }
-          : { onboarding: testCase.component }),
+          : testCase.profiles
+            ? { profiles: testCase.component }
+            : { onboarding: testCase.component }),
       onError: async (_interaction, error) => {
         captured = error;
       },
