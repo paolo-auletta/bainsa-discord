@@ -180,7 +180,8 @@ async function assertSubmitRaceLosesDraftMutation(action) {
     customId: onboardingId(ONBOARDING_ACTIONS.SUBMIT, requestId),
     user: { id: 'onboarding-race-user' },
     guild,
-    async update() {},
+    async deferUpdate() {},
+    async editReply() {},
   };
   const racingInteraction = action === 'edit'
     ? {
@@ -259,7 +260,8 @@ async function assertDraftMutationWinsBeforeSubmit(action) {
     customId: onboardingId(ONBOARDING_ACTIONS.SUBMIT, requestId),
     user: { id: 'onboarding-race-user' },
     guild,
-    async update() {},
+    async deferUpdate() {},
+    async editReply() {},
   };
 
   if (action === 'edit') {
