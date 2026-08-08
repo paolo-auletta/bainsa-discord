@@ -2,15 +2,10 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ContainerBuilder,
   EmbedBuilder,
   escapeMarkdown,
-  MessageFlags,
-  SeparatorBuilder,
-  SeparatorSpacingSize,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
-  TextDisplayBuilder,
 } from "discord.js";
 
 import { divisionLabel, MEMBER_TYPES } from "../constants.js";
@@ -217,42 +212,35 @@ export function confirmPayload(requestId, draft, university, divisions) {
           .join(", ")
       : "None";
   return {
-    components: [
-      new ContainerBuilder()
-        .setAccentColor(EMBED_COLORS.BRAND)
-        .addTextDisplayComponents(
-          textDisplay(
-            [
-              "## Review your application",
-              "Please check these details before sending your request to the university board.",
-              "",
-              "**Applicant**",
-              escapeMarkdown(draft.full_name ?? "Not provided"),
-              "",
-              "**Path**",
-              memberTypeLabel(draft.member_type),
-              "",
-              "**University**",
-              escapeMarkdown(university.name),
-              "",
-              "**Division**",
-              escapeMarkdown(divisionNames),
-            ].join("\n"),
-          ),
-        )
-        .addSeparatorComponents(separator())
-        .addActionRowComponents(
-          new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-              .setCustomId(onboardingId(ONBOARDING_ACTIONS.SUBMIT, requestId))
-              .setEmoji("📨")
-              .setLabel("Submit application")
-              .setStyle(ButtonStyle.Success),
-            cancelButton(requestId),
-          ),
-        ),
+    embeds: [
+      onboardingEmbed("Review your application").setDescription(
+        [
+          "Please check these details before sending your request to the university board.",
+          "",
+          "**Applicant**",
+          escapeMarkdown(draft.full_name ?? "Not provided"),
+          "",
+          "**Path**",
+          memberTypeLabel(draft.member_type),
+          "",
+          "**University**",
+          escapeMarkdown(university.name),
+          "",
+          "**Division**",
+          escapeMarkdown(divisionNames),
+        ].join("\n"),
+      ),
     ],
-    flags: MessageFlags.IsComponentsV2,
+    components: [
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(onboardingId(ONBOARDING_ACTIONS.SUBMIT, requestId))
+          .setEmoji("📨")
+          .setLabel("Submit application")
+          .setStyle(ButtonStyle.Success),
+        cancelButton(requestId),
+      ),
+    ],
     allowedMentions: { parse: [] },
   };
 }
@@ -350,16 +338,6 @@ function onboardingEmbed(title) {
     .setColor(EMBED_COLORS.BRAND)
     .setAuthor({ name: "BAINSA · Membership application" })
     .setTitle(title);
-}
-
-function textDisplay(content) {
-  return new TextDisplayBuilder().setContent(content);
-}
-
-function separator() {
-  return new SeparatorBuilder()
-    .setDivider(true)
-    .setSpacing(SeparatorSpacingSize.Large);
 }
 
 function memberTypeLabel(memberType) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ButtonStyle, ComponentType, MessageFlags } from 'discord.js';
+import { ButtonStyle } from 'discord.js';
 
 import {
   confirmPayload,
@@ -23,13 +23,6 @@ const reapplication = {
 
 function fields(payload) {
   return payload.embeds[0].data.fields;
-}
-
-function confirmationComponents(payload) {
-  assert.equal(payload.components.length, 1);
-  const container = payload.components[0].toJSON();
-  assert.equal(container.type, ComponentType.Container);
-  return container.components;
 }
 
 test('onboarding review messages clearly flag reapplications from removed members', () => {
@@ -59,25 +52,22 @@ test('onboarding review messages omit removal history for first-time applicants'
   assert.equal(fields(payload).some((field) => field.name === 'Member history'), false);
 });
 
-test('onboarding confirmation presents a clear component-based application summary', () => {
+test('onboarding confirmation presents a clear stacked application summary', () => {
   const payload = confirmPayload(
     '10',
     { full_name: 'Ada *Lovelace*', member_type: 'researcher' },
     university,
     [{ id: '2', name: 'Analysis', color: 'orange' }],
   );
-  const components = confirmationComponents(payload);
-  const summary = components[0];
-  const actions = components.at(-1);
+  const embed = payload.embeds[0].toJSON();
+  const actions = payload.components[0].toJSON();
 
-  assert.equal(payload.flags, MessageFlags.IsComponentsV2);
   assert.deepEqual(payload.allowedMentions, { parse: [] });
-  assert.equal(payload.embeds, undefined);
-  assert.equal(summary.type, ComponentType.TextDisplay);
+  assert.equal(payload.flags, undefined);
+  assert.equal(embed.title, 'Review your application');
   assert.equal(
-    summary.content,
+    embed.description,
     [
-      '## Review your application',
       'Please check these details before sending your request to the university board.',
       '',
       '**Applicant**',
@@ -93,8 +83,7 @@ test('onboarding confirmation presents a clear component-based application summa
       '🟧 Analysis',
     ].join('\n'),
   );
-  assert.equal(components[1].type, ComponentType.Separator);
-  assert.equal(actions.type, ComponentType.ActionRow);
+  assert.equal(embed.fields, undefined);
   assert.deepEqual(actions.components.map((button) => button.label), [
     'Submit application',
     'Cancel',
@@ -107,6 +96,7 @@ test('onboarding embeds omit helper footers and review timestamps', () => {
     memberTypePayload('10').embeds[0],
     universityPayload('10', [university]).embeds[0],
     divisionPayload('10', [{ id: '2', name: 'Analysis', color: 'orange' }]).embeds[0],
+    confirmPayload('10', { full_name: 'Ada Lovelace', member_type: 'alumni' }, university, []).embeds[0],
     reviewPayload(reapplication, university, []).embeds[0],
     reviewedPayload({ ...reapplication, status: 'approved' }, university, [], '200').embeds[0],
   ];
