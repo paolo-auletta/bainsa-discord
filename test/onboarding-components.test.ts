@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { ButtonStyle } from 'discord.js';
 
 import {
   confirmPayload,
@@ -49,6 +50,45 @@ test('onboarding review messages omit removal history for first-time applicants'
   const payload = reviewPayload({ ...reapplication, previously_removed: false }, university, []);
 
   assert.equal(fields(payload).some((field) => field.name === 'Member history'), false);
+});
+
+test('onboarding confirmation presents a clear stacked application summary', () => {
+  const payload = confirmPayload(
+    '10',
+    { full_name: 'Ada *Lovelace*', member_type: 'researcher' },
+    university,
+    [{ id: '2', name: 'Analysis', color: 'orange' }],
+  );
+  const embed = payload.embeds[0].toJSON();
+  const actions = payload.components[0].toJSON();
+
+  assert.deepEqual(payload.allowedMentions, { parse: [] });
+  assert.equal(payload.flags, undefined);
+  assert.equal(embed.title, 'Review your application');
+  assert.equal(
+    embed.description,
+    [
+      'Please check these details before sending your request to the university board.',
+      '',
+      '**Applicant**',
+      'Ada \\*Lovelace\\*',
+      '',
+      '**Path**',
+      '🔬 Researcher',
+      '',
+      '**University**',
+      'Bocconi',
+      '',
+      '**Division**',
+      '🟧 Analysis',
+    ].join('\n'),
+  );
+  assert.equal(embed.fields, undefined);
+  assert.deepEqual(actions.components.map((button) => button.label), [
+    'Submit application',
+    'Cancel',
+  ]);
+  assert.equal(actions.components[0].style, ButtonStyle.Success);
 });
 
 test('onboarding embeds omit helper footers and review timestamps', () => {

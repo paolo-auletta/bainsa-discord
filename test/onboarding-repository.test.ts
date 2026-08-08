@@ -27,6 +27,14 @@ function fakeDb(responses = []) {
   };
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 test('createDraft rejects already-active members', async () => {
   const db = fakeDb([{ rows: [{ discord_user_id: '100', status: 'active' }] }]);
 
@@ -214,6 +222,7 @@ test('submit sends review message before marking request pending', async () => {
   const interaction = {
     customId: onboardingId(ONBOARDING_ACTIONS.SUBMIT, '10'),
     user: { id: '100' },
+    deferUpdate: async () => undefined,
     guild: {
       channels: {
         fetch: async () => ({
@@ -228,6 +237,67 @@ test('submit sends review message before marking request pending', async () => {
 
   await assert.rejects(() => service.handleButton(interaction), /Discord send failed/);
   assert.equal(db.calls.some((call) => /SET .*status/.test(call.sql)), false);
+});
+
+test('submit acknowledges before a slow review delivery and edits the original response', async () => {
+  process.env.DISCORD_TOKEN ??= 'test-token';
+  process.env.DISCORD_CLIENT_ID ??= 'test-client';
+  process.env.DISCORD_GUILD_ID ??= 'test-guild';
+  process.env.DATABASE_URL ??= 'postgres://localhost/test';
+  const { createOnboardingService } = await import('../src/onboarding/service.js');
+  const request = {
+    id: '10',
+    discord_user_id: '100',
+    member_type: 'alumni',
+    full_name: 'Ada Lovelace',
+    university_id: '1',
+    division_ids: [],
+    status: 'draft',
+  };
+  const db = fakeDb([
+    { rows: [request] },
+    { rows: [request] },
+    { rows: [{ id: '1', name: 'Bocconi', discord_role_id: 'role-u', onboarding_review_channel_id: 'review-channel' }] },
+    { rows: [{ ...request, status: 'pending', review_message_id: 'review-message' }] },
+  ]);
+  const reviewSendStarted = deferred();
+  const releaseReviewSend = deferred();
+  const service = createOnboardingService({
+    db,
+    runTransaction: async (work) => work(db),
+  });
+  let deferredUpdates = 0;
+  let finalPayload;
+  const interaction = {
+    customId: onboardingId(ONBOARDING_ACTIONS.SUBMIT, '10'),
+    user: { id: '100' },
+    deferUpdate: async () => { deferredUpdates += 1; },
+    editReply: async (payload) => { finalPayload = payload; },
+    guild: {
+      channels: {
+        fetch: async () => ({
+          isTextBased: () => true,
+          send: async () => {
+            reviewSendStarted.resolve();
+            await releaseReviewSend.promise;
+            return { id: 'review-message', async delete() {} };
+          },
+        }),
+      },
+    },
+  };
+
+  const submitting = service.handleButton(interaction);
+  await reviewSendStarted.promise;
+  assert.equal(deferredUpdates, 1);
+  releaseReviewSend.resolve();
+  await submitting;
+
+  assert.deepEqual(finalPayload, {
+    content: 'Your onboarding request was sent to the university board for review.',
+    embeds: [],
+    components: [],
+  });
 });
 
 test('draft updates report a conditional status miss without disclosing another user request', async () => {

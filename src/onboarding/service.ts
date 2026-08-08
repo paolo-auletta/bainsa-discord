@@ -119,6 +119,7 @@ export function createOnboardingService({ db = { query }, runTransaction = trans
     }
 
     if (parsed.action === ONBOARDING_ACTIONS.SUBMIT) {
+      await interaction.deferUpdate();
       const request = await requireOwnedDraft(db, requestId, interaction.user.id);
       assertUser(canSubmitOnboardingRequest(request), 'The onboarding request is incomplete.');
       await submitForReview(interaction, request);
@@ -226,7 +227,7 @@ export function createOnboardingService({ db = { query }, runTransaction = trans
       throw error;
     }
 
-    await interaction.update({
+    await interaction.editReply({
       content: 'Your onboarding request was sent to the university board for review.',
       embeds: [],
       components: [],

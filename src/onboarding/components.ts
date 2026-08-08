@@ -3,6 +3,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  escapeMarkdown,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
 } from "discord.js";
@@ -212,35 +213,35 @@ export function confirmPayload(requestId, draft, university, divisions) {
       : "None";
   return {
     embeds: [
-      onboardingEmbed("Ready to submit?")
-        .setDescription(
-          "Please review your details. Once submitted, the relevant university board will review your request.",
-        )
-        .addFields(
-          {
-            name: "Applicant",
-            value: draft.full_name ?? "Not provided",
-            inline: true,
-          },
-          {
-            name: "Path",
-            value: memberTypeLabel(draft.member_type),
-            inline: true,
-          },
-          { name: "University", value: university.name, inline: true },
-          { name: "Division", value: divisionNames },
-        ),
+      onboardingEmbed("Review your application").setDescription(
+        [
+          "Please check these details before sending your request to the university board.",
+          "",
+          "**Applicant**",
+          escapeMarkdown(draft.full_name ?? "Not provided"),
+          "",
+          "**Path**",
+          memberTypeLabel(draft.member_type),
+          "",
+          "**University**",
+          escapeMarkdown(university.name),
+          "",
+          "**Division**",
+          escapeMarkdown(divisionNames),
+        ].join("\n"),
+      ),
     ],
     components: [
-      new ActionRowBuilder().addComponents(
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId(onboardingId(ONBOARDING_ACTIONS.SUBMIT, requestId))
           .setEmoji("📨")
-          .setLabel("Submit")
+          .setLabel("Submit application")
           .setStyle(ButtonStyle.Success),
         cancelButton(requestId),
       ),
     ],
+    allowedMentions: { parse: [] },
   };
 }
 
