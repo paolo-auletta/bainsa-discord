@@ -2,7 +2,7 @@ import { EmbedBuilder, userMention } from 'discord.js';
 
 import { BOARD_ROLES, divisionColorDetails, PROJECT_PERSON_ROLES } from '../constants.js';
 import { boardRoleLabel, memberTypeLabel } from '../services/governance/policy.js';
-import { formatPeopleLine } from '../services/projects/formatters.js';
+import { formatPeopleLine, projectStatusLabel } from '../services/projects/formatters.js';
 
 const ACTIVITY_COLORS = Object.freeze({
   add: 0x27ae60,
@@ -294,7 +294,9 @@ function projectUpdate({ actorId, result }) {
   if (before.expected_end !== project.expected_end) {
     changes.push(`• Expected end: ${before.expected_end} → ${project.expected_end}`);
   }
-  if (before.status !== project.status) changes.push(`• Status: ${before.status} → ${project.status}`);
+  if (before.status !== project.status) {
+    changes.push(`• Status: ${projectStatusLabel(before.status)} → ${projectStatusLabel(project.status)}`);
+  }
   if (changes.length === 0) return null;
 
   return activity({

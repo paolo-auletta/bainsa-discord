@@ -1,6 +1,7 @@
 import { divisionLabel, PROJECT_PERSON_ROLES } from '../../constants.js';
 
 const DISCORD_MESSAGE_LIMIT = 2_000;
+const DISCORD_AUTOCOMPLETE_CHOICE_LIMIT = 100;
 const PEOPLE_LINE_LIMIT = 400;
 
 function truncateMessage(message) {
@@ -10,6 +11,49 @@ function truncateMessage(message) {
 
 function formatMessage(lines) {
   return truncateMessage(lines.filter(Boolean).join('\n'));
+}
+
+export function projectStatusLabel(status) {
+  const normalized = String(status ?? '').trim().toLowerCase();
+  if (!normalized) return 'Unknown';
+  return normalized
+    .split(/[_\s-]+/)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(' ');
+}
+
+function truncateChoicePart(value, maxLength) {
+  const text = String(value ?? '').trim();
+  if (text.length <= maxLength) return text;
+  if (maxLength <= 1) return '…'.slice(0, maxLength);
+  return `${text.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+export function projectAutocompleteName(project) {
+  const prefix = `#${project.id} `;
+  const context = ` • ${project.university_name}, ${divisionLabel(project.division_name, project.division_color)}`;
+  const status = ` • ${projectStatusLabel(project.status)}`;
+  const projectName = truncateChoicePart(
+    project.name,
+    Math.max(1, DISCORD_AUTOCOMPLETE_CHOICE_LIMIT - prefix.length - context.length - status.length),
+  );
+  const complete = `${prefix}${projectName}${context}${status}`;
+  if (complete.length <= DISCORD_AUTOCOMPLETE_CHOICE_LIMIT) return complete;
+
+  // University and division names are user-controlled. Keep the ID, project
+  // name, and state visible even if the scope itself is unusually long.
+  const scope = truncateChoicePart(
+    context.slice(3),
+    Math.max(1, DISCORD_AUTOCOMPLETE_CHOICE_LIMIT - prefix.length - projectName.length - status.length - 3),
+  );
+  return `${prefix}${projectName} • ${scope}${status}`.slice(0, DISCORD_AUTOCOMPLETE_CHOICE_LIMIT);
+}
+
+export function projectAutocompleteChoice(project) {
+  return {
+    name: projectAutocompleteName(project),
+    value: String(project.id),
+  };
 }
 
 export function formatPeopleLine(
@@ -39,7 +83,7 @@ export function formatProjectIntro(project, people, extra = '') {
     `# ${project.name}`,
     `**University:** ${project.university_name}`,
     `**Division:** ${divisionLabel(project.division_name, project.division_color)}`,
-    `**Status:** ${project.status}`,
+    `**Status:** ${projectStatusLabel(project.status)}`,
     `**Timeline:** ${project.start_date} -> ${project.expected_end}`,
     `**Members:** ${formatPeopleLine(people, PROJECT_PERSON_ROLES.MEMBER)}`,
     `**Supervisors:** ${formatPeopleLine(people, PROJECT_PERSON_ROLES.SUPERVISOR)}`,
@@ -52,7 +96,7 @@ export function formatShowcasePost(project, people, extra = '') {
   return formatMessage([
     `**${project.name}** is now tracked in BAINSA ${project.university_name}.`,
     `Division: **${divisionLabel(project.division_name, project.division_color)}**`,
-    `Status: **${project.status}**`,
+    `Status: **${projectStatusLabel(project.status)}**`,
     `Expected end: **${project.expected_end}**`,
     `Supervisors: ${formatPeopleLine(people, PROJECT_PERSON_ROLES.SUPERVISOR)}`,
     extra || project.notes || null,
@@ -65,7 +109,7 @@ export function projectInfoMessage(project, people) {
     `**${project.name}** (#${project.id})`,
     `University: **${project.university_name}**`,
     `Division: **${divisionLabel(project.division_name, project.division_color)}**`,
-    `Status: **${project.status}**`,
+    `Status: **${projectStatusLabel(project.status)}**`,
     `Timeline: **${project.start_date}** -> **${project.expected_end}**`,
     `Channel: ${channel}`,
     `Members: ${formatPeopleLine(people, PROJECT_PERSON_ROLES.MEMBER)}`,

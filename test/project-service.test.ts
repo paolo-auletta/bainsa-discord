@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 
 import { ChannelType } from 'discord.js';
 
-import { MAX_PROJECT_PARTICIPANTS, PROJECT_MEMBER_FETCH_CONCURRENCY, PROJECT_STATUSES } from '../src/constants.js';
+import {
+  MAX_PROJECT_PARTICIPANTS,
+  OPEN_PROJECT_STATUSES,
+  PROJECT_MEMBER_FETCH_CONCURRENCY,
+  PROJECT_STATUSES,
+} from '../src/constants.js';
 import {
   addProjectMember,
   assertGuildMembers,
@@ -26,7 +31,12 @@ import {
   assertProjectPeopleEligibility,
   sortedDiscordUserIds,
 } from '../src/services/projects/eligibility.js';
-import { formatProjectIntro, formatShowcasePost, projectInfoMessage } from '../src/services/projects/formatters.js';
+import {
+  formatProjectIntro,
+  formatShowcasePost,
+  projectAutocompleteName,
+  projectInfoMessage,
+} from '../src/services/projects/formatters.js';
 
 function memberWithRoles(id, roleNames) {
   return {
@@ -133,6 +143,120 @@ test('autocomplete only returns projects visible to the caller', async () => {
     ['1', '2'],
   );
   assert.doesNotMatch(sql, /LIMIT 100/);
+});
+
+test('project-close autocomplete filters completed and archived projects', async () => {
+  const rows = [
+    {
+      id: 1,
+      name: 'Active project',
+      status: PROJECT_STATUSES.ACTIVE,
+      university_name: 'Bocconi',
+      division_name: 'Robotics',
+      division_color: 'yellow',
+      actor_is_project_person: false,
+    },
+    {
+      id: 2,
+      name: 'Paused project',
+      status: PROJECT_STATUSES.PAUSED,
+      university_name: 'Bocconi',
+      division_name: 'Robotics',
+      division_color: 'yellow',
+      actor_is_project_person: false,
+    },
+    {
+      id: 3,
+      name: 'Completed project',
+      status: PROJECT_STATUSES.COMPLETED,
+      university_name: 'Bocconi',
+      division_name: 'Robotics',
+      division_color: 'yellow',
+      actor_is_project_person: false,
+    },
+    {
+      id: 4,
+      name: 'Archived project',
+      status: PROJECT_STATUSES.ARCHIVED,
+      university_name: 'Bocconi',
+      division_name: 'Robotics',
+      division_color: 'yellow',
+      actor_is_project_person: false,
+    },
+  ];
+  let sql;
+  let values;
+  const choices = await searchVisibleProjects(
+    {
+      interaction: {
+        user: { id: 'caller' },
+        member: memberWithRoles('caller', ['Bocconi - Head of Robotics']),
+      },
+      query: '',
+      statuses: OPEN_PROJECT_STATUSES,
+    },
+    {
+      db: {
+        async query(text, parameters) {
+          sql = text;
+          values = parameters;
+          return { rows };
+        },
+      },
+    },
+  );
+
+  assert.match(sql, /p\.status = ANY\(\$3::text\[\]\)/);
+  assert.deepEqual(values[2], [...OPEN_PROJECT_STATUSES]);
+  assert.deepEqual(choices.map((choice) => choice.value), ['1', '2']);
+});
+
+test('project autocomplete labels keep state readable and fit Discord choice limits', () => {
+  const label = projectAutocompleteName({
+    id: 3,
+    name: 'Test',
+    university_name: 'Bocconi',
+    division_name: 'Robotics',
+    division_color: 'yellow',
+    status: PROJECT_STATUSES.COMPLETED,
+  });
+  assert.equal(label, '#3 Test • Bocconi, 🟨 Robotics • Completed');
+
+  const longLabel = projectAutocompleteName({
+    id: 3,
+    name: 'A'.repeat(200),
+    university_name: 'A'.repeat(120),
+    division_name: 'B'.repeat(120),
+    division_color: 'yellow',
+    status: PROJECT_STATUSES.COMPLETED,
+  });
+  assert.ok(longLabel.length <= 100);
+  assert.match(longLabel, / • Completed$/);
+});
+
+test('project autocomplete renders at most Discord’s 25 choices for large result sets', async () => {
+  const rows = Array.from({ length: 100 }, (_, index) => ({
+    id: index + 1,
+    name: `Project ${index + 1}`,
+    status: PROJECT_STATUSES.ACTIVE,
+    university_name: 'Bocconi',
+    division_name: 'Robotics',
+    division_color: 'yellow',
+    actor_is_project_person: false,
+  }));
+  const choices = await searchVisibleProjects(
+    {
+      interaction: {
+        user: { id: 'caller' },
+        member: memberWithRoles('caller', ['Global President']),
+      },
+      query: '',
+    },
+    { db: { query: async () => ({ rows }) } },
+  );
+
+  assert.equal(choices.length, 25);
+  assert.deepEqual(choices.map((choice) => choice.value), rows.slice(0, 25).map((row) => String(row.id)));
 });
 
 test('project setup autocomplete scopes universities and divisions correctly', async () => {

@@ -66,6 +66,7 @@ Buttons and command selectors update the same ephemeral message in place. Every 
 
 - University fields search active universities.
 - A division field searches only active divisions belonging to the selected university. The division list is empty until a valid university value has been selected.
+- Project selectors show the latest 25 visible matches as `#id Name • University, Division • Status`; `/project-close` limits the matches to active and paused projects. Discord does not render more than 25 autocomplete choices at once, so typing a narrower name, university, division, or ID searches the full candidate set.
 - Project creation is a private five-step wizard with native Discord modals and selectors. The database validates the selected people against the project scope before creation.
 - Date fields use strict `YYYY-MM-DD` text. Discord slash commands do not provide a native calendar/date option.
 - The Bot account is rejected by both native command targets and project participant selectors.

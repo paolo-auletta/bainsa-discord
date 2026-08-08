@@ -1,9 +1,10 @@
-import { divisionLabel } from '../../constants.js';
 import { query } from '../../db.js';
 import { canViewProject } from './policy.js';
+import { projectAutocompleteChoice } from './formatters.js';
 
 const DEFAULT_DB = { query };
 type ProjectDependencies = { db?: typeof DEFAULT_DB };
+const PROJECT_AUTOCOMPLETE_LIMIT = 25;
 
 const PROJECT_AUTOCOMPLETE_CACHE_TTL_MS = 30_000;
 const projectAutocompleteCache = {
@@ -19,6 +20,13 @@ function dbClient(db) {
 export async function searchVisibleProjects(input, deps: ProjectDependencies = {}) {
   const db = dbClient(deps.db);
   const term = `%${String(input.query ?? '').trim()}%`;
+  const statuses = input.statuses?.map((status) => String(status)) ?? null;
+  if (statuses?.length === 0) return [];
+  const statusSet = statuses ? new Set(statuses) : null;
+  const statusFilter = statuses ? ' AND p.status = ANY($3::text[])' : '';
+  const values = statuses
+    ? [term, input.interaction.user.id, statuses]
+    : [term, input.interaction.user.id];
   const result = await db.query(
     `SELECT
        p.id,
@@ -35,11 +43,15 @@ export async function searchVisibleProjects(input, deps: ProjectDependencies = {
        ON pp.project_id = p.id
       AND pp.discord_user_id = $2
      WHERE ($1 = '%%' OR p.name ILIKE $1 OR u.name ILIKE $1 OR d.name ILIKE $1 OR p.id::text ILIKE $1)
+       ${statusFilter}
      GROUP BY p.id, p.name, p.status, u.name, d.name, d.color
      ORDER BY p.updated_at DESC NULLS LAST, p.id DESC`,
-    [term, input.interaction.user.id],
+    values,
   );
+  // Discord renders at most 25 choices. Keep all candidates through the
+  // visibility check first so unauthorized rows cannot consume those slots.
   return result.rows
+    .filter((project) => !statusSet || statusSet.has(String(project.status)))
     .filter((project) =>
       canViewProject(
         input.interaction.member,
@@ -47,11 +59,8 @@ export async function searchVisibleProjects(input, deps: ProjectDependencies = {
         project.actor_is_project_person ? [{ discord_user_id: input.interaction.user.id }] : [],
       ),
     )
-    .slice(0, 25)
-    .map((project) => ({
-      name: `#${project.id} ${project.name} (${project.university_name} / ${divisionLabel(project.division_name, project.division_color)}, ${project.status})`.slice(0, 100),
-      value: String(project.id),
-    }));
+    .slice(0, PROJECT_AUTOCOMPLETE_LIMIT)
+    .map(projectAutocompleteChoice);
 }
 
 export async function findProjectUniversities(term = '', deps: ProjectDependencies = {}) {
