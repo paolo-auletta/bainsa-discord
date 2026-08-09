@@ -48,10 +48,10 @@ test.after(async () => {
 test('runs every migration against a fresh database and keeps the final contract idempotent', async () => {
   const first = await resetAndMigrate();
   assert.equal(first.pending, 0);
-  assert.equal(first.appliedNow.length, 17);
+  assert.equal(first.appliedNow.length, 18);
   assert.deepEqual(first.status.map((row) => row.status), [
     'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
-    'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
+    'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
   ]);
 
   const tables = await database.query(`
