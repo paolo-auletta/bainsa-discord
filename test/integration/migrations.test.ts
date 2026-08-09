@@ -48,10 +48,10 @@ test.after(async () => {
 test('runs every migration against a fresh database and keeps the final contract idempotent', async () => {
   const first = await resetAndMigrate();
   assert.equal(first.pending, 0);
-  assert.equal(first.appliedNow.length, 15);
+  assert.equal(first.appliedNow.length, 18);
   assert.deepEqual(first.status.map((row) => row.status), [
     'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
-    'applied', 'applied', 'applied', 'applied', 'applied',
+    'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
   ]);
 
   const tables = await database.query(`
@@ -105,6 +105,20 @@ test('runs every migration against a fresh database and keeps the final contract
     column_default: 'false',
   });
 
+  const projectUxColumns = await database.query(`
+    SELECT column_name, data_type
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'projects'
+       AND column_name IN ('summary', 'home_message_id', 'workspace_guide_message_id')
+     ORDER BY column_name
+  `);
+  assert.deepEqual(projectUxColumns.rows, [
+    { column_name: 'home_message_id', data_type: 'text' },
+    { column_name: 'summary', data_type: 'text' },
+    { column_name: 'workspace_guide_message_id', data_type: 'text' },
+  ]);
+
   const universityId = await insertUniversity('Bocconi');
   const otherUniversityId = await insertUniversity('Sapienza');
   await database.query(
@@ -155,11 +169,11 @@ test('runs every migration against a fresh database and keeps the final contract
 
   const second = await migrate();
   assert.deepEqual(second.appliedNow, []);
-  assert.equal(second.applied, 15);
+  assert.equal(second.applied, 16);
   assert.equal(second.pending, 0);
 
   const status = await migrate({ statusOnly: true });
-  assert.equal(status.applied, 15);
+  assert.equal(status.applied, 16);
   assert.equal(status.pending, 0);
 });
 

@@ -8,14 +8,22 @@ Cross-university projects are deliberately excluded from v1. Every project belon
 
 ### Where commands can be used
 
-Commands can only be run in a channel named `bot-log`:
+Governance commands and `/project-create` can only be run in a channel named `bot-log`:
 
 - `LOGS / bot-log` for Global Presidents.
 - The `bot-log` channel inside a university category for that university's board.
 
+Project-scoped commands can also be run in the owning private project channel:
+
+- Every participant can run `/project-info`.
+- Project supervisors and scoped board roles can run `/project-add-member`,
+  `/project-remove-member`, `/project-update`, and `/project-close`.
+- The `project` field is optional there and is inferred from the bot-managed channel topic. An
+  explicitly supplied project must match the current channel.
+
 Autocomplete is subject to the same command-channel, board-tier, and university scope checks before the bot queries Postgres or Discord's member directory. An interaction with missing or stale channel/member context, or an unauthorized caller, receives an empty suggestion list.
 
-The bot checks the channel in the dispatcher before running a command. A command copied into another channel is rejected even if a Discord permission is changed manually.
+The bot checks the channel in the dispatcher before running a command. A command copied into another channel is rejected even if a Discord permission is changed manually. A mutation run in a project channel posts its project transition there but routes its governance activity entry to the owning university `bot-log`.
 
 Successful commands that change shared BAINSA state post a concise board-visible activity entry in that `bot-log` channel. The entry records the affected item, scope, meaningful state change, and command actor. Internal notes, removal reasons, and project final notes are never included.
 
@@ -23,7 +31,7 @@ Successful commands that change shared BAINSA state post a concise board-visible
 
 ### Who sees commands
 
-Discord command visibility is synchronized by the bot when `DISCORD_CLIENT_SECRET` is configured. Normal members see no bot commands. The visibility tiers are:
+Discord command visibility is synchronized by the bot when `DISCORD_CLIENT_SECRET` is configured. The visibility tiers are:
 
 | Tier | Visible commands |
 | --- | --- |
@@ -31,7 +39,7 @@ Discord command visibility is synchronized by the bot when `DISCORD_CLIENT_SECRE
 | University President | President commands and all board/project commands |
 | University Vice President | Executive member commands and all board/project commands |
 | Division Head | Board/project commands; execution is restricted to their division |
-| Researcher or Alumni | No bot commands |
+| Researcher or Alumni | Project-scoped commands; execution succeeds only for projects and roles they currently hold |
 
 Visibility is only the user interface layer. Every command performs a second server-side authorization check when submitted.
 
@@ -66,7 +74,7 @@ Buttons and command selectors update the same ephemeral message in place. Every 
 
 - University fields search active universities.
 - A division field searches only active divisions belonging to the selected university. The division list is empty until a valid university value has been selected.
-- Project selectors show the latest 25 visible matches as `#id Name • University, Division • Status`; `/project-close` limits the matches to active and paused projects. Discord does not render more than 25 autocomplete choices at once, so typing a narrower name, university, division, or ID searches the full candidate set.
+- Project selectors show the latest 25 visible matches as `#id Name • University, Division • Status`; `/project-close` limits the matches to active and paused projects. Inside a project channel, autocomplete returns only that project. Discord does not render more than 25 autocomplete choices at once, so typing a narrower name, university, division, or ID searches the full candidate set.
 - Project creation is a private five-step wizard with native Discord modals and selectors. The database validates the selected people against the project scope before creation.
 - Date fields use strict `YYYY-MM-DD` text. Discord slash commands do not provide a native calendar/date option.
 - The Bot account is rejected by both native command targets and project participant selectors.
@@ -125,7 +133,7 @@ The bot privately shows the recorded full name, member type, university, divisio
 | `create_text_channel` | Yes | Whether to create the division text channel |
 | `create_voice_channel` | Yes | Whether to create the division voice channel |
 
-The bot creates the division record, color-matched access and Head roles, and the requested channels under the university category. It assigns the selected person `Researcher`, the university role, and only the new Head role. The ordinary division access role is intentionally not assigned to a Head. The new Head is also recorded in the board assignments table.
+The bot creates the division record, color-matched access and Head roles, and the requested channels under the university category. It assigns the selected person `Researcher`, the university role, the ordinary division role, and the new Head role. The new Head is also recorded in the board assignments table.
 
 ### `/division-update`
 
@@ -178,7 +186,7 @@ The bot blocks removal when the person still has active project access in that d
 | `role` | Yes | `Head`, `Vice President`, or `President` |
 | `division` | Head only | Required division when assigning a Head; must be empty for Vice President or President |
 
-The bot verifies the appointment, reconciles the Researcher, university, board, and Head roles, records the board assignment, and writes an audit entry. A Head receives only the scoped Head role in addition to the base Researcher and university roles.
+The bot verifies the appointment, reconciles the Researcher, university, division, board, and Head roles, records the board assignment, and writes an audit entry. Assigning a Head moves the member into the selected division: previous division and Head roles for that university are removed, the selected division and Head roles are added, and the stored division membership is replaced.
 
 ### `/board-remove`
 
@@ -217,64 +225,65 @@ The command has no inline arguments. It opens a private guided setup that stays 
 1. Enter the project name in a modal.
 2. Select the owning university and division.
 3. Select the initial members and supervisors with two Discord-native multi-user selectors.
-4. Enter the start and expected-end dates, then add optional private notes.
+4. Enter the start and expected-end dates, add a required public summary, and optionally add private internal working notes.
 5. Review the complete project and press **Create project**.
 
 The project name remains at the top of every setup card after it is entered. Back and edit controls preserve the current draft, Cancel creates nothing, and the project is not persisted until the final confirmation. Each participant selector accepts up to 25 people and searches Discord server nicknames and usernames. Onboarding approval sets the server nickname from the recorded onboarding name, so native user search can find members by that name. Both participant selections are required.
 
 The selected university and division remain authoritative: the database rejects a person who does not meet the appropriate project eligibility rule, rejects duplicate people across the two groups, and rejects the Bot account. A project has at most 994 unique direct participants across members, supervisors, and board liaisons; additional participants can be added afterward with `/project-add-member`. This reserves six of Discord's 1,000 permission overwrites for `@everyone`, the Bot, Global President, and the scoped Head, Vice President, and President roles. Discord documents this limit as error 30060, “Maximum number of channel permission overwrites reached (1000)”: [Discord API error codes](https://discord.com/developers/topics/opcodes-and-status-codes).
 
-When valid, the bot atomically commits the project, participant records, audit entry, and pending reconciliation intent to PostgreSQL. It then immediately runs an idempotent reconciliation that creates or repairs the private project channel and its scoped access. If Discord work fails, the committed project is reported as pending and retries automatically. The project introduction and showcase history are one-shot best-effort posts; they are not replayed by reconciliation.
+When valid, the bot atomically commits the project, participant records, audit entry, and pending reconciliation intent to PostgreSQL. It then immediately runs an idempotent reconciliation that creates or repairs the private project channel, its scoped access, its two pinned messages (the canonical project record and workspace guide), the university showcase starter, and the division/lifecycle tags. If Discord work fails, the committed project is reported as pending and retries automatically. Once access is ready, assigned people receive a best-effort role-aware handoff DM with links and a recommended first step.
 
 ### `/project-add-member`
 
-**Who can use it:** Global Presidents, the selected project's university President or Vice President, and the selected project's division Head.
+**Who can use it:** Project supervisors; Global Presidents; the selected project's university President or Vice President; and the selected project's division Head.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `project` | Yes | Visible project selected through autocomplete |
+| `project` | Outside project channel | Visible project selected through autocomplete; inferred inside its project channel |
 | `user` | Yes | Discord member to add or update |
 | `role` | Yes | `member`, `supervisor`, or `board_liaison` |
 
-The bot checks project authority and role-specific eligibility, upserts the participant record, updates the project's direct channel overwrite, and records the change. Only active or paused projects can be changed.
+The bot checks project authority and role-specific eligibility, upserts the participant record, updates the project's direct channel overwrite and canonical records, sends a best-effort handoff DM, and records the change. Only active or paused projects can be changed.
 
 ### `/project-remove-member`
 
-**Who can use it:** Global Presidents, the selected project's university President or Vice President, and the selected project's division Head.
+**Who can use it:** Project supervisors; Global Presidents; the selected project's university President or Vice President; and the selected project's division Head.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `project` | Yes | Visible project selected through autocomplete |
+| `project` | Outside project channel | Visible project selected through autocomplete; inferred inside its project channel |
 | `user` | Yes | Participant to remove |
 | `reason` | No | Audit and overwrite-removal reason |
 
-The bot removes the participant record, removes the direct project-channel overwrite, and records the change. Only active or paused projects can be changed.
+The bot removes the participant record and direct project-channel overwrite, refreshes the canonical records, directly notifies the affected person when possible, and records the change. A supplied reason is shared only with the affected person and the audit record. Only active or paused projects can be changed.
 
 ### `/project-update`
 
-**Who can use it:** Global Presidents, the selected project's university President or Vice President, and the selected project's division Head.
+**Who can use it:** Project supervisors; Global Presidents; the selected project's university President or Vice President; and the selected project's division Head.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `project` | Yes | Visible project selected through autocomplete |
+| `project` | No in project channel | Visible project selected through autocomplete; inferred inside its project channel |
 | `name` | No | Replacement project name |
 | `expected_end` | No | Replacement ISO date; it must remain on or after the start date |
-| `notes` | No | Replacement notes |
+| `summary` | No | Replacement public summary shown in the project home and university showcase |
+| `notes` | No | Replacement private working notes shown only in the project home and private lookup |
 | `status` | No | `active` or `paused`; completed projects require `/project-close` |
 
-The bot updates project metadata, renames the project channel when the name changes, updates the project introduction, and records an audit entry. Only active or paused projects can be changed.
+The bot updates project metadata, channel name/topic, pinned project record and workspace guide, showcase starter, and lifecycle tags in place. It posts one compact transition in the project channel rather than appending another full snapshot. Summary changes are board-visible; notes-only updates remain private. Only active or paused projects can be changed.
 
 ### `/project-close`
 
-**Who can use it:** Global Presidents, the selected project's university President or Vice President, and the selected project's division Head.
+**Who can use it:** Project supervisors; Global Presidents; the selected project's university President or Vice President; and the selected project's division Head.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `project` | Yes | Visible project selected through autocomplete |
-| `outcome` | Yes | Final project outcome |
-| `final_notes` | Yes | Final record and handover notes |
+| `project` | Outside project channel | Visible project selected through autocomplete; inferred inside its project channel |
+| `outcome` | Yes | Public conclusion shown in the project home, showcase, and board activity |
+| `final_notes` | Yes | Private internal handover notes shown only in the project home and private lookup |
 
-The bot marks the project `completed`, records the outcome and final notes, locks normal project-member sending while preserving read history, updates the project channel with the final summary, and moves the channel into `ARCHIVE / HISTORY`. Only active or paused projects can be closed. There is no separate archive command in v1, and closing a project does not set the database status to `archived`.
+The bot marks the project `completed`, records the public conclusion and private handover notes, applies the `Completed` showcase tag, edits both canonical summaries, locks normal project-member sending while preserving read history, and moves the channel into `ARCHIVE / HISTORY`. The showcase never exposes private handover notes. Only active or paused projects can be closed. There is no separate archive command in v1, and closing a project does not set the database status to `archived`.
 
 ### `/project-info`
 
@@ -282,9 +291,18 @@ The bot marks the project `completed`, records the outcome and final notes, lock
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `project` | Yes | Project selected through autocomplete; autocomplete only returns projects visible to the caller |
+| `project` | Outside project channel | Project selected through autocomplete; inferred inside its project channel |
 
-The bot privately shows the project name, university, division, status, timeline, channel, notes, and participant lists.
+The bot privately shows the maintained project record: scope, status, timeline, workspace, showcase, project brief, team, public conclusion when complete, and internal handover notes when present.
+
+### University showcase replies
+
+The bot owns post creation and the canonical starter. University members may reply inside existing
+project posts, attach shareable files, embed links, react, ask a relevant question, or express a
+concrete contribution idea. They cannot create new showcase posts. Discord applies this reply
+permission to the whole forum rather than one project thread at a time; server-side guidance and
+moderation therefore preserve the project-specific content boundary. Private drafts, decisions,
+internal notes, and handover details stay in the project channel.
 
 ## Channel-Only Operations
 

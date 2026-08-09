@@ -144,6 +144,7 @@ export function createProjectSetupService({
     assertScopeComplete(session);
     assertPeopleComplete(session);
     assertUser(session.startDate && session.expectedEnd, 'Set the project timeline before continuing.');
+    assertUser(session.summary, 'Add a public project summary before continuing.');
   }
 
   async function start(interaction) {
@@ -172,6 +173,7 @@ export function createProjectSetupService({
       participantUsers: new Map(),
       startDate: null,
       expectedEnd: null,
+      summary: null,
       notes: null,
       screen: 'scope',
       expiresAt: now() + SESSION_TTL_MS,
@@ -287,6 +289,7 @@ export function createProjectSetupService({
         division: session.division,
         startDate: session.startDate,
         expectedEnd: session.expectedEnd,
+        summary: session.summary,
         notes: session.notes,
         members: session.memberIds.join(','),
         supervisors: session.supervisorIds.join(','),
@@ -450,7 +453,10 @@ export function createProjectSetupService({
       return;
     }
 
+    const summary = interaction.fields.getTextInputValue('summary')?.trim();
+    assertUser(summary, 'Add a public project summary.');
     const notes = interaction.fields.getTextInputValue('notes')?.trim() || null;
+    session.summary = summary;
     session.notes = notes;
     session.screen = 'details';
     await respondToModal(interaction, detailsPayload(session));

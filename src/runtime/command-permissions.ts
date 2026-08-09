@@ -31,11 +31,11 @@ export const COMMAND_VISIBILITY = Object.freeze({
   'board-remove': 'executive',
   'board-info': 'board',
   'project-create': 'board',
-  'project-add-member': 'board',
-  'project-remove-member': 'board',
-  'project-update': 'board',
-  'project-close': 'board',
-  'project-info': 'board',
+  'project-add-member': 'project',
+  'project-remove-member': 'project',
+  'project-update': 'project',
+  'project-close': 'project',
+  'project-info': 'project',
 });
 
 function memberRoleNames(member) {
@@ -78,6 +78,7 @@ function hasScopedBoardRole(member, universityName, visibility) {
 export function canDiscoverCommand({ commandName, member, channelScope }) {
   const visibility = COMMAND_VISIBILITY[commandName];
   if (!visibility || !channelScope || !member) return false;
+  if (channelScope.kind === 'project') return visibility === 'project';
   // Global authority is exercised from the dedicated global bot log. Keeping
   // this boundary here makes command discovery and execution agree even when
   // a university channel overwrite is accidentally broadened.
@@ -91,11 +92,14 @@ export function visibleRoleIds(visibility, roles) {
   const presidents = roles.filter((role) => role.name.endsWith(' - President'));
   const executives = roles.filter((role) => role.name.endsWith(' - Vice President'));
   const heads = roles.filter((role) => role.name.includes(' - Head of '));
+  const approvedMembers = roles.filter((role) => role.name === 'Researcher' || role.name === 'Alumni');
   const selected = visibility === 'president'
     ? [...global, ...presidents]
     : visibility === 'executive'
       ? [...global, ...presidents, ...executives]
-      : [...global, ...presidents, ...executives, ...heads];
+      : visibility === 'project'
+        ? [...global, ...presidents, ...executives, ...heads, ...approvedMembers]
+        : [...global, ...presidents, ...executives, ...heads];
   return [...new Set(selected.map((role) => String(role.id)))];
 }
 

@@ -294,6 +294,7 @@ function projectUpdate({ actorId, result }) {
   if (before.expected_end !== project.expected_end) {
     changes.push(`• Expected end: ${before.expected_end} → ${project.expected_end}`);
   }
+  if (before.summary !== project.summary) changes.push('• Public summary updated');
   if (before.status !== project.status) {
     changes.push(`• Status: ${projectStatusLabel(before.status)} → ${projectStatusLabel(project.status)}`);
   }

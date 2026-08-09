@@ -36,6 +36,7 @@ import {
   assertNoDivisionRolesForAlumni,
   assertBoardAssignDivisionShape,
   assertBoardRemoveDivisionShape,
+  assertHeadAssignmentCompatible,
   boardRoleLabel,
   parseDivisionList,
 } from './policy.js';
@@ -1069,13 +1070,20 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
       ? await getDivisionByName(db, university.id, university.name, divisionName)
       : null;
 
-  const currentBoardRoles =
-    role === BOARD_ROLES.HEAD ? [] : await getBoardRoles(db, target.id);
-  const universityDivisionRoleIds = role === BOARD_ROLES.HEAD
-    ? []
-    : await getUniversityDivisionDiscordRoleIds(db, university.id);
+  const currentBoardRoles = await getBoardRoles(db, target.id);
+  if (role === BOARD_ROLES.HEAD) {
+    assertHeadAssignmentCompatible(currentBoardRoles, university.name);
+  }
+  const universityDivisionRoleIds = await getUniversityDivisionDiscordRoleIds(db, university.id);
+  const currentUniversityHeadDivisionIds = currentBoardRoles
+    .filter((boardRole) =>
+      boardRole.role === BOARD_ROLES.HEAD &&
+      boardRole.division_id != null &&
+      boardRole.university_name === university.name,
+    )
+    .map((boardRole) => boardRole.division_id);
   const headEligibilityDivisionIds = role === BOARD_ROLES.HEAD
-    ? [division.id]
+    ? [...new Set([division.id, ...currentUniversityHeadDivisionIds])]
     : currentBoardRoles
         .filter((boardRole) => boardRole.role === BOARD_ROLES.HEAD && boardRole.division_id != null)
         .map((boardRole) => boardRole.division_id);
@@ -1089,9 +1097,11 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
       { universityBoardMember: true },
     );
   }
-  const removableRoles = role === BOARD_ROLES.HEAD
-    ? []
-    : discordDivisionRolesForUniversity(target, interaction.guild, universityDivisionRoleIds);
+  const removableRoles = discordDivisionRolesForUniversity(
+    target,
+    interaction.guild,
+    universityDivisionRoleIds,
+  );
 
   const roleNames = [universityAccessRoleName(university.name)];
   if (role === BOARD_ROLES.HEAD) {
@@ -1113,6 +1123,9 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
     await db.transaction(async (q) => {
       await lockDivisionHeadEligibilityRows(q, headEligibilityDivisionIds);
       await lockMemberEligibilityRows(q, [target.id]);
+      if (role === BOARD_ROLES.HEAD) {
+        assertHeadAssignmentCompatible(await getBoardRoles(q, target.id), university.name);
+      }
       await assertMemberProjectAssignmentEligibility(q, {
         userId: target.id,
         memberType: MEMBER_TYPES.RESEARCHER,
@@ -1121,7 +1134,20 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
         additionalBoardUniversityIds: [university.id],
       });
       await upsertMemberRecord(q, target.id, MEMBER_TYPES.RESEARCHER, university.id, null);
-      if (division) await addMemberDivisionRow(q, target.id, division.id);
+      if (division) {
+        await replaceMemberDivisionRows(q, target.id, [division]);
+        await q.query(
+          `UPDATE board_assignments
+              SET active = false,
+                  updated_at = now()
+            WHERE discord_user_id = $1
+              AND university_id = $2
+              AND role = $3
+              AND active = true
+              AND division_id IS DISTINCT FROM $4`,
+          [String(target.id), university.id, BOARD_ROLES.HEAD, division.id],
+        );
+      }
       await q.query(
         `INSERT INTO board_assignments (discord_user_id, university_id, role, division_id, active)
          VALUES ($1, $2, $3, $4, true)

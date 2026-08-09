@@ -172,7 +172,16 @@ export function universitySeeds(universityName) {
     showcase: buildSeedContent({
       key: `university:${universityName}:showcase`,
       title: `${universityName} Projects Showcase`,
-      body: 'Bot-managed university project showcase. Members can read showcased work; project channels remain private to assigned members, supervisors, and scoped board roles.',
+      body: [
+        'This is the durable, shareable record of university projects. The bot creates and maintains one post per project; members cannot create showcase posts themselves.',
+        '',
+        '**Inside a project post**',
+        '• Project members can share progress, supporting details, links, and files that are appropriate for the university community.',
+        '• Other university members can ask a relevant question or express a concrete interest in contributing.',
+        '• Drafts, private decisions, internal notes, and handover details stay in the private project channel.',
+        '',
+        'Use division and status tags to browse active, paused, and completed work. The starter message is the current project record; replies are the chronological discussion and materials.',
+      ].join('\n'),
     }),
     onboardingReview: buildSeedContent({
       key: `university:${universityName}:onboarding-review`,

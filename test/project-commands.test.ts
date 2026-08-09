@@ -38,8 +38,18 @@ test('project selection commands expose autocomplete', () => {
   for (const command of projectCommands.filter((candidate) => candidate.data.name !== 'project-create')) {
     const option = command.data.toJSON().options.find((candidate) => candidate.name === 'project');
     assert.equal(option.autocomplete, true, command.data.name);
+    assert.equal(option.required, false, command.data.name);
     assert.equal(typeof command.autocomplete, 'function', command.data.name);
   }
+});
+
+test('project closure names the public conclusion and private handover boundaries', () => {
+  const close = projectCommands.find((candidate) => candidate.data.name === 'project-close').data.toJSON();
+  const outcome = close.options.find((option) => option.name === 'outcome');
+  const finalNotes = close.options.find((option) => option.name === 'final_notes');
+
+  assert.match(outcome.description, /Public conclusion.*showcase/i);
+  assert.match(finalNotes.description, /Private handover.*workspace/i);
 });
 
 test('member role and status choices match the permission design', () => {

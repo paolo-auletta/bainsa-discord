@@ -9,9 +9,15 @@ const PROJECT_SELECT = `
   p.division_id,
   p.start_date::text AS start_date,
   p.expected_end::text AS expected_end,
+  p.summary,
   p.notes,
   p.status,
+  p.outcome,
+  p.final_notes,
+  p.closed_at,
   p.channel_id AS discord_channel_id,
+  p.home_message_id,
+  p.workspace_guide_message_id,
   p.showcase_thread_id,
   u.name AS university_name,
   u.category_id,
@@ -166,10 +172,6 @@ export async function getProjectPerson(db, projectId, userId) {
     [projectId, userId],
   );
   return result.rows[0] ?? null;
-}
-
-export async function setProjectShowcaseThreadId(db, projectId, threadId) {
-  await db.query('UPDATE projects SET showcase_thread_id = $1, updated_at = now() WHERE id = $2', [threadId, projectId]);
 }
 
 export async function insertProjectPeople(db, projectId, people) {

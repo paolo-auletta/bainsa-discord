@@ -4,9 +4,11 @@ import { ROLE_NAMES } from '../constants.js';
 import { divisionHeadRoleName, divisionRoleName } from '../naming.js';
 import {
   DANGEROUS_HUMAN_PERMISSIONS,
+  FORUM_DENY_CREATE,
   FORUM_DENY_POST,
   FORUM_POST,
   FORUM_READ_ONLY,
+  FORUM_REPLY,
   BOT_COMMAND_WRITE,
   TEXT_READ,
   TEXT_WRITE,
@@ -240,11 +242,11 @@ export function universityShowcaseOverwrites(roleIds, university) {
   return [
     overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
     overwrite(roleIds.roles.get(university.universityRole), {
-      allow: FORUM_READ_ONLY,
-      deny: FORUM_DENY_POST,
+      allow: FORUM_REPLY,
+      deny: FORUM_DENY_CREATE,
     }),
     ...universityBoardRoleIds(roleIds, university).map((id) =>
-      overwrite(id, { allow: FORUM_READ_ONLY, deny: FORUM_DENY_POST }),
+      overwrite(id, { allow: FORUM_REPLY, deny: FORUM_DENY_CREATE }),
     ),
     botOverwrite(roleIds),
   ];

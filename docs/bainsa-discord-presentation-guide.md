@@ -140,7 +140,7 @@ Scoping the role name to the university is important. A Vice President at Boccon
 | Person                    | Implemented role stack                                        | Meaning                                                                                                                                              |
 | ------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Bocconi Projects member   | `Researcher`, `Bocconi`, `Bocconi - Projects`                 | Can use the Bocconi member spaces and Projects division rooms.                                                                                       |
-| Sapienza Head of Analysis | `Researcher`, `Sapienza`, `Sapienza - Head of Analysis`       | The Head role itself opens the Analysis rooms and grants scoped authority; the bot intentionally avoids adding the redundant ordinary division role. |
+| Sapienza Head of Analysis | `Researcher`, `Sapienza`, `Sapienza - Analysis`, `Sapienza - Head of Analysis` | The ordinary division role provides membership and the Head role grants scoped authority. Assigning a new Head division replaces previous division and Head roles for that university. |
 | Polimi Vice President     | `Researcher`, `Polimi`, `Polimi - Vice President`             | Can operate across Polimi but has no authority in other universities.                                                                                |
 | Global President          | `Global President` plus any ordinary identity roles they hold | Can operate across all university scopes and use the global bot log.                                                                                 |
 
@@ -399,7 +399,12 @@ The official local feed. University board members can publish; ordinary universi
 
 Every project gets a forum post when it is created. The bot updates the post as project details change and adds the final outcome when the project closes.
 
-The forum is the university’s durable, browseable project record. The private project channel remains the working room; the showcase is the discoverable summary.
+The bot owns the canonical starter and edits it in place. It applies the project division plus one
+lifecycle tag—`Active`, `Paused`, or `Completed`. University members may reply and attach shareable
+progress or ask a relevant project question, but only the bot may create showcase posts. Internal
+drafts, decisions, notes, and handover details remain in the private project channel.
+
+The forum is the university’s durable, browseable project record. The private project channel remains the working room; the showcase is the discoverable summary and participation doorway.
 
 ### `#board`
 
@@ -409,10 +414,12 @@ The private working room for the local board. It is used for member matters, div
 
 This has two functions:
 
-1. It is the only university channel where slash commands can be run.
+1. It is the university governance command channel and activity record. Project-scoped commands may
+   also be run inside their owning private project channel.
 2. It stores concise, board-visible activity messages for successful commands that change shared state.
 
-Ordinary conversation belongs elsewhere. Board members may discuss a project inside its private channel, but v1 commands still have to be run in `#bot-log`.
+Ordinary conversation belongs elsewhere. A mutation run in a project channel posts its transition
+there while the durable governance activity entry is routed back to this `#bot-log`.
 
 ### `#onboarding-review`
 
@@ -435,7 +442,7 @@ The Projects division is the standard starting point. Presidents can create furt
 
 An authorised Head, Vice President, President, or Global President runs `/project-create` in the correct `#bot-log`. The command opens a polished private wizard instead of collecting arguments in the command line.
 
-The wizard moves through five screens: project name, university and division, members and supervisors, dates and optional notes, then final review. The project name stays at the top throughout. Discord-native multi-user selectors accept up to 25 people in each group. Because onboarding names are synchronized to server nicknames, the native selector can find members by their recorded name or Discord username.
+The wizard moves through five screens: project name, university and division, members and supervisors, dates plus a required public summary and optional private working notes, then final review. The project name stays at the top throughout. Discord-native multi-user selectors accept up to 25 people in each group. Because onboarding names are synchronized to server nicknames, the native selector can find members by their recorded name or Discord username.
 
 After **Create project**, the controls disappear and a waiting message explains that eligibility, persistence, and Discord channel setup are running. If work fails before the project commits, the complete setup returns with **Try creating project**, **Back to details**, and **Cancel setup**. Once the database commits, the setup stays closed so a failed acknowledgement can never cause a duplicate project.
 
@@ -459,17 +466,21 @@ Project access uses direct member overwrites, so the server does not consume one
 
 ### 3. Working phase
 
-The project channel is the single workspace for discussion, files, links, decisions, and handover information. The board can add or remove participants, change a participant’s project role, rename the project, update its expected end, or pause and reactivate it.
+The project channel is the single workspace for discussion, files, links, decisions, and handover information. It opens with two pinned bot messages: an editable canonical project record and a normal-text workspace guide. Every participant can run `/project-info` there. Project supervisors and scoped board roles can add or remove participants, change a participant’s project role, rename the project, update its expected end, pause or reactivate it, and close it without selecting the project again.
 
-The university showcase thread is updated with non-private project information.
+The university showcase starter is updated in place with non-private project information. Its replies
+hold shareable progress, materials, questions, and concrete contribution interest. Newly assigned
+participants receive a direct role-aware handoff with links and a recommended first action.
 
 ### 5. Closing
 
-`/project-close` requires an outcome and final notes. The bot:
+`/project-close` requires a public conclusion (`outcome`) and private internal handover notes
+(`final_notes`). The bot:
 
 - Changes the project status to `completed`.
-- Records the outcome and private final notes.
-- Updates the project channel and showcase thread.
+- Records both fields but exposes the public conclusion only in the showcase and activity feed.
+- Keeps internal handover notes in the pinned project home and private lookup.
+- Updates both canonical messages and applies the `Completed` showcase tag.
 - Prevents ordinary project members from sending new messages while preserving read history.
 - Moves the channel to `ARCHIVE / HISTORY`.
 
@@ -606,7 +617,7 @@ New members enter through onboarding. A board approval creates the member record
 - **Who:** Global Presidents and the selected university’s President.
 - **Inputs:** `university`, `division_name`, `color`, initial `head`, `create_text_channel`, and `create_voice_channel`.
 - **Returns:** private confirmation after the division, access role, Head role, selected channels, and board assignment are created.
-- **Rules:** the initial Head receives Researcher, university, and scoped Head roles. The Head role itself grants division access.
+- **Rules:** the initial Head receives Researcher, university, ordinary division, and scoped Head roles.
 - **Activity:** the new division, Head, colour, and created resources are posted.
 
 #### `/division-update`
@@ -669,7 +680,7 @@ New members enter through onboarding. A board approval creates the member record
 
 - **Why:** create a governed project record, private workspace, team, and showcase entry in one workflow.
 - **Who:** Global Presidents; the selected university’s President or Vice President; the selected Division Head.
-- **Inputs:** No command-line fields. A private five-step wizard collects the name, university and division, initial members and supervisors, dates, and optional notes before final confirmation.
+- **Inputs:** No command-line fields. A private five-step wizard collects the name, university and division, initial members and supervisors, dates, required public summary, and optional private notes before final confirmation.
 - **Returns:** private confirmation that the project was created, or that its committed Discord state is pending automatic reconciliation.
 - **Rules:** members must be active Researchers in the division; supervisors must be active university members; dates use `YYYY-MM-DD`; one person cannot appear in both lists; maximum 994 participants.
 - **Activity:** project, team, timeline, and Discord state are posted; notes are omitted.
@@ -677,8 +688,8 @@ New members enter through onboarding. A board approval creates the member record
 #### `/project-add-member`
 
 - **Why:** add a participant or change their project function without manual permission editing.
-- **Who:** Global Presidents; the project university’s President or Vice President; the project Division Head.
-- **Inputs:** `project`, `user`, `role` (`member`, `supervisor`, or `board_liaison`).
+- **Who:** Project supervisors; Global Presidents; the project university’s President or Vice President; the project Division Head.
+- **Inputs:** `user`, `role` (`member`, `supervisor`, or `board_liaison`); `project` is optional in the project channel.
 - **Returns:** private confirmation after the participant record and channel overwrite are reconciled.
 - **Rules:** the person must meet the eligibility rule for the chosen role. Only active or paused projects can change.
 - **Activity:** person, project, and new project role are posted.
@@ -686,17 +697,17 @@ New members enter through onboarding. A board approval creates the member record
 #### `/project-remove-member`
 
 - **Why:** remove both the participant record and private channel access together.
-- **Who:** Global Presidents; the project university’s President or Vice President; the project Division Head.
-- **Inputs:** `project`, `user`; optional private `reason`.
+- **Who:** Project supervisors; Global Presidents; the project university’s President or Vice President; the project Division Head.
+- **Inputs:** `user`; optional `project` in its own channel and optional private `reason`.
 - **Returns:** private confirmation after access is reconciled.
 - **Rules:** only active or paused projects can change.
 - **Activity:** removal is posted without the reason.
 
 #### `/project-update`
 
-- **Why:** maintain the project’s identity, schedule, status, and notes.
-- **Who:** Global Presidents; the project university’s President or Vice President; the project Division Head.
-- **Inputs:** `project`; optional `name`, `expected_end`, `notes`, and `status` (`active` or `paused`).
+- **Why:** maintain the project’s identity, schedule, status, public summary, and private notes.
+- **Who:** Project supervisors; Global Presidents; the project university’s President or Vice President; the project Division Head.
+- **Inputs:** optional `project` in its own channel; optional `name`, `expected_end`, public `summary`, private `notes`, and `status` (`active` or `paused`).
 - **Returns:** private confirmation after the project, channel, and showcase are updated.
 - **Rules:** expected end cannot precede the start. Completed projects require `/project-close`.
 - **Activity:** visible changes are posted. A notes-only update remains private.
@@ -704,8 +715,8 @@ New members enter through onboarding. A board approval creates the member record
 #### `/project-close`
 
 - **Why:** complete the project with a durable outcome and preserve its working history.
-- **Who:** Global Presidents; the project university’s President or Vice President; the project Division Head.
-- **Inputs:** `project`, `outcome`, private `final_notes`.
+- **Who:** Project supervisors; Global Presidents; the project university’s President or Vice President; the project Division Head.
+- **Inputs:** optional `project` in its own channel, public `outcome`, private `final_notes`.
 - **Returns:** private confirmation after the project becomes completed, is locked, and moves to history.
 - **Activity:** the outcome and archive state are posted; final notes are omitted.
 
@@ -713,8 +724,8 @@ New members enter through onboarding. A board approval creates the member record
 
 - **Why:** privately inspect a project’s current canonical record.
 - **Who:** Global Presidents; scoped President, Vice President, or Head; project participants who can view that project.
-- **Inputs:** `project`, selected from projects visible to the caller.
-- **Returns:** private name, scope, status, timeline, channel, notes, and participant lists.
+- **Inputs:** optional `project` in its own channel; otherwise selected from projects visible to the caller.
+- **Returns:** the private canonical record, including workspace, showcase, public conclusion, and internal handover notes when present.
 - **Activity:** none.
 
 ---

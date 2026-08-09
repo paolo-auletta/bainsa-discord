@@ -13,6 +13,7 @@ import {
   assertBoardAssignDivisionShape,
   assertBoardRemoveDivisionShape,
   assertCanAssignBoardRole,
+  assertHeadAssignmentCompatible,
   assertCanManageMember,
   assertCanRemoveBoardRole,
   assertCanRemoveMember,
@@ -176,10 +177,10 @@ test('single-division autocomplete displays the color while submitting the plain
   );
 });
 
-test('division Heads receive only the scoped Head role, not the ordinary division role', () => {
+test('division Heads receive both the ordinary division role and the scoped Head role', () => {
   assert.deepEqual(
     roleNamesForDivisionHead('Bocconi', 'Projects'),
-    ['Bocconi', 'Bocconi - Head of Projects'],
+    ['Bocconi', 'Bocconi - Projects', 'Bocconi - Head of Projects'],
   );
 });
 
@@ -406,6 +407,25 @@ test('board Head division rules differ for assign and remove', () => {
   assert.doesNotThrow(() => assertBoardAssignDivisionShape('head', 'Projects'));
   assert.doesNotThrow(() => assertBoardRemoveDivisionShape('head', null));
   assert.throws(() => assertBoardRemoveDivisionShape('president', 'Projects'), UserFacingError);
+});
+
+test('active university executives cannot also be assigned as division Heads', () => {
+  const president = [{ role: BOARD_ROLES.PRESIDENT, university_name: 'Bocconi' }];
+  const vicePresident = [{ role: BOARD_ROLES.VICE_PRESIDENT, university_name: 'Bocconi' }];
+
+  for (const [roles, label] of [[president, 'President'], [vicePresident, 'Vice President']]) {
+    assert.throws(
+      () => assertHeadAssignmentCompatible(roles, 'Bocconi'),
+      (error) =>
+        error instanceof UserFacingError
+        && error.message === `This member is already an active ${label} of Bocconi and cannot also be assigned as a division Head. Remove the ${label} role first or choose another member.`,
+    );
+  }
+  assert.doesNotThrow(() => assertHeadAssignmentCompatible(president, 'Sapienza'));
+  assert.doesNotThrow(() => assertHeadAssignmentCompatible(
+    [{ role: BOARD_ROLES.HEAD, university_name: 'Bocconi' }],
+    'Bocconi',
+  ));
 });
 
 test('Researcher to Alumni update clears divisions when divisions are omitted', () => {
@@ -714,21 +734,37 @@ test('division-create keeps the requested color on the Head role after assignmen
   assert.equal(headRole.hexColor, divisionColorDetails('green').hex);
   assert.equal(headRole.lastEdit, undefined);
   assert.equal(head.roles.cache.has(headRole.id), true);
-  assert.equal(head.roles.cache.has(accessRole.id), false);
+  assert.equal(head.roles.cache.has(accessRole.id), true);
 });
 
-test('board Head assignment preserves an existing division membership role', async () => {
-  const headRole = testRole('sapienza-head-robotics', 'Sapienza - Head of Robotics', divisionColorDetails('green').hex);
+test('board Head assignment moves the member to the Head division in Discord and the database', async () => {
+  const analysisRole = testRole('bocconi-analysis', 'Bocconi - Analysis', divisionColorDetails('green').hex);
+  const analysisHeadRole = testRole(
+    'bocconi-head-analysis',
+    'Bocconi - Head of Analysis',
+    divisionColorDetails('green').hex,
+  );
+  const projectsRole = testRole('bocconi-projects', 'Bocconi - Projects', divisionColorDetails('blue').hex);
+  const projectsHeadRole = testRole(
+    'bocconi-head-projects',
+    'Bocconi - Head of Projects',
+    divisionColorDetails('blue').hex,
+  );
   const roleCache = cacheFrom([
     testRole('researcher-role', ROLE_NAMES.RESEARCHER),
-    testRole('sapienza-role', 'Sapienza'),
-    testRole('sapienza-robotics-role', 'Sapienza - Robotics', divisionColorDetails('green').hex),
-    headRole,
+    testRole('bocconi-role', 'Bocconi'),
+    projectsRole,
+    projectsHeadRole,
+    analysisRole,
+    analysisHeadRole,
+    testRole('unrelated-role', 'Community Volunteer'),
   ]);
   const target = memberWithRoles([
     roleCache.get('researcher-role'),
-    roleCache.get('sapienza-role'),
-    roleCache.get('sapienza-robotics-role'),
+    roleCache.get('bocconi-role'),
+    projectsRole,
+    projectsHeadRole,
+    roleCache.get('unrelated-role'),
   ]);
   const guild = {
     roles: {
@@ -746,19 +782,41 @@ test('board Head assignment preserves an existing division membership role', asy
       },
     },
   };
+  const transactionQueries = [];
   const db = {
     async query(text) {
-      if (text.includes('FROM universities')) return { rows: [{ id: 2, name: 'Sapienza' }], rowCount: 1 };
-      if (text.includes('FROM members m')) return { rows: [], rowCount: 0 };
+      if (text.includes('FROM universities')) return { rows: [{ id: 2, name: 'Bocconi' }], rowCount: 1 };
+      if (text.includes('FROM members m')) {
+        return { rows: [{ university_name: 'Bocconi', member_type: MEMBER_TYPES.RESEARCHER }], rowCount: 1 };
+      }
+      if (text.includes('SELECT br.role')) {
+        return {
+          rows: [{
+            role: BOARD_ROLES.HEAD,
+            division_id: 87,
+            university_name: 'Bocconi',
+          }],
+          rowCount: 1,
+        };
+      }
+      if (text.includes('SELECT id, member_role_id, head_role_id')) {
+        return {
+          rows: [
+            { id: 87, member_role_id: projectsRole.id, head_role_id: projectsHeadRole.id },
+            { id: 88, member_role_id: analysisRole.id, head_role_id: analysisHeadRole.id },
+          ],
+          rowCount: 2,
+        };
+      }
       if (text.includes('FROM divisions')) {
         return {
           rows: [{
             id: 88,
             university_id: 2,
-            name: 'Robotics',
+            name: 'Analysis',
             color: 'green',
-            access_role_id: 'sapienza-robotics-role',
-            head_role_id: headRole.id,
+            access_role_id: analysisRole.id,
+            head_role_id: analysisHeadRole.id,
           }],
           rowCount: 1,
         };
@@ -766,7 +824,22 @@ test('board Head assignment preserves an existing division membership role', asy
       throw new Error(`Unexpected query: ${text}`);
     },
     async transaction(callback) {
-      return callback({ async query() { return { rows: [], rowCount: 0 }; } });
+      return callback({
+        async query(text, values) {
+          transactionQueries.push({ text, values });
+          if (text.includes('SELECT br.role')) {
+            return {
+              rows: [{
+                role: BOARD_ROLES.HEAD,
+                division_id: 87,
+                university_name: 'Bocconi',
+              }],
+              rowCount: 1,
+            };
+          }
+          return { rows: [], rowCount: 0 };
+        },
+      });
     },
   };
 
@@ -777,18 +850,96 @@ test('board Head assignment preserves an existing division membership role', asy
       member: fakeMember([ROLE_NAMES.GLOBAL_PRESIDENT]),
     },
     {
-      university: 'Sapienza',
+      university: 'Bocconi',
       role: BOARD_ROLES.HEAD,
-      division: 'Robotics',
+      division: 'Analysis',
       user: { id: 'target-user' },
     },
     { db },
   );
 
-  assert.equal(headRole.hexColor, divisionColorDetails('green').hex);
-  assert.equal(headRole.lastEdit, undefined);
-  assert.equal(target.roles.cache.has('sapienza-robotics-role'), true);
-  assert.equal(target.roles.cache.has(headRole.id), true);
+  assert.deepEqual(
+    [...target.roles.cache.values()].map((role) => role.name).sort(),
+    [
+      ROLE_NAMES.RESEARCHER,
+      'Bocconi',
+      'Bocconi - Analysis',
+      'Bocconi - Head of Analysis',
+      'Community Volunteer',
+    ].sort(),
+  );
+  assert.ok(transactionQueries.some((query) =>
+    query.text.includes('DELETE FROM member_divisions') && query.values[0] === target.id,
+  ));
+  assert.ok(transactionQueries.some((query) =>
+    query.text.includes('INSERT INTO member_divisions') && query.values[1] === 88,
+  ));
+  assert.ok(transactionQueries.some((query) =>
+    query.text.includes('UPDATE board_assignments') &&
+    query.values[2] === BOARD_ROLES.HEAD &&
+    query.values[3] === 88,
+  ));
+});
+
+test('board Head assignment rejects an active executive before touching Discord roles', async () => {
+  const target = memberWithRoles();
+  let transactionCalls = 0;
+  const db = {
+    async query(text) {
+      if (text.includes('FROM universities')) return { rows: [{ id: 1, name: 'Bocconi' }], rowCount: 1 };
+      if (text.includes('FROM members m')) {
+        return { rows: [{ university_name: 'Bocconi', member_type: MEMBER_TYPES.RESEARCHER }], rowCount: 1 };
+      }
+      if (text.includes('FROM divisions')) {
+        return {
+          rows: [{
+            id: 6,
+            university_id: 1,
+            name: 'rsi',
+            color: 'red',
+            access_role_id: 'rsi-role',
+            head_role_id: 'rsi-head-role',
+          }],
+          rowCount: 1,
+        };
+      }
+      if (text.includes('FROM board_assignments br')) {
+        return {
+          rows: [{ role: BOARD_ROLES.PRESIDENT, division_id: null, university_name: 'Bocconi' }],
+          rowCount: 1,
+        };
+      }
+      throw new Error(`Unexpected query: ${text}`);
+    },
+    async transaction() {
+      transactionCalls += 1;
+      assert.fail('transaction must not start for an incompatible Head assignment');
+    },
+  };
+
+  await assert.rejects(
+    () => assignBoardRole(
+      {
+        guild: {
+          roles: { cache: cacheFrom() },
+          members: { async fetch() { return target; } },
+        },
+        user: { id: 'actor-user' },
+        member: fakeMember([ROLE_NAMES.GLOBAL_PRESIDENT]),
+      },
+      {
+        university: 'Bocconi',
+        role: BOARD_ROLES.HEAD,
+        division: 'rsi',
+        user: { id: 'target-user' },
+      },
+      { db },
+    ),
+    /already an active President of Bocconi and cannot also be assigned as a division Head/,
+  );
+
+  assert.equal(transactionCalls, 0);
+  assert.equal(target.roles.cache.values().next().done, true);
 });
 
 test('board VP assignment removes Discord division and Head roles even when assignments are stale', async () => {

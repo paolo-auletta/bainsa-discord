@@ -47,6 +47,22 @@ export function boardRoleLabel(role) {
   return 'Head';
 }
 
+export function assertHeadAssignmentCompatible(boardRoles, universityName) {
+  const normalizedUniversity = String(universityName).toLowerCase();
+  const executiveRole = boardRoles.find(
+    (boardRole) =>
+      String(boardRole.university_name ?? '').toLowerCase() === normalizedUniversity
+      && [BOARD_ROLES.PRESIDENT, BOARD_ROLES.VICE_PRESIDENT].includes(boardRole.role),
+  );
+  if (!executiveRole) return;
+
+  const executiveLabel = boardRoleLabel(executiveRole.role);
+  assertUser(
+    false,
+    `This member is already an active ${executiveLabel} of ${universityName} and cannot also be assigned as a division Head. Remove the ${executiveLabel} role first or choose another member.`,
+  );
+}
+
 export function assertMemberType(value) {
   assertUser(
     Object.values(MEMBER_TYPES).includes(value),

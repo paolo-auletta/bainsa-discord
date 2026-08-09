@@ -4,7 +4,7 @@ import {
 } from 'discord.js';
 
 import { BOARD_ROLES, divisionLabel, MEMBER_TYPES } from '../../constants.js';
-import { divisionHeadRoleName, normalizeDisplayName } from '../../naming.js';
+import { divisionHeadRoleName, divisionRoleName, normalizeDisplayName } from '../../naming.js';
 import { boardRoleLabel, memberTypeLabel } from './policy.js';
 
 const MEMBER_INFO_COLOR = 0x5865f2;
@@ -20,6 +20,7 @@ function universityAccessRoleName(universityName) {
 export function roleNamesForDivisionHead(universityName, divisionName) {
   return [
     universityAccessRoleName(universityName),
+    divisionRoleName(universityName, divisionName),
     divisionHeadRoleName(universityName, divisionName),
   ];
 }

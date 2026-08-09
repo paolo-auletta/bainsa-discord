@@ -196,6 +196,11 @@ Researchers have governed spaces but weak activation into them. The product shou
 assignment feel like an intentional handoff, and it must resolve whether project information is a
 board tool or a participant capability.
 
+**Redesign decision:** project information is a participant capability inside the project channel.
+Project supervisors and scoped board roles can also run project-management commands there. Joining
+now includes a direct role-aware handoff, and university showcase replies provide the
+discovery-to-participation path. See `docs/discord-ux-journey-3-redesign.md`.
+
 ### Journey 4: Alumni → participating without division access
 
 #### Current path
@@ -292,10 +297,10 @@ whose access or authority changed.
 Board creates project
 → canonical project record commits
 → private channel is created or queued for reconciliation
-→ project introduction is posted
-→ university showcase thread is created on a best-effort basis
-→ changes append messages to project and showcase threads
-→ close records outcome and final notes
+→ a pinned project home is created or repaired
+→ a tagged university showcase post is created or repaired
+→ changes update both canonical messages and add a concise private transition
+→ close records a public conclusion and private handover notes
 → channel becomes read-only for members and moves to ARCHIVE / HISTORY
 ```
 
@@ -556,8 +561,8 @@ The evidence leaves three product decisions that should not be invented during i
 
 1. **Applicant decisions:** Should approval and rejection always be sent by DM, or should the product
    also provide a reliable in-server status surface when DMs are closed?
-2. **Project participation:** Should ordinary project participants receive a non-command project
-   information control inside their project channel, or should `/project-info` become available from
-   project channels?
-3. **Showcase philosophy:** Should every internal project have a university showcase record, or should
-   showcases contain only projects intentionally marked as shareable?
+2. **Project participation — resolved:** `/project-info` is available in project channels to every
+   participant; supervisors and scoped board roles can run the management commands there.
+3. **Showcase philosophy — resolved for the university layer:** every internal project has one
+   maintained university showcase record. Its canonical starter is shareable; internal work and
+   handover notes remain in the private project channel.

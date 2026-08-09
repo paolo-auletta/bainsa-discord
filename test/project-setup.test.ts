@@ -58,7 +58,8 @@ function assertConsistentSummary(payload, projectName) {
   assert.match(content, /\*\*Scope\*\*/);
   assert.match(content, /\*\*Team\*\*/);
   assert.match(content, /\*\*Timeline\*\*/);
-  assert.match(content, /\*\*Notes\*\*/);
+  assert.match(content, /\*\*Public summary\*\*/);
+  assert.match(content, /\*\*Internal notes\*\*/);
   assert.doesNotMatch(content, /^>/m);
   assert.doesNotMatch(content, /BAINSA · Project setup|Private setup/);
 }
@@ -153,7 +154,7 @@ async function completeDetails(service, participantPayload) {
   });
   assertConsistentSummary(payload, 'Native project');
   assert.match(allText(payload), /\*\*Project timeline\*\*/);
-  assert.match(allText(payload), /\*\*Project notes\*\*/);
+  assert.match(allText(payload), /\*\*Summary and internal notes\*\*/);
   assert.doesNotMatch(allText(payload), /Add the required timeline|Not added · Optional/);
   assert.equal(componentForAction(payload, PROJECT_SETUP_ACTIONS.DATES_OPEN).style, ButtonStyle.Primary);
   assert.equal(componentForAction(payload, PROJECT_SETUP_ACTIONS.NOTES_OPEN).style, ButtonStyle.Primary);
@@ -182,7 +183,7 @@ async function completeDetails(service, participantPayload) {
   });
   await service.handleModalSubmit({
     ...baseInteraction(notesModal.custom_id),
-    fields: fieldValues({ notes: 'Private context' }),
+    fields: fieldValues({ summary: 'Public project context', notes: 'Private context' }),
     isFromMessage: () => true,
     update: async (next) => { payload = next; },
   });
@@ -297,6 +298,7 @@ test('project setup renders a polished five-step wizard and creates only from re
   assert.equal(createdInput.supervisors, SUPERVISOR_ID);
   assert.equal(createdInput.startDate, result.start_date);
   assert.equal(createdInput.expectedEnd, result.expected_end);
+  assert.equal(createdInput.summary, 'Public project context');
   assert.equal(createdInput.notes, 'Private context');
   assert.equal(activity.allowedMentions.parse.length, 0);
   const activityEmbed = activity.embeds[0].toJSON();
