@@ -3,11 +3,13 @@ import { ChannelType } from 'discord.js';
 import { PROJECT_STATUSES, ROLE_NAMES } from '../../constants.js';
 import { logger } from '../../logger.js';
 import { divisionHeadRoleName, projectChannelName, universityBoardRoleName, universityCategoryName } from '../../naming.js';
+import { syncProjectHome, syncShowcaseThread } from './gateway.js';
 import { buildProjectPermissionOverwrites, projectPersonIdsByRole, uniqueIds } from './permissions.js';
 
 const PROJECT_SELECT = `
   p.id, p.name, p.university_id, p.division_id, p.start_date::text AS start_date,
-  p.expected_end::text AS expected_end, p.notes, p.status, p.channel_id AS discord_channel_id, p.showcase_thread_id,
+  p.expected_end::text AS expected_end, p.summary, p.notes, p.status, p.outcome, p.final_notes, p.closed_at,
+  p.channel_id AS discord_channel_id, p.home_message_id, p.showcase_thread_id,
   u.name AS university_name, u.category_id, u.showcase_channel_id, d.name AS division_name, d.color AS division_color,
   d.head_role_id AS division_head_role_id
 `;
@@ -21,7 +23,7 @@ interface ReconciliationWorkerOptions {
 }
 
 function projectChannelTopic(project) {
-  return `${project.university_name} / ${project.division_name} project ${project.id}`;
+  return `Private ${project.name} workspace · ${project.university_name} / ${project.division_name} · BAINSA project ${project.id}`;
 }
 
 function roleByName(guild, name) {
@@ -81,9 +83,14 @@ async function ensureProjectChannel(client, guild, project, people) {
   }
 
   const topic = projectChannelTopic(project);
+  const legacyTopic = `${project.university_name} / ${project.division_name} project ${project.id}`;
   const fetchedChannels = typeof guild.channels.fetch === 'function' ? await guild.channels.fetch() : null;
   const channels = fetchedChannels?.values ? [...fetchedChannels.values()] : [];
-  const matches = channels.filter((channel) => channel.type === ChannelType.GuildText && channel.topic === topic);
+  const matches = channels.filter(
+    (channel) =>
+      channel.type === ChannelType.GuildText
+      && (channel.topic === topic || channel.topic === legacyTopic),
+  );
   if (matches.length > 1) throw new Error(`Multiple Discord channels match project ${project.id}'s reconciliation marker.`);
   if (matches.length === 1) {
     await client.query('UPDATE projects SET channel_id = $1, updated_at = now() WHERE id = $2', [matches[0].id, project.id]);
@@ -112,6 +119,10 @@ async function applyDesiredDiscordState(client, guild, project, people) {
   if (channel.name !== desiredName && typeof channel.setName === 'function') {
     await channel.setName(desiredName, `Reconcile project ${project.id} name`);
   }
+  const desiredTopic = projectChannelTopic(project);
+  if (channel.topic !== desiredTopic && typeof channel.setTopic === 'function') {
+    await channel.setTopic(desiredTopic, `Reconcile project ${project.id} topic`);
+  }
 
   const parentId = project.status === PROJECT_STATUSES.COMPLETED || project.status === PROJECT_STATUSES.ARCHIVED
     ? findCategoryId(guild, null, 'ARCHIVE / HISTORY')
@@ -120,6 +131,24 @@ async function applyDesiredDiscordState(client, guild, project, people) {
     if (typeof channel.setParent === 'function') await channel.setParent(parentId, { lockPermissions: false });
   }
   await channel.permissionOverwrites.set(desiredOverwrites(guild, project, people), `Reconcile project ${project.id} access`);
+
+  const showcaseThread = await syncShowcaseThread(guild, project, people);
+  if (showcaseThread && String(showcaseThread.id) !== String(project.showcase_thread_id ?? '')) {
+    await client.query(
+      'UPDATE projects SET showcase_thread_id = $1, updated_at = now() WHERE id = $2',
+      [showcaseThread.id, project.id],
+    );
+    project.showcase_thread_id = showcaseThread.id;
+  }
+
+  const homeMessage = await syncProjectHome(guild, project, people);
+  if (homeMessage && String(homeMessage.id) !== String(project.home_message_id ?? '')) {
+    await client.query(
+      'UPDATE projects SET home_message_id = $1, updated_at = now() WHERE id = $2',
+      [homeMessage.id, project.id],
+    );
+    project.home_message_id = homeMessage.id;
+  }
 }
 
 export async function enqueueProjectReconciliation(client, projectId) {

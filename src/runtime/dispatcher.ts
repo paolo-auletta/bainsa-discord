@@ -1,7 +1,7 @@
 import { handleInteractionError } from '../discord/reply.js';
 import { assertUser, UserFacingError } from '../errors.js';
 import { assertNoBotCommandTarget } from '../authorization.js';
-import { assertBotCommandChannel, botCommandChannelScope } from './command-channels.js';
+import { assertCommandChannel, commandChannelScope } from './command-channels.js';
 import { canDiscoverCommand } from './command-permissions.js';
 import { buildCommandMap, type CommandDefinition } from './command-registry.js';
 
@@ -55,13 +55,13 @@ export function createInteractionDispatcher({
       if (route === 'chatInput') {
         const command = commandMap.get(interaction.commandName);
         if (!command) throw new UserFacingError(`Unknown command: ${interaction.commandName}`);
-        assertBotCommandChannel(interaction);
+        const channelScope = assertCommandChannel(interaction, interaction.commandName);
         const allowed = canDiscoverCommand({
           commandName: interaction.commandName,
           member: interaction.member,
-          channelScope: botCommandChannelScope(interaction.channel),
+          channelScope,
         });
-        assertUser(allowed, 'This command is not available in this bot-log channel.');
+        assertUser(allowed, 'This command is not available in this channel.');
         assertNoBotCommandTarget(interaction);
         await command.execute(interaction);
         return;
@@ -73,7 +73,7 @@ export function createInteractionDispatcher({
         const allowed = canDiscoverCommand({
           commandName: interaction.commandName,
           member: interaction.member,
-          channelScope: botCommandChannelScope(interaction.channel),
+          channelScope: commandChannelScope(interaction.channel),
         });
         // Do this before invoking a handler: autocomplete handlers may query
         // Postgres or Discord's guild-member directory.

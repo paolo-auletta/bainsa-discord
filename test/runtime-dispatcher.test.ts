@@ -232,7 +232,7 @@ test('dispatcher rejects a command from a bot-log outside the actor’s allowed 
   });
 
   assert.equal(executed, false);
-  assert.match(captured.message, /not available in this bot-log channel/);
+  assert.match(captured.message, /not available in this channel/);
 });
 
 test('deferred ephemeral replies edit the original response', async () => {
@@ -270,6 +270,25 @@ test('board activity replies are posted once with a private acknowledgement', as
     embeds: [{ title: 'Activity' }],
   });
   assert.deepEqual(edited, { content: 'Activity posted in this channel.' });
+});
+
+test('project-channel mutations can route governance activity to the scoped bot log', async () => {
+  let sent;
+  let edited;
+  await replyBoardActivity({
+    deferred: true,
+    replied: false,
+    channel: { id: 'project', async send() { assert.fail('project channel is not the audit destination'); } },
+    editReply: async (payload) => { edited = payload; },
+  }, { embeds: [{ title: 'Activity' }] }, {
+    channel: { id: 'bot-log', async send(payload) { sent = payload; } },
+  });
+
+  assert.deepEqual(sent, {
+    allowedMentions: { parse: [] },
+    embeds: [{ title: 'Activity' }],
+  });
+  assert.equal(edited.content, 'Activity posted in <#bot-log>.');
 });
 
 test('private-only updates never send a board activity message', async () => {

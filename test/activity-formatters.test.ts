@@ -189,6 +189,7 @@ test('project participant role changes and project field changes use old-to-new 
       before: {
         name: 'Spring Festival',
         expected_end: '2026-12-15',
+        summary: 'Original summary',
         status: 'active',
       },
       project: {
@@ -196,6 +197,7 @@ test('project participant role changes and project field changes use old-to-new 
         university_name: 'Bocconi',
         division_name: 'Culture',
         expected_end: '2026-12-22',
+        summary: 'Updated summary',
         status: 'paused',
         reconciliation_pending: false,
       },
@@ -204,6 +206,7 @@ test('project participant role changes and project field changes use old-to-new 
   const changes = fieldValue(embedJson(updated), 'Changes');
   assert.match(changes, /2026-12-15 → 2026-12-22/);
   assert.match(changes, /Active → Paused/);
+  assert.match(changes, /Public summary updated/);
 });
 
 test('reapplying the same project role does not create a board activity entry', () => {

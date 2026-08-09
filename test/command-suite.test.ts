@@ -18,10 +18,10 @@ const EXPECTED_COMMANDS = {
   'board-remove': ['user', 'university', 'role', 'division', 'reason'],
   'board-info': ['university'],
   'project-create': [],
-  'project-add-member': ['project', 'user', 'role'],
-  'project-remove-member': ['project', 'user', 'reason'],
-  'project-update': ['project', 'name', 'expected_end', 'notes', 'status'],
-  'project-close': ['project', 'outcome', 'final_notes'],
+  'project-add-member': ['user', 'role', 'project'],
+  'project-remove-member': ['user', 'project', 'reason'],
+  'project-update': ['project', 'name', 'expected_end', 'summary', 'notes', 'status'],
+  'project-close': ['outcome', 'final_notes', 'project'],
   'project-info': ['project'],
 };
 

@@ -3,6 +3,15 @@ import { assertUser } from '../errors.js';
 const BOT_LOG_CHANNEL_NAME = 'bot-log';
 const GLOBAL_LOG_CATEGORY_NAME = 'LOGS';
 const UNIVERSITY_CATEGORY_PREFIX = 'BAINSA ';
+const PROJECT_TOPIC_PATTERN = /(?:^|\s)project\s+(\d+)$/i;
+
+export const PROJECT_CHANNEL_COMMANDS = Object.freeze(new Set([
+  'project-add-member',
+  'project-remove-member',
+  'project-update',
+  'project-close',
+  'project-info',
+]));
 
 export function botCommandChannelScope(channel) {
   if (!channel || channel.name !== BOT_LOG_CHANNEL_NAME) return null;
@@ -15,8 +24,30 @@ export function botCommandChannelScope(channel) {
   return universityName ? { kind: 'university', universityName } : null;
 }
 
+export function projectCommandChannelScope(channel) {
+  const match = String(channel?.topic ?? '').trim().match(PROJECT_TOPIC_PATTERN);
+  if (!match) return null;
+  return { kind: 'project', projectId: match[1] };
+}
+
+export function commandChannelScope(channel) {
+  return botCommandChannelScope(channel) ?? projectCommandChannelScope(channel);
+}
+
 export function isBotCommandChannel(channel) {
   return Boolean(botCommandChannelScope(channel));
+}
+
+export function assertCommandChannel(interaction, commandName) {
+  const scope = commandChannelScope(interaction.channel);
+  if (scope?.kind === 'global' || scope?.kind === 'university') return scope;
+  if (scope?.kind === 'project' && PROJECT_CHANNEL_COMMANDS.has(commandName)) return scope;
+  assertUser(
+    false,
+    PROJECT_CHANNEL_COMMANDS.has(commandName)
+      ? 'Use this command in its project channel, a university #bot-log, or the global #bot-log under LOGS.'
+      : 'Use this command in a university #bot-log or the global #bot-log under LOGS.',
+  );
 }
 
 export function assertBotCommandChannel(interaction) {

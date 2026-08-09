@@ -93,6 +93,7 @@ type ForumProvisionOptions = Omit<ChannelProvisionOptions, 'type'>;
 type SeedMessageOptions = {
   components?: readonly unknown[];
   pin?: boolean;
+  lock?: boolean;
   legacyKeys?: readonly string[];
   legacyHeadings?: readonly string[];
 };
@@ -588,7 +589,7 @@ export class DiscordProvisioner {
       seeds.botLog,
       { pin: true },
     );
-    await this.seedForumGuide(showcase, `university:${university.name}:showcase`, seeds.showcase);
+    await this.seedForumGuide(showcase, `university:${university.name}:showcase`, seeds.showcase, { lock: true });
     await this.seedMessage(
       onboardingReview,
       `university:${university.name}:onboarding-review`,
@@ -840,6 +841,7 @@ export class DiscordProvisioner {
     if (thread) {
       await this.unarchiveForumGuide(thread);
       await this.seedMessage(thread, key, content, options);
+      await this.reconcileForumGuideLock(thread, options);
       return thread;
     }
     const activeThreads = await forum.threads.fetchActive().catch(() => null);
@@ -851,6 +853,7 @@ export class DiscordProvisioner {
     if (thread) {
       await this.unarchiveForumGuide(thread);
       await this.seedMessage(thread, key, content, options);
+      await this.reconcileForumGuideLock(thread, options);
       return thread;
     }
     this.record('seeds', 'created', `forum-seed:${key}`);
@@ -861,6 +864,7 @@ export class DiscordProvisioner {
       reason: 'BAINSA v1 forum guide',
     });
     await this.seedForumGuideStarter(thread, key, options);
+    await this.reconcileForumGuideLock(thread, options);
     return thread;
   }
 
@@ -902,6 +906,12 @@ export class DiscordProvisioner {
   async unarchiveForumGuide(thread) {
     if (thread?.archived && typeof thread.setArchived === 'function') {
       await thread.setArchived(false, 'BAINSA forum guide reconciliation');
+    }
+  }
+
+  async reconcileForumGuideLock(thread, options) {
+    if (options.lock && !thread?.locked && typeof thread?.setLocked === 'function') {
+      await thread.setLocked(true, 'Keep the BAINSA forum guide read-only');
     }
   }
 

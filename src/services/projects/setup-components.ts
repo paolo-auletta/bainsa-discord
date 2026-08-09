@@ -112,7 +112,8 @@ function projectSummary(session) {
       "",
       `📅 **Timeline** · ${timelineSummary(session)}`,
       "",
-      `📝 **Notes** · ${session.notes ? "Added" : "Not added"}`,
+      `📣 **Public summary** · ${session.summary ? "Added" : "Required"}`,
+      `📝 **Internal notes** · ${session.notes ? "Added" : "Not added"}`,
     ].join("\n"),
   );
 }
@@ -293,20 +294,29 @@ export function projectDatesModal(session) {
 }
 
 export function projectNotesModal(session) {
-  const input = new TextInputBuilder()
+  const summary = new TextInputBuilder()
+    .setCustomId("summary")
+    .setLabel("Public project summary")
+    .setPlaceholder("What is this project doing, and why does it matter?")
+    .setRequired(true)
+    .setStyle(TextInputStyle.Paragraph)
+    .setMaxLength(1_000);
+  const notes = new TextInputBuilder()
     .setCustomId("notes")
-    .setLabel("Private project notes")
-    .setPlaceholder("Optional context for the project team")
+    .setLabel("Internal working notes")
+    .setPlaceholder("Optional private context for the project team")
     .setRequired(false)
     .setStyle(TextInputStyle.Paragraph)
-    .setMaxLength(4_000);
-  if (session.notes) input.setValue(session.notes);
+    .setMaxLength(1_000);
+  if (session.summary) summary.setValue(session.summary);
+  if (session.notes) notes.setValue(session.notes);
 
   return new ModalBuilder()
     .setCustomId(projectSetupId(session.id, PROJECT_SETUP_ACTIONS.NOTES_MODAL))
-    .setTitle("Project setup · Notes")
+    .setTitle("Project setup · Summary")
     .addComponents(
-      new ActionRowBuilder<TextInputBuilder>().addComponents(input),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(summary),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(notes),
     );
 }
 
@@ -431,13 +441,13 @@ export function detailsPayload(session) {
         ),
       ),
     )
-    .addTextDisplayComponents(fieldLabel("Project notes"))
+    .addTextDisplayComponents(fieldLabel("Summary and internal notes"))
     .addActionRowComponents(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
         actionButton(
           session,
           PROJECT_SETUP_ACTIONS.NOTES_OPEN,
-          session.notes ? "Edit project notes" : "Add project notes",
+          session.summary ? "Edit summary and notes" : "Add public summary",
           ButtonStyle.Primary,
           { emoji: "📝" },
         ),
@@ -450,7 +460,7 @@ export function detailsPayload(session) {
         {
           action: PROJECT_SETUP_ACTIONS.REVIEW,
           label: "Continue to review",
-          disabled: !session.startDate || !session.expectedEnd,
+          disabled: !session.startDate || !session.expectedEnd || !session.summary,
         },
         { action: PROJECT_SETUP_ACTIONS.BACK_PEOPLE, label: "Back to team" },
       ),
@@ -467,7 +477,8 @@ export function reviewPayload(session) {
     `**Members · ${session.memberIds.length}**\n${formatPeople(session.memberIds)}`,
     `**Supervisors · ${session.supervisorIds.length}**\n${formatPeople(session.supervisorIds)}`,
     "**Division oversight**\nThe selected division's active Head(s) will automatically be included in the project channel as supervisors.",
-    `**Notes**\n${session.notes?.slice(0, 1_000) || "None"}`,
+    `**Public summary**\n${session.summary?.slice(0, 1_000) || "Missing"}`,
+    `**Internal notes**\n${session.notes?.slice(0, 1_000) || "None"}`,
   ].join("\n\n");
   const container = new ContainerBuilder()
     .setAccentColor(CONTAINER_COLORS.BRAND)

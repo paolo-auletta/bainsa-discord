@@ -17,6 +17,7 @@ const roles = [
   { id: 'bocconi-vp', name: 'Bocconi - Vice President' },
   { id: 'bocconi-head', name: 'Bocconi - Head of Projects' },
   { id: 'member', name: 'Researcher' },
+  { id: 'alumni', name: 'Alumni' },
 ];
 
 test('every registered command has a deliberate board-visibility policy', () => {
@@ -45,6 +46,10 @@ test('role visibility tiers expose only the intended board levels', () => {
   assert.deepEqual(visibleRoleIds('president', roles), ['global', 'bocconi-president']);
   assert.deepEqual(visibleRoleIds('executive', roles), ['global', 'bocconi-president', 'bocconi-vp']);
   assert.deepEqual(visibleRoleIds('board', roles), ['global', 'bocconi-president', 'bocconi-vp', 'bocconi-head']);
+  assert.deepEqual(
+    visibleRoleIds('project', roles),
+    ['global', 'bocconi-president', 'bocconi-vp', 'bocconi-head', 'member', 'alumni'],
+  );
 });
 
 test('board role commands are visible to university Vice Presidents', () => {
@@ -53,6 +58,16 @@ test('board role commands are visible to university Vice Presidents', () => {
 
   assert.equal(canDiscoverCommand({ commandName: 'board-assign', member: vicePresident, channelScope: scope }), true);
   assert.equal(canDiscoverCommand({ commandName: 'board-remove', member: vicePresident, channelScope: scope }), true);
+});
+
+test('only project-scoped commands are discoverable inside a project channel', () => {
+  const scope = { kind: 'project', projectId: '42' };
+  const researcher = memberWithRoles(['Researcher']);
+
+  assert.equal(canDiscoverCommand({ commandName: 'project-info', member: researcher, channelScope: scope }), true);
+  assert.equal(canDiscoverCommand({ commandName: 'project-update', member: researcher, channelScope: scope }), true);
+  assert.equal(canDiscoverCommand({ commandName: 'project-create', member: researcher, channelScope: scope }), false);
+  assert.equal(canDiscoverCommand({ commandName: 'member-info', member: researcher, channelScope: scope }), false);
 });
 
 test('command overwrites deny everyone and explicitly allow only the selected roles', () => {

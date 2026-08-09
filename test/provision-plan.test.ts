@@ -29,6 +29,7 @@ import {
   startHereOverwrites,
   stripDangerousHumanPermissions,
   universityExecutiveOverwrites,
+  universityShowcaseOverwrites,
   universityAnnouncementOverwrites,
   universityForumTags,
   universityBotLogOverwrites,
@@ -417,7 +418,7 @@ test('university board channels are private to that university board', () => {
   }
 });
 
-test('showcase forums are read-only to humans and postable only by the bot overwrite', () => {
+test('global showcase forums remain read-only to humans and postable only by the bot overwrite', () => {
   const overwrites = showcaseForumOverwrites(
     {
       everyone: 'everyone',
@@ -436,6 +437,33 @@ test('showcase forums are read-only to humans and postable only by the bot overw
   const bot = overwrites.find((overwrite) => overwrite.id === 'bot');
   assert.ok(bot.allow.includes(PermissionFlagsBits.CreatePublicThreads));
   assert.ok(bot.allow.includes(PermissionFlagsBits.SendMessagesInThreads));
+});
+
+test('university showcase members may reply and attach without creating showcase posts', () => {
+  const [university] = normalizePlan(samplePlan).universities;
+  const overwrites = universityShowcaseOverwrites(
+    {
+      everyone: 'everyone',
+      bot: 'bot',
+      globalPresident: 'global',
+      universityHeadRoleIds: new Map([['Bocconi', ['head']]]),
+      roles: new Map([
+        [university.universityRole, 'university-member'],
+        [university.presidentRole, 'president'],
+        [university.vicePresidentRole, 'vp'],
+        ['Bocconi - Head of Projects', 'head'],
+      ]),
+    },
+    university,
+  );
+
+  for (const id of ['university-member', 'president', 'vp', 'head', 'global']) {
+    const entry = overwrites.find((candidate) => candidate.id === id);
+    assert.ok(entry.allow.includes(PermissionFlagsBits.SendMessagesInThreads), id);
+    assert.ok(entry.allow.includes(PermissionFlagsBits.AttachFiles), id);
+    assert.ok(entry.deny.includes(PermissionFlagsBits.CreatePublicThreads), id);
+    assert.ok(entry.deny.includes(PermissionFlagsBits.SendMessages), id);
+  }
 });
 
 test('people directory grants approved identities read-only forum access and bot forum management', () => {
@@ -1385,7 +1413,7 @@ test('university forum tags include divisions and status tags', () => {
   const [university] = normalizePlan(samplePlan).universities;
   assert.deepEqual(
     universityForumTags(university).map((tag) => tag.name),
-    ['Projects', 'Analysis', 'Culture', 'Active', 'Completed'],
+    ['Projects', 'Analysis', 'Culture', 'Active', 'Paused', 'Completed'],
   );
 });
 

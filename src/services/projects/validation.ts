@@ -25,6 +25,19 @@ export function normalizeRequiredText(value, fieldName, maxLength = 4_000) {
   return normalized;
 }
 
+export function normalizeProjectLongText(value, fieldName, maxLength = 1_000) {
+  const normalized = String(value ?? '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.trim().replace(/[\t ]+/g, ' '))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  assertUser(Boolean(normalized), `${fieldName} is required.`);
+  assertUser(normalized.length <= maxLength, `${fieldName} must be at most ${maxLength} characters.`);
+  return normalized;
+}
+
 export function parseDiscordUserIds(value, fieldName) {
   const tokens = String(value ?? '')
     .split(/[\s,;]+/)

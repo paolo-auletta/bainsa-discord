@@ -126,6 +126,21 @@ export const FORUM_POST = Object.freeze([
   PermissionFlagsBits.AddReactions,
 ]);
 
+export const FORUM_REPLY = Object.freeze([
+  PermissionFlagsBits.ViewChannel,
+  PermissionFlagsBits.ReadMessageHistory,
+  PermissionFlagsBits.SendMessagesInThreads,
+  PermissionFlagsBits.AttachFiles,
+  PermissionFlagsBits.EmbedLinks,
+  PermissionFlagsBits.AddReactions,
+]);
+
+export const FORUM_DENY_CREATE = Object.freeze([
+  PermissionFlagsBits.SendMessages,
+  PermissionFlagsBits.CreatePublicThreads,
+  PermissionFlagsBits.CreatePrivateThreads,
+]);
+
 export const FORUM_DENY_POST = Object.freeze([
   PermissionFlagsBits.SendMessages,
   PermissionFlagsBits.SendMessagesInThreads,
@@ -357,6 +372,7 @@ export function universityForumTags(university) {
   return [
     ...university.divisions.map((division) => ({ name: division.name })),
     { name: 'Active' },
+    { name: 'Paused' },
     { name: 'Completed' },
   ];
 }

@@ -51,8 +51,11 @@ activity entries backed by a complete PostgreSQL audit record.
   to one or more divisions; Alumni do not need a division.
 - University and division roles scope visibility. Board authority is scoped by university and,
   for Division Heads, by division. Global Presidents can operate across universities.
-- Slash commands are available only in the appropriate `bot-log` channel. Client-side command
-  visibility and autocomplete are usability layers; server-side authorization remains authoritative.
+- Governance and project-creation slash commands are available in the appropriate `bot-log`.
+  Project participants can also use project-scoped commands inside their private project channel:
+  every participant may inspect project information, while supervisors and scoped board roles may
+  manage that project. Client-side command visibility and autocomplete are usability layers;
+  server-side authorization remains authoritative.
 - The bot must not grant `Administrator` or expose unrestricted destructive permissions. It owns
   structural changes, preserves least privilege, and records governance mutations.
 - PostgreSQL is the durable source of truth. Discord changes are reconciled idempotently and may
@@ -107,4 +110,3 @@ part of the product language and should not be casually renamed.
 4. Prefer Discord-native, guided workflows that automate repetitive administration without hiding
    important state.
 5. Keep durable state, privacy boundaries, and audit history explicit and recoverable.
-

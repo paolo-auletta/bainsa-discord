@@ -26,16 +26,17 @@ import {
   warmProjectAutocompleteCache,
 } from '../src/services/projects/index.js';
 import { UserFacingError } from '../src/errors.js';
+import { canManageProject } from '../src/services/projects/policy.js';
 import {
   assertMemberProjectAssignmentEligibility,
   assertProjectPeopleEligibility,
   sortedDiscordUserIds,
 } from '../src/services/projects/eligibility.js';
 import {
-  formatProjectIntro,
-  formatShowcasePost,
   projectAutocompleteName,
+  projectHomePayload,
   projectInfoMessage,
+  showcasePostPayload,
 } from '../src/services/projects/formatters.js';
 
 function memberWithRoles(id, roleNames) {
@@ -91,6 +92,23 @@ test('project view policy includes project people and scoped board roles only', 
   assert.equal(canViewProject(memberWithRoles('vp', ['Bocconi - Vice President']), project), true);
   assert.equal(canViewProject(memberWithRoles('global', ['Global President']), project), true);
   assert.equal(canViewProject(memberWithRoles('other', ['Sapienza - President']), project), false);
+});
+
+test('project management policy includes supervisors and scoped board, but not ordinary members', () => {
+  const project = { university_name: 'Bocconi', division_name: 'Projects' };
+  const supervisor = memberWithRoles('supervisor', []);
+  const member = memberWithRoles('member', []);
+
+  assert.equal(
+    canManageProject(supervisor, project, [{ discord_user_id: 'supervisor', role: 'supervisor' }]),
+    true,
+  );
+  assert.equal(
+    canManageProject(member, project, [{ discord_user_id: 'member', role: 'member' }]),
+    false,
+  );
+  assert.equal(canManageProject(memberWithRoles('head', ['Bocconi - Head of Projects']), project), true);
+  assert.equal(canManageProject(memberWithRoles('other', ['Bocconi - Head of Analysis']), project), false);
 });
 
 test('autocomplete only returns projects visible to the caller', async () => {
@@ -403,6 +421,7 @@ test('project creation rejects capacity-incompatible participants before databas
       division: 'Analysis',
       startDate: '2026-07-01',
       expectedEnd: '2026-08-01',
+      summary: 'Public summary',
       members: participantIds.join(','),
       supervisors: '999999999999999',
     }, { db }),
@@ -524,6 +543,7 @@ test('project creation adds every active division Head as a supervisor without d
     division: 'Analysis',
     startDate: '2026-07-01',
     expectedEnd: '2026-08-01',
+    summary: 'Public summary',
     notes: null,
     members: memberId,
     supervisors: headId,
@@ -593,7 +613,7 @@ test('project participant selection rejects every bot account', async () => {
   );
 });
 
-test('project formatters cap participant lists and full messages at Discord\'s content limit', () => {
+test('project embeds cap participant lists and keep private handover notes out of the showcase', () => {
   const people = Array.from({ length: MAX_PROJECT_PARTICIPANTS }, (_, index) => ({
     discord_user_id: String(100000000000000 + index),
     role: index % 3 === 0 ? 'member' : index % 3 === 1 ? 'supervisor' : 'board_liaison',
@@ -608,18 +628,31 @@ test('project formatters cap participant lists and full messages at Discord\'s c
     start_date: '2026-07-01',
     expected_end: '2026-08-01',
     discord_channel_id: 'channel',
+    showcase_thread_id: 'showcase',
+    summary: 'Public summary',
     notes: 'x'.repeat(4_000),
+    outcome: 'Public conclusion',
+    final_notes: 'Private handover',
   };
 
-  for (const message of [
-    formatProjectIntro(project, people, 'y'.repeat(4_000)),
-    formatShowcasePost(project, people, 'y'.repeat(4_000)),
+  for (const payload of [
+    projectHomePayload(project, people),
+    showcasePostPayload(project, people),
     projectInfoMessage(project, people),
   ]) {
-    assert.ok(message.length <= 2_000);
-    assert.match(message, /\(\+\d+ more\)/);
-    assert.doesNotMatch(message, /<@\d{0,14}(?:$|[^\d>])/);
+    const embed = payload.embeds[0].toJSON();
+    assert.ok((embed.description?.length ?? 0) <= 4_096);
+    assert.ok(embed.fields.every((field) => field.value.length <= 1_024));
+    const embedCharacters = (embed.title?.length ?? 0)
+      + (embed.description?.length ?? 0)
+      + (embed.footer?.text.length ?? 0)
+      + embed.fields.reduce((total, field) => total + field.name.length + field.value.length, 0);
+    assert.ok(embedCharacters <= 6_000, `embed contains ${embedCharacters} characters`);
+    assert.match(JSON.stringify(embed), /\(\+\d+ more\)/);
   }
+  const showcase = JSON.stringify(showcasePostPayload(project, people));
+  assert.equal(showcase.includes('Private handover'), false);
+  assert.equal(showcase.includes('x'.repeat(100)), false);
 });
 
 test('project-close completes the project and moves the channel to history', async () => {
@@ -637,10 +670,16 @@ test('project-close completes the project and moves the channel to history', asy
     status: PROJECT_STATUSES.ACTIVE,
     discord_channel_id: 'project-channel',
     category_id: 'university-category',
+    showcase_channel_id: 'showcase',
     showcase_thread_id: null,
     division_head_role_id: null,
   };
-  const closedProject = { ...project, status: PROJECT_STATUSES.COMPLETED };
+  const closedProject = {
+    ...project,
+    status: PROJECT_STATUSES.COMPLETED,
+    outcome: 'Completed successfully',
+    final_notes: 'Ready for handover',
+  };
   const people = [{ discord_user_id: 'member', role: 'member' }];
   let projectSelects = 0;
   function reconciliationQuery(text) {
@@ -684,6 +723,22 @@ test('project-close completes the project and moves the channel to history', asy
       });
     },
   };
+  const messages = [];
+  const showcaseStarter = { async edit() {} };
+  const showcaseThread = {
+    id: 'showcase-thread',
+    async fetchStarterMessage() { return showcaseStarter; },
+  };
+  const showcase = {
+    type: ChannelType.GuildForum,
+    availableTags: [
+      { id: 'projects', name: 'Projects' },
+      { id: 'active', name: 'Active' },
+      { id: 'paused', name: 'Paused' },
+      { id: 'completed', name: 'Completed' },
+    ],
+    threads: { async create() { return showcaseThread; } },
+  };
   const channel = {
     name: 'project-42-signals',
     parentId: null,
@@ -701,7 +756,12 @@ test('project-close completes the project and moves the channel to history', asy
       channel.name = name;
     },
     async send(message) {
-      channel.message = message;
+      messages.push(message);
+      return {
+        id: messages.length === 1 ? 'home-message' : `event-${messages.length}`,
+        pinned: false,
+        async pin() {},
+      };
     },
   };
   const guild = {
@@ -727,8 +787,9 @@ test('project-close completes the project and moves the channel to history', asy
         },
       },
       async fetch(id) {
-        assert.equal(id, 'project-channel');
-        return channel;
+        if (id === 'showcase') return showcase;
+        if (id === 'project-channel') return channel;
+        throw new Error(`Unexpected channel fetch: ${id}`);
       },
     },
   };
@@ -751,7 +812,10 @@ test('project-close completes the project and moves the channel to history', asy
   assert.equal(channel.parentId, 'archive-category');
   assert.deepEqual(channel.parentOptions, { lockPermissions: false });
   assert.equal(channel.overwriteReason, 'Reconcile project 42 access');
-  assert.match(channel.message.content, /\*\*Outcome:\*\* Completed successfully/);
+  assert.equal(messages[0].embeds[0].data.fields.find((field) => field.name === 'Conclusion').value, 'Completed successfully');
+  assert.equal(messages[0].embeds[0].data.fields.find((field) => field.name === 'Internal handover notes').value, 'Ready for handover');
+  assert.equal(JSON.stringify(messages[1]).includes('Ready for handover'), false);
+  assert.match(messages[1].embeds[0].data.title, /Project completed/);
   assert.ok(queries.some((call) => call.text.includes('SET status = $1') && call.values[0] === PROJECT_STATUSES.COMPLETED));
   assert.equal(queries.some((call) => call.values?.[0] === PROJECT_STATUSES.ARCHIVED), false);
 });
@@ -770,6 +834,7 @@ test('completed and archived projects reject all mutating project commands befor
   const db = {
     async query(text) {
       if (text.includes('FROM projects p')) return { rowCount: 1, rows: [immutableProject] };
+      if (text.includes('FROM project_people')) return { rows: [] };
       throw new Error(`Unexpected query: ${text}`);
     },
     async transaction() {

@@ -689,6 +689,7 @@ test('project creation retains its committed record and records a pending reconc
     division: 'Analysis',
     startDate: '2026-07-01',
     expectedEnd: '2026-08-01',
+    summary: 'Public Signals summary',
     notes: null,
     members: member.id,
     supervisors: supervisor.id,
@@ -762,6 +763,7 @@ test('project creation excludes a Head removal that commits before the locked He
     division: 'Analysis',
     startDate: '2026-07-01',
     expectedEnd: '2026-08-01',
+    summary: 'Public locked-head summary',
     members: memberId,
     supervisors: supervisorId,
   }, { db: database });
@@ -778,7 +780,7 @@ test('project creation excludes a Head removal that commits before the locked He
   );
 });
 
-test('successful project create, update, and close retain their one-shot history posts', async () => {
+test('successful project create, update, and close maintain canonical Discord records', async () => {
   await resetAndMigrate();
   const { universityId, divisionId } = await seedUniversityAndDivision();
   await database.query('UPDATE universities SET showcase_channel_id = $1 WHERE id = $2', ['showcase', universityId]);
@@ -798,8 +800,17 @@ test('successful project create, update, and close retain their one-shot history
 
   const channels = new Map();
   const workspaceMessages = [];
-  const threadMessages = [];
-  const thread = { id: 'thread', async setName() {}, async send(payload) { threadMessages.push(payload); } };
+  const workspaceEdits = [];
+  const workspaceTransitions = [];
+  const starterEdits = [];
+  let appliedTags = [];
+  const starter = { async edit(payload) { starterEdits.push(payload); } };
+  const thread = {
+    id: 'thread', name: 'Signals', archived: false, locked: false,
+    async fetchStarterMessage() { return starter; },
+    async setName(name) { thread.name = name; },
+    async setAppliedTags(tags) { appliedTags = tags; },
+  };
   const forum = {
     id: 'showcase', type: ChannelType.GuildForum, availableTags: [],
     async setAvailableTags(tags) { forum.availableTags = tags.map((tag, index) => ({ ...tag, id: tag.id ?? `tag-${index}` })); return forum; },
@@ -816,10 +827,23 @@ test('successful project create, update, and close retain their one-shot history
     cache: { has: (id) => channels.has(id), find: (predicate) => [...channels.values()].find(predicate) },
     async fetch(id) { return id == null ? channels : channels.get(id) ?? null; },
     async create(options) {
+      const homeMessage = {
+        id: 'home-message', pinned: false,
+        async edit(payload) { workspaceEdits.push(payload); },
+        async pin() { homeMessage.pinned = true; },
+      };
       const workspace = {
         id: 'workspace', name: options.name, topic: options.topic, parentId: null,
-        permissionOverwrites: { async set() {} }, async setName() {}, async setParent() {},
-        async send(payload) { workspaceMessages.push(payload); },
+        permissionOverwrites: { async set() {} }, async setName() {}, async setParent() {}, async setTopic() {},
+        messages: { async fetch(id) { return id === homeMessage.id ? homeMessage : null; } },
+        async send(payload) {
+          if (payload.content?.includes('Project #')) {
+            workspaceMessages.push(payload);
+            return homeMessage;
+          }
+          workspaceTransitions.push(payload);
+          return { id: `transition-${workspaceTransitions.length}` };
+        },
       };
       channels.set(workspace.id, workspace);
       return workspace;
@@ -828,16 +852,22 @@ test('successful project create, update, and close retain their one-shot history
   const interaction = { guild, member: actor, user: { id: actor.id } };
   const created = await createProject({
     interaction, name: 'Signals', university: 'Bocconi', division: 'Analysis',
-    startDate: '2026-07-01', expectedEnd: '2026-08-01', notes: null, members: member.id, supervisors: supervisor.id,
+    startDate: '2026-07-01', expectedEnd: '2026-08-01', summary: 'Public Signals summary', notes: null,
+    members: member.id, supervisors: supervisor.id,
   }, { db: database });
   await updateProject({ interaction, project: String(created.id), notes: 'Updated notes' }, { db: database });
   await closeProject({ interaction, project: String(created.id), outcome: 'Done', finalNotes: 'Handed over' }, { db: database });
-  assert.equal(workspaceMessages.length, 3);
-  assert.match(workspaceMessages[0].content, /# Signals/);
-  assert.match(workspaceMessages[1].content, /Project details were updated/);
-  assert.match(workspaceMessages[2].content, /\*\*Outcome:\*\* Done/);
+  assert.equal(workspaceMessages.length, 1);
+  assert.equal(workspaceEdits.length, 2);
+  assert.equal(workspaceTransitions.length, 2);
+  assert.equal(workspaceEdits.at(-1).embeds[0].data.fields.find((field) => field.name === 'Conclusion').value, 'Done');
+  assert.equal(workspaceEdits.at(-1).embeds[0].data.fields.find((field) => field.name === 'Internal handover notes').value, 'Handed over');
+  assert.equal(JSON.stringify(workspaceTransitions.at(-1)).includes('Handed over'), false);
   assert.equal(forum.created.name, 'Signals');
-  assert.equal(threadMessages.length, 2);
+  assert.deepEqual(forum.created.appliedTags.map((tag) => forum.availableTags.find((candidate) => candidate.id === tag).name), ['Analysis', 'Active']);
+  assert.equal(starterEdits.length, 2);
+  assert.equal(JSON.stringify(starterEdits.at(-1)).includes('Handed over'), false);
+  assert.deepEqual(appliedTags.map((tag) => forum.availableTags.find((candidate) => candidate.id === tag).name), ['Analysis', 'Completed']);
 });
 
 function lockedTransactionDatabase() {
@@ -1194,6 +1224,7 @@ test('project eligibility boundary serializes real PostgreSQL add/create races w
     division: 'Analysis',
     startDate: '2026-07-01',
     expectedEnd: '2026-08-01',
+    summary: 'Public created-signals summary',
     members: createRace.userId,
     supervisors: createRace.supervisorId,
   }, { db: blockingDbForCreate });
@@ -1258,6 +1289,7 @@ test('membership-first transactions make concurrent project writes fail their lo
       division: 'Analysis',
       startDate: '2026-07-01',
       expectedEnd: '2026-08-01',
+      summary: 'Public membership-first summary',
       members: createRace.userId,
       supervisors: createRace.supervisorId,
     }, { db }),
