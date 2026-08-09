@@ -867,6 +867,31 @@ function lockedTransactionDatabase() {
   };
 }
 
+function lockedProjectTransactionDatabase() {
+  const locked = deferred();
+  const release = deferred();
+  let didLock = false;
+  return {
+    query: database.query.bind(database),
+    locked: locked.promise,
+    release: release.resolve,
+    async transaction(work) {
+      return database.transaction(async (client) => work({
+        ...client,
+        async query(text, values = []) {
+          const result = await client.query(text, values);
+          if (!didLock && text.includes('FROM projects p') && text.includes('FOR UPDATE OF p')) {
+            didLock = true;
+            locked.resolve();
+            await release.promise;
+          }
+          return result;
+        },
+      }));
+    },
+  };
+}
+
 async function seedEligibilityRace() {
   await resetAndMigrate();
   const { universityId, divisionId } = await seedUniversityAndDivision();
@@ -1301,6 +1326,59 @@ test('concurrent project add-member requests serialize at the participant cap', 
     (await database.query('SELECT count(*)::int AS count FROM project_people WHERE project_id = $1', [fixture.projectId]))
       .rows[0].count,
     MAX_PROJECT_PARTICIPANTS,
+  );
+});
+
+test('project lifecycle mutations revalidate the locked project and preserve concurrent field updates', async () => {
+  const closing = await seedEligibilityRace();
+  const closeDb = lockedProjectTransactionDatabase();
+  const close = closeProject({
+    interaction: { guild: closing.guild, user: { id: closing.head.id }, member: closing.head },
+    project: String(closing.projectId),
+    outcome: 'Delivered',
+    finalNotes: 'Ready for handover',
+  }, { db: closeDb as never });
+  await closeDb.locked;
+
+  const add = addProjectMember(projectAddInput(closing), { db: database as never });
+  closeDb.release();
+  await close;
+  await assert.rejects(add, /Completed or archived projects cannot be changed/);
+  assert.equal(
+    ((await database.query('SELECT status FROM projects WHERE id = $1', [closing.projectId])) as unknown as {
+      rows: Array<{ status: string }>;
+    }).rows[0].status,
+    'completed',
+  );
+  assert.equal(
+    (await database.query(
+      'SELECT count(*)::int AS count FROM project_people WHERE project_id = $1 AND discord_user_id = $2',
+      [closing.projectId, closing.userId],
+    ) as unknown as { rows: Array<{ count: number }> }).rows[0].count,
+    0,
+  );
+
+  const updating = await seedEligibilityRace();
+  const firstUpdateDb = lockedProjectTransactionDatabase();
+  const firstUpdate = updateProject({
+    interaction: { guild: updating.guild, user: { id: updating.head.id }, member: updating.head },
+    project: String(updating.projectId),
+    notes: 'First update notes',
+  }, { db: firstUpdateDb as never });
+  await firstUpdateDb.locked;
+  const secondUpdate = updateProject({
+    interaction: { guild: updating.guild, user: { id: updating.head.id }, member: updating.head },
+    project: String(updating.projectId),
+    expectedEnd: '2026-09-01',
+  }, { db: database as never });
+  firstUpdateDb.release();
+  await Promise.all([firstUpdate, secondUpdate]);
+  assert.deepEqual(
+    ((await database.query(
+      'SELECT notes, expected_end::text AS expected_end FROM projects WHERE id = $1',
+      [updating.projectId],
+    )) as unknown as { rows: Array<{ notes: string | null; expected_end: string }> }).rows[0],
+    { notes: 'First update notes', expected_end: '2026-09-01' },
   );
 });
 

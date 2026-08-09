@@ -257,16 +257,19 @@ export async function deleteProfileForumPosts({ guild, ownerId, forumThreadId = 
   const resolvedBotUserId = botUserId(guild, explicitBotUserId);
   const stored = await fetchChannel(guild, forumThreadId);
   const forum = await resolvePeopleDirectoryForum(guild);
-  const matches = forum
-    ? await profileThreadCandidates({ forum, ownerId: String(ownerId), botId: resolvedBotUserId })
-    : [];
   const targets = new Map<string, unknown>();
-  if (stored?.parentId === forum?.id) {
+  if (stored) {
     const ownedStored = await isOwnedProfileThread(stored, String(ownerId), resolvedBotUserId);
     if (ownedStored) targets.set(String(stored.id), stored);
   }
-  for (const { thread } of matches) targets.set(String(thread.id), thread);
+  if (forum) {
+    const matches = await profileThreadCandidates({ forum, ownerId: String(ownerId), botId: resolvedBotUserId });
+    for (const { thread } of matches) targets.set(String(thread.id), thread);
+  }
   await Promise.all([...targets.values()].map((thread) => deleteThread(thread, 'Delete hidden BAINSA directory profile')));
+  // Without the forum we cannot scan for a duplicate or legacy post. Keep the
+  // durable reconciliation row pending even when a stored thread was deleted.
+  if (!forum) throw new Error('The people-directory forum is unavailable.');
   return { deletedThreadIds: [...targets.keys()] };
 }
 

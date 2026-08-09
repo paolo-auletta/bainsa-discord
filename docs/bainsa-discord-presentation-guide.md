@@ -530,7 +530,7 @@ This gives the person immediate feedback without flooding the channel, while sti
 
 ### Codebase in brief
 
-The bot is written in modern JavaScript for Node.js 22 and uses:
+The bot is written in TypeScript, compiled to native Node.js 22 ESM JavaScript, and uses:
 
 - `discord.js` for Discord commands, roles, channels, components, and permissions.
 - PostgreSQL for members, universities, divisions, projects, onboarding, reconciliation, and audit history.

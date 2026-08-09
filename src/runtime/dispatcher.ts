@@ -1,5 +1,5 @@
 import { handleInteractionError } from '../discord/reply.js';
-import { UserFacingError } from '../errors.js';
+import { assertUser, UserFacingError } from '../errors.js';
 import { assertNoBotCommandTarget } from '../authorization.js';
 import { assertBotCommandChannel, botCommandChannelScope } from './command-channels.js';
 import { canDiscoverCommand } from './command-permissions.js';
@@ -56,6 +56,12 @@ export function createInteractionDispatcher({
         const command = commandMap.get(interaction.commandName);
         if (!command) throw new UserFacingError(`Unknown command: ${interaction.commandName}`);
         assertBotCommandChannel(interaction);
+        const allowed = canDiscoverCommand({
+          commandName: interaction.commandName,
+          member: interaction.member,
+          channelScope: botCommandChannelScope(interaction.channel),
+        });
+        assertUser(allowed, 'This command is not available in this bot-log channel.');
         assertNoBotCommandTarget(interaction);
         await command.execute(interaction);
         return;

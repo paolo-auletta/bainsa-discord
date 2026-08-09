@@ -110,7 +110,11 @@ test('autocomplete visibility applies board tier and university command-channel 
   const head = memberWithRoles(['Bocconi - Head of Projects']);
   const ordinaryMember = memberWithRoles(['Researcher']);
 
-  assert.equal(canDiscoverCommand({ commandName: 'division-create', member: globalPresident, channelScope: scope }), true);
+  assert.equal(canDiscoverCommand({ commandName: 'division-create', member: globalPresident, channelScope: scope }), false);
+  assert.equal(
+    canDiscoverCommand({ commandName: 'division-create', member: globalPresident, channelScope: { kind: 'global' } }),
+    true,
+  );
   assert.equal(canDiscoverCommand({ commandName: 'division-create', member: president, channelScope: scope }), true);
   assert.equal(canDiscoverCommand({ commandName: 'division-create', member: vicePresident, channelScope: scope }), false);
   assert.equal(canDiscoverCommand({ commandName: 'division-create', member: head, channelScope: scope }), false);

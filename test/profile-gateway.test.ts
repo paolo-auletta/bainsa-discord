@@ -228,3 +228,28 @@ test('unpublishing never deletes a stored thread that is not confidently owner-m
   assert.deepEqual(result.deletedThreadIds, []);
   assert.equal(deleted, 0);
 });
+
+test('stored owner-matched posts are deleted but cleanup stays retryable when the forum is unavailable', async () => {
+  let deleted = 0;
+  const stored = {
+    id: 'stored-profile',
+    parentId: 'renamed-forum',
+    async fetchStarterMessage() {
+      return { id: 'stored-profile', author: { id: 'bot' }, content: post.content };
+    },
+    async delete() { deleted += 1; },
+  };
+  const guild = {
+    client: { user: { id: 'bot' } },
+    channels: {
+      cache: { find: () => null },
+      async fetch(id) { return id === stored.id ? stored : new Map(); },
+    },
+  };
+
+  await assert.rejects(
+    () => deleteProfileForumPosts({ guild, ownerId: 'owner', forumThreadId: stored.id }),
+    /people-directory forum is unavailable/,
+  );
+  assert.equal(deleted, 1);
+});

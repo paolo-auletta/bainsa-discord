@@ -7,6 +7,7 @@ Use Node 22 and npm 10.9.2 (the versions declared in `.nvmrc` and `package.json`
 ```bash
 npm run check
 npm run build
+npm run typecheck:tests
 npm run lint
 npm run format:check
 npm test
@@ -14,7 +15,9 @@ npm audit --omit=dev --audit-level=high
 ```
 
 The CI workflow runs the same commands without credentials. `npm run check` type-checks production
-source and operational scripts; `npm run build` emits the complete project to `dist/`. `npm test`
+source and operational scripts; `npm run build` emits the complete project to `dist/`.
+`npm run typecheck:tests` is a ratcheting test-type baseline: it rejects new test diagnostics while
+the existing fake and boundary typing backlog is reduced. `npm test`
 supplies inert local test values, so it does not read `.env`. Keep new checks deterministic and
 safe to run without Discord or PostgreSQL access.
 

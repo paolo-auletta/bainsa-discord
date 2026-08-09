@@ -7,6 +7,7 @@ import { logger } from './logger.js';
 import { createOnboardingService } from './onboarding/service.js';
 import { createBotClient } from './runtime/client.js';
 import { createInteractionDispatcher } from './runtime/dispatcher.js';
+import { isConfiguredGuildEvent } from './runtime/guild-events.js';
 import { installGracefulShutdown } from './runtime/shutdown.js';
 import { config } from './config.js';
 import { createProfileService } from './profiles/index.js';
@@ -75,12 +76,12 @@ client.on(Events.InteractionCreate, (interaction) => {
 });
 
 client.on(Events.GuildMemberAdd, (member) => {
-  if (lifecycle.isShuttingDown()) return;
+  if (lifecycle.isShuttingDown() || !isConfiguredGuildEvent(member, config.discordGuildId)) return;
   void onboarding.sendJoinDm(member);
 });
 
 client.on(Events.GuildMemberRemove, (member) => {
-  if (lifecycle.isShuttingDown()) return;
+  if (lifecycle.isShuttingDown() || !isConfiguredGuildEvent(member, config.discordGuildId)) return;
   void hideDepartedMemberProfile(member, { db: { query, transaction } }).catch(() => {
     logger.warn('Could not hide departed member directory profile', {
       discordUserId: String(member.id),

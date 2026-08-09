@@ -71,9 +71,9 @@ test('dispatcher routes chat input commands', async () => {
   const dispatch = createInteractionDispatcher({
     commands: [
       {
-        name: 'ping',
+        name: 'project-create',
         execute: async (interaction) => {
-          executed = interaction.commandName === 'ping';
+          executed = interaction.commandName === 'project-create';
         },
       },
     ],
@@ -81,7 +81,8 @@ test('dispatcher routes chat input commands', async () => {
   });
 
   await dispatch({
-    commandName: 'ping',
+    commandName: 'project-create',
+    member: memberWithRoles(['Global President']),
     channel: { name: 'bot-log', parent: { name: 'LOGS' } },
     isChatInputCommand: () => true,
     isAutocomplete: () => false,
@@ -110,6 +111,7 @@ test('dispatcher blocks bot-targeting commands before execution', async () => {
 
   await dispatch({
     commandName: 'member-remove',
+    member: memberWithRoles(['Global President']),
     channel: { name: 'bot-log', parent: { name: 'LOGS' } },
     client: { user: { id: '99999999999999999' } },
     options: { data: [{ type: 6, name: 'user', value: '99999999999999999' }] },
@@ -197,18 +199,40 @@ test('dispatcher invokes autocomplete for every authorized board tier', async ()
     }],
     onError: async () => assert.fail('unexpected error handler call'),
   });
-  const channel = { name: 'bot-log', parent: { name: 'BAINSA BOCCONI' } };
-
-  for (const roles of [
-    ['Global President'],
-    ['Bocconi - President'],
-    ['Bocconi - Vice President'],
-    ['Bocconi - Head of Projects'],
+  for (const { roles, channel } of [
+    { roles: ['Global President'], channel: { name: 'bot-log', parent: { name: 'LOGS' } } },
+    { roles: ['Bocconi - President'], channel: { name: 'bot-log', parent: { name: 'BAINSA BOCCONI' } } },
+    { roles: ['Bocconi - Vice President'], channel: { name: 'bot-log', parent: { name: 'BAINSA BOCCONI' } } },
+    { roles: ['Bocconi - Head of Projects'], channel: { name: 'bot-log', parent: { name: 'BAINSA BOCCONI' } } },
   ]) {
     await dispatch(autocompleteInteraction({ member: memberWithRoles(roles), channel }));
   }
 
   assert.equal(invocations, 4);
+});
+
+test('dispatcher rejects a command from a bot-log outside the actor’s allowed scope', async () => {
+  let executed = false;
+  let captured;
+  const dispatch = createInteractionDispatcher({
+    commands: [{ name: 'project-create', execute: async () => { executed = true; } }],
+    onError: async (_interaction, error) => { captured = error; },
+  });
+
+  await dispatch({
+    commandName: 'project-create',
+    member: memberWithRoles(['Bocconi - Head of Projects']),
+    channel: { name: 'bot-log', parent: { name: 'BAINSA SAPIENZA' } },
+    isChatInputCommand: () => true,
+    isAutocomplete: () => false,
+    isButton: () => false,
+    isStringSelectMenu: () => false,
+    isModalSubmit: () => false,
+    isRepliable: () => true,
+  });
+
+  assert.equal(executed, false);
+  assert.match(captured.message, /not available in this bot-log channel/);
 });
 
 test('deferred ephemeral replies edit the original response', async () => {
