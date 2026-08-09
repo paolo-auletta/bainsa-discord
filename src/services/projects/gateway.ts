@@ -171,6 +171,10 @@ export async function syncShowcaseThread(guild, project, people) {
 }
 
 function projectHomeMarker(projectId) {
+  return `-# Project #${projectId} · Pinned project record · Updates automatically`;
+}
+
+function legacyProjectHomeMarker(projectId) {
   return `-# Project #${projectId} ·`;
 }
 
@@ -182,7 +186,8 @@ function matchingProjectHome(messages, channel, projectId) {
   const botUserId = channel.client?.user?.id;
   return messages.find(
     (message) =>
-      message.content?.startsWith(projectHomeMarker(projectId))
+      (message.content?.endsWith(projectHomeMarker(projectId))
+        || message.content?.startsWith(legacyProjectHomeMarker(projectId)))
       && (!botUserId || !message.author?.id || String(message.author.id) === String(botUserId)),
   ) ?? null;
 }

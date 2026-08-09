@@ -186,14 +186,50 @@ function projectRecordLinks(project) {
   ];
 }
 
-export function projectHomePayload(project, people) {
-  const embed = projectRecordEmbed(project, people)
-    .addFields(...projectRecordLinks(project))
-    .setFooter({ text: `Project #${project.id} · Pinned project record · Updates automatically` });
+function projectHomeMarker(project) {
+  return `-# Project #${project.id} · Pinned project record · Updates automatically`;
+}
 
+function projectHomeText(project, people) {
+  const team = [
+    `**Members:** ${formatPeopleLine(people, PROJECT_PERSON_ROLES.MEMBER, PEOPLE_LINE_LIMIT)}`,
+    `**Supervisors:** ${formatPeopleLine(people, PROJECT_PERSON_ROLES.SUPERVISOR, PEOPLE_LINE_LIMIT)}`,
+  ];
+  const boardLiaisons = people.filter((person) => person.role === PROJECT_PERSON_ROLES.BOARD_LIAISON);
+  if (boardLiaisons.length > 0) {
+    team.push(`**Board liaisons:** ${formatPeopleLine(people, PROJECT_PERSON_ROLES.BOARD_LIAISON, PEOPLE_LINE_LIMIT)}`);
+  }
+
+  const workspace = project.discord_channel_id ? `<#${project.discord_channel_id}>` : 'Not provisioned';
+  const showcase = project.showcase_thread_id ? `<#${project.showcase_thread_id}>` : 'Pending';
+  const marker = projectHomeMarker(project);
+  const lines = [
+    `**${project.name}**`,
+    '',
+    `**${project.university_name}** · **Status:** ${projectStatusLabel(project.status)} · **Division:** ${divisionLabel(project.division_name, project.division_color)}`,
+    `**Timeline:** ${projectTimeline(project)} · **Workspace:** ${workspace} · **Shareable record:** ${showcase}`,
+    '',
+    '**Summary**',
+    String(project.summary || 'No public project summary has been added yet.').slice(0, 1_024),
+    '',
+    '**Team**',
+    ...team,
+  ];
+
+  if (project.notes) lines.push('', `**Internal working notes:** ${embedFieldValue(project.notes)}`);
+  if (project.outcome) lines.push('', `**Conclusion:** ${embedFieldValue(project.outcome)}`);
+  if (project.final_notes) lines.push('', `**Internal handover notes:** ${embedFieldValue(project.final_notes)}`);
+  lines.push('', marker);
+
+  const text = lines.join('\n');
+  if (text.length <= DISCORD_MESSAGE_LIMIT) return text;
+  const availableBodyLength = DISCORD_MESSAGE_LIMIT - marker.length - 2;
+  return `${text.slice(0, availableBodyLength).trimEnd()}…\n${marker}`;
+}
+
+export function projectHomePayload(project, people) {
   return {
-    content: `-# Project #${project.id} · ${project.university_name} project workspace`,
-    embeds: [embed],
+    content: projectHomeText(project, people),
   };
 }
 

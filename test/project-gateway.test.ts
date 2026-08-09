@@ -163,10 +163,10 @@ test('project home reconciliation edits and pins one canonical overview', async 
   assert.equal(sent, false);
   assert.match(pinReason, /canonical project 42 overview/);
   assert.deepEqual(editedPayload.allowedMentions, { parse: [] });
-  assert.equal(editedPayload.embeds[0].data.title, '@everyone project');
-  assert.equal(editedPayload.embeds[0].data.fields.at(-2).name, 'Workspace');
-  assert.equal(editedPayload.embeds[0].data.fields.at(-1).name, 'Shareable record');
-  assert.equal(editedPayload.embeds[0].data.fields.some((field) => field.name === 'How to use this space'), false);
+  assert.equal(editedPayload.embeds, undefined);
+  assert.match(editedPayload.content, /^\*\*@everyone project\*\*/);
+  assert.match(editedPayload.content, /\*\*Division:\*\* 🟧 Analysis/);
+  assert.match(editedPayload.content, /Pinned project record · Updates automatically$/);
 });
 
 test('project workspace guide is a separate pinned normal message', async () => {

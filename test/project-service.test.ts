@@ -638,11 +638,7 @@ test('project embeds cap participant lists and keep private handover notes out o
     final_notes: 'Private handover',
   };
 
-  for (const payload of [
-    projectHomePayload(project, people),
-    showcasePostPayload(project, people),
-    projectInfoMessage(project, people),
-  ]) {
+  for (const payload of [showcasePostPayload(project, people), projectInfoMessage(project, people)]) {
     const embed = payload.embeds[0].toJSON();
     assert.ok((embed.description?.length ?? 0) <= 4_096);
     assert.ok(embed.fields.every((field) => field.value.length <= 1_024));
@@ -653,6 +649,10 @@ test('project embeds cap participant lists and keep private handover notes out o
     assert.ok(embedCharacters <= 6_000, `embed contains ${embedCharacters} characters`);
     assert.match(JSON.stringify(embed), /\(\+\d+ more\)/);
   }
+  const home = projectHomePayload(project, people);
+  assert.equal(home.embeds, undefined);
+  assert.ok(home.content.length <= 2_000);
+  assert.match(home.content, /Pinned project record · Updates automatically$/);
   const showcase = JSON.stringify(showcasePostPayload(project, people));
   assert.equal(showcase.includes('Private handover'), false);
   assert.equal(showcase.includes('x'.repeat(100)), false);
@@ -663,7 +663,7 @@ test('project embeds cap participant lists and keep private handover notes out o
   assert.match(guide, /Pinned workspace guide$/);
 });
 
-test('project home mirrors project-info while the assignment DM has a compact mobile hierarchy', () => {
+test('project home keeps project-info data in a scannable plain-message hierarchy', () => {
   const project = {
     id: 42,
     name: 'Signals',
@@ -681,10 +681,31 @@ test('project home mirrors project-info while the assignment DM has a compact mo
     final_notes: null,
   };
   const people = [{ discord_user_id: 'supervisor', role: PROJECT_PERSON_ROLES.SUPERVISOR }];
-  const homeFields = projectHomePayload(project, people).embeds[0].toJSON().fields;
   const infoFields = projectInfoMessage(project, people).embeds[0].toJSON().fields;
-  assert.deepEqual(homeFields, infoFields);
+  const home = projectHomePayload(project, people).content;
+  assert.match(home, /^\*\*Signals\*\*/);
+  assert.match(home, /\*\*Status:\*\* Active · \*\*Division:\*\* 🟧 Analysis/);
+  assert.match(home, /\*\*Timeline:\*\* 2026-07-01 → 2026-08-01 · \*\*Workspace:\*\* <#workspace> · \*\*Shareable record:\*\* <#showcase>/);
+  assert.match(home, /\*\*Members:\*\* None yet/);
+  assert.match(home, /\*\*Supervisors:\*\* <@supervisor>/);
+  assert.equal(infoFields.some((field) => field.name === 'Workspace'), true);
+  assert.equal(infoFields.some((field) => field.name === 'Shareable record'), true);
+  assert.match(home, /Pinned project record · Updates automatically$/);
+});
 
+test('project assignment DM has a compact desktop-first hierarchy', () => {
+  const project = {
+    id: 42,
+    name: 'Signals',
+    university_name: 'Bocconi',
+    division_name: 'Analysis',
+    division_color: 'orange',
+    status: 'active',
+    start_date: '2026-07-01',
+    expected_end: '2026-08-01',
+    discord_channel_id: 'workspace',
+    showcase_thread_id: 'showcase',
+  };
   const handoff = projectAssignmentMessage('guild', project, PROJECT_PERSON_ROLES.SUPERVISOR);
   assert.match(handoff, /^\*\*You joined Signals\*\*\n\n?Bocconi/);
   assert.match(handoff, /\*\*Role\*\* · Supervisor/);
@@ -851,8 +872,8 @@ test('project-close completes the project and moves the channel to history', asy
   assert.equal(channel.parentId, 'archive-category');
   assert.deepEqual(channel.parentOptions, { lockPermissions: false });
   assert.equal(channel.overwriteReason, 'Reconcile project 42 access');
-  assert.equal(messages[0].embeds[0].data.fields.find((field) => field.name === 'Conclusion').value, 'Completed successfully');
-  assert.equal(messages[0].embeds[0].data.fields.find((field) => field.name === 'Internal handover notes').value, 'Ready for handover');
+  assert.match(messages[0].content, /\*\*Conclusion:\*\* Completed successfully/);
+  assert.match(messages[0].content, /\*\*Internal handover notes:\*\* Ready for handover/);
   assert.match(messages[1].content, /^\*\*How to use this space\*\*/);
   assert.equal(JSON.stringify(messages[1]).includes('Ready for handover'), false);
   assert.equal(JSON.stringify(messages[2]).includes('Ready for handover'), false);

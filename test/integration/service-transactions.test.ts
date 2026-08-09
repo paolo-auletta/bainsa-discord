@@ -885,8 +885,8 @@ test('successful project create, update, and close maintain canonical Discord re
   assert.equal(workspaceGuideEdits.length, 2);
   assert.match(workspaceGuides[0].content, /^\*\*How to use this space\*\*/);
   assert.equal(workspaceTransitions.length, 2);
-  assert.equal(workspaceEdits.at(-1).embeds[0].data.fields.find((field) => field.name === 'Conclusion').value, 'Done');
-  assert.equal(workspaceEdits.at(-1).embeds[0].data.fields.find((field) => field.name === 'Internal handover notes').value, 'Handed over');
+  assert.match(workspaceEdits.at(-1).content, /\*\*Conclusion:\*\* Done/);
+  assert.match(workspaceEdits.at(-1).content, /\*\*Internal handover notes:\*\* Handed over/);
   assert.equal(JSON.stringify(workspaceTransitions.at(-1)).includes('Handed over'), false);
   assert.equal(forum.created.name, 'Signals');
   assert.deepEqual(forum.created.appliedTags.map((tag) => forum.availableTags.find((candidate) => candidate.id === tag).name), ['Analysis', 'Active']);
