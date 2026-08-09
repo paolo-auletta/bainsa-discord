@@ -417,6 +417,164 @@ test('member-update restores mocked Discord roles when its PostgreSQL transactio
   assert.equal((await database.query('SELECT count(*)::int AS count FROM members')).rows[0].count, 1);
 });
 
+test('member updates enqueue published profiles only when canonical directory facts change', async () => {
+  await resetAndMigrate();
+  const { universityId, divisionId } = await seedUniversityAndDivision();
+  await database.query(
+    `INSERT INTO divisions (university_id, name, member_role_id)
+     VALUES ($1, 'Culture', 'culture-role') RETURNING id`,
+    [universityId],
+  );
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type, status)
+     VALUES ($1, $2, 'researcher', 'active')`,
+    ['directory-member', universityId],
+  );
+  await database.query(
+    'INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)',
+    ['directory-member', divisionId],
+  );
+  await database.query(
+    `INSERT INTO member_profiles (
+       discord_user_id, headline, about, "current_role", goals, selected_tags, visibility
+     ) VALUES ($1, $2, $3, $4, $5, $6::text[], 'published')`,
+    [
+      'directory-member',
+      'Applied AI researcher',
+      'I enjoy machine learning and collaborative research projects.',
+      'MSc student',
+      'Explore research and internship collaborations.',
+      ['ai_data'],
+    ],
+  );
+
+  const guild = { id: 'guild' };
+  guild.roles = {
+    cache: roleCache([
+      role('researcher-role', ROLE_NAMES.RESEARCHER),
+      role('alumni-role', ROLE_NAMES.ALUMNI),
+      role('bocconi-role', 'Bocconi'),
+      role('analysis-role', 'Bocconi - Analysis'),
+      role('culture-role', 'Bocconi - Culture'),
+      role('global-president', ROLE_NAMES.GLOBAL_PRESIDENT),
+    ]),
+  };
+  const target = managedMember('directory-member', guild, [
+    role('researcher-role', ROLE_NAMES.RESEARCHER),
+    role('bocconi-role', 'Bocconi'),
+    role('analysis-role', 'Bocconi - Analysis'),
+  ]);
+  const actor = globalPresident('directory-actor');
+  guild.members = { async fetch(id) { return String(id) === target.id ? target : actor; } };
+  const interaction = { guild, user: { id: actor.id }, member: actor };
+
+  await updateMember(
+    interaction,
+    { user: { id: target.id }, divisionsText: 'Culture' },
+    { db: database },
+  );
+  let reconciliation = await database.query(
+    'SELECT desired_generation, status FROM member_profile_reconciliation WHERE discord_user_id = $1',
+    [target.id],
+  );
+  assert.deepEqual(reconciliation.rows[0], { desired_generation: '1', status: 'pending' });
+
+  await updateMember(
+    interaction,
+    { user: { id: target.id }, notes: 'Updated administrative note only' },
+    { db: database },
+  );
+  reconciliation = await database.query(
+    'SELECT desired_generation FROM member_profile_reconciliation WHERE discord_user_id = $1',
+    [target.id],
+  );
+  assert.equal(reconciliation.rows[0].desired_generation, '1');
+  const divisions = await database.query(
+    'SELECT d.name FROM member_divisions md JOIN divisions d ON d.id = md.division_id WHERE md.discord_user_id = $1',
+    [target.id],
+  );
+  assert.deepEqual(divisions.rows, [{ name: 'Culture' }]);
+});
+
+test('member removal rolls profile visibility and reconciliation back when its transaction fails', async () => {
+  await resetAndMigrate();
+  const { universityId, divisionId } = await seedUniversityAndDivision();
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type, status)
+     VALUES ($1, $2, 'researcher', 'active')`,
+    ['removal-profile-member', universityId],
+  );
+  await database.query(
+    'INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)',
+    ['removal-profile-member', divisionId],
+  );
+  await database.query(
+    `INSERT INTO member_profiles (
+       discord_user_id, headline, about, "current_role", goals, selected_tags, visibility,
+       forum_thread_id, forum_message_id
+     ) VALUES ($1, $2, $3, $4, $5, $6::text[], 'published', $7, $8)`,
+    [
+      'removal-profile-member',
+      'Applied AI researcher',
+      'I enjoy machine learning and collaborative research projects.',
+      'MSc student',
+      'Explore research and internship collaborations.',
+      ['ai_data'],
+      'removal-directory-thread',
+      'removal-directory-message',
+    ],
+  );
+
+  const guild = { id: 'guild' };
+  guild.roles = {
+    cache: roleCache([
+      role('researcher-role', ROLE_NAMES.RESEARCHER),
+      role('alumni-role', ROLE_NAMES.ALUMNI),
+      role('bocconi-role', 'Bocconi'),
+      role('analysis-role', 'Bocconi - Analysis'),
+      role('global-president', ROLE_NAMES.GLOBAL_PRESIDENT),
+    ]),
+  };
+  guild.channels = { cache: { has: () => false }, async fetch() { return null; } };
+  const target = managedMember('removal-profile-member', guild, [
+    role('researcher-role', ROLE_NAMES.RESEARCHER),
+    role('bocconi-role', 'Bocconi'),
+    role('analysis-role', 'Bocconi - Analysis'),
+  ]);
+  let kickCount = 0;
+  target.kick = async () => { kickCount += 1; };
+  const actor = globalPresident('removal-profile-actor');
+  guild.members = { async fetch(id) { return String(id) === target.id ? target : actor; } };
+  const failingDatabase = failTransactionQuery(database, (text) => text.includes('INSERT INTO audit_log'));
+
+  await assert.rejects(
+    removeMember(
+      { guild, user: { id: actor.id }, member: actor },
+      { user: { id: target.id }, reason: 'test rollback' },
+      { db: failingDatabase },
+    ),
+    /kicked, but the database\/audit update failed/i,
+  );
+  assert.equal(kickCount, 1);
+  const member = await database.query('SELECT status FROM members WHERE discord_user_id = $1', [target.id]);
+  const profile = await database.query(
+    `SELECT visibility, forum_thread_id, forum_message_id
+       FROM member_profiles WHERE discord_user_id = $1`,
+    [target.id],
+  );
+  const reconciliation = await database.query(
+    'SELECT count(*)::int AS count FROM member_profile_reconciliation WHERE discord_user_id = $1',
+    [target.id],
+  );
+  assert.equal(member.rows[0].status, 'active');
+  assert.deepEqual(profile.rows[0], {
+    visibility: 'published',
+    forum_thread_id: 'removal-directory-thread',
+    forum_message_id: 'removal-directory-message',
+  });
+  assert.equal(reconciliation.rows[0].count, 0);
+});
+
 test('member-update rejects an ineligible active PostgreSQL project assignment before Discord or transaction side effects', async () => {
   await resetAndMigrate();
   const { universityId, divisionId } = await seedUniversityAndDivision();
@@ -698,6 +856,31 @@ function lockedTransactionDatabase() {
         async query(text, values = []) {
           const result = await client.query(text, values);
           if (!didLock && text.includes('FROM members') && text.includes('FOR UPDATE')) {
+            didLock = true;
+            locked.resolve();
+            await release.promise;
+          }
+          return result;
+        },
+      }));
+    },
+  };
+}
+
+function lockedProjectTransactionDatabase() {
+  const locked = deferred();
+  const release = deferred();
+  let didLock = false;
+  return {
+    query: database.query.bind(database),
+    locked: locked.promise,
+    release: release.resolve,
+    async transaction(work) {
+      return database.transaction(async (client) => work({
+        ...client,
+        async query(text, values = []) {
+          const result = await client.query(text, values);
+          if (!didLock && text.includes('FROM projects p') && text.includes('FOR UPDATE OF p')) {
             didLock = true;
             locked.resolve();
             await release.promise;
@@ -1143,6 +1326,59 @@ test('concurrent project add-member requests serialize at the participant cap', 
     (await database.query('SELECT count(*)::int AS count FROM project_people WHERE project_id = $1', [fixture.projectId]))
       .rows[0].count,
     MAX_PROJECT_PARTICIPANTS,
+  );
+});
+
+test('project lifecycle mutations revalidate the locked project and preserve concurrent field updates', async () => {
+  const closing = await seedEligibilityRace();
+  const closeDb = lockedProjectTransactionDatabase();
+  const close = closeProject({
+    interaction: { guild: closing.guild, user: { id: closing.head.id }, member: closing.head },
+    project: String(closing.projectId),
+    outcome: 'Delivered',
+    finalNotes: 'Ready for handover',
+  }, { db: closeDb as never });
+  await closeDb.locked;
+
+  const add = addProjectMember(projectAddInput(closing), { db: database as never });
+  closeDb.release();
+  await close;
+  await assert.rejects(add, /Completed or archived projects cannot be changed/);
+  assert.equal(
+    ((await database.query('SELECT status FROM projects WHERE id = $1', [closing.projectId])) as unknown as {
+      rows: Array<{ status: string }>;
+    }).rows[0].status,
+    'completed',
+  );
+  assert.equal(
+    (await database.query(
+      'SELECT count(*)::int AS count FROM project_people WHERE project_id = $1 AND discord_user_id = $2',
+      [closing.projectId, closing.userId],
+    ) as unknown as { rows: Array<{ count: number }> }).rows[0].count,
+    0,
+  );
+
+  const updating = await seedEligibilityRace();
+  const firstUpdateDb = lockedProjectTransactionDatabase();
+  const firstUpdate = updateProject({
+    interaction: { guild: updating.guild, user: { id: updating.head.id }, member: updating.head },
+    project: String(updating.projectId),
+    notes: 'First update notes',
+  }, { db: firstUpdateDb as never });
+  await firstUpdateDb.locked;
+  const secondUpdate = updateProject({
+    interaction: { guild: updating.guild, user: { id: updating.head.id }, member: updating.head },
+    project: String(updating.projectId),
+    expectedEnd: '2026-09-01',
+  }, { db: database as never });
+  firstUpdateDb.release();
+  await Promise.all([firstUpdate, secondUpdate]);
+  assert.deepEqual(
+    ((await database.query(
+      'SELECT notes, expected_end::text AS expected_end FROM projects WHERE id = $1',
+      [updating.projectId],
+    )) as unknown as { rows: Array<{ notes: string | null; expected_end: string }> }).rows[0],
+    { notes: 'First update notes', expected_end: '2026-09-01' },
   );
 });
 

@@ -127,6 +127,24 @@ export async function getProject(db, projectId) {
   return result.rows[0];
 }
 
+/**
+ * Loads a project under its row lock so lifecycle checks and mutation payloads
+ * are based on one transactionally current state.
+ */
+export async function getProjectForUpdate(db, projectId) {
+  const result = await db.query(
+    `SELECT ${PROJECT_SELECT}
+     FROM projects p
+     JOIN universities u ON u.id = p.university_id
+     JOIN divisions d ON d.id = p.division_id
+     WHERE p.id = $1
+     FOR UPDATE OF p`,
+    [projectId],
+  );
+  assertUser(result.rowCount === 1, 'Project not found.');
+  return result.rows[0];
+}
+
 export async function getProjectPeople(db, projectId) {
   const result = await db.query(
     `SELECT discord_user_id, role
@@ -172,10 +190,10 @@ export async function insertProjectPeople(db, projectId, people) {
 }
 
 export async function lockProjectAndCountPeople(db, projectId) {
-  await db.query('SELECT id FROM projects WHERE id = $1 FOR UPDATE', [projectId]);
+  const project = await getProjectForUpdate(db, projectId);
   const result = await db.query(
     'SELECT count(*)::int AS count FROM project_people WHERE project_id = $1',
     [projectId],
   );
-  return Number(result.rows[0].count);
+  return { project, count: Number(result.rows[0].count) };
 }

@@ -8,6 +8,7 @@ import {
   ROLE_NAMES,
   universityRoleColor,
 } from '../constants.js';
+import { PROFILE_TAGS } from '../profiles/state.js';
 import {
   divisionHeadRoleName,
   divisionRoleName,
@@ -30,6 +31,7 @@ export const GLOBAL_CHANNELS = Object.freeze({
   BOARD: 'bainsa-board',
   SHOWCASE: 'projects-showcase',
   RESOURCES: 'resources',
+  PEOPLE_DIRECTORY: 'people-directory',
   CHANNEL_PROPOSALS: 'channel-proposals',
   ANONYMOUS_FEEDBACK: 'anonymous-feedback',
 });
@@ -330,6 +332,25 @@ export function globalForumTags() {
     { name: 'Resources' },
     { name: 'Question' },
   ];
+}
+
+/**
+ * The people-directory taxonomy is deliberately supplied by the profile
+ * domain. Keeping the provisioning boundary as a small adapter ensures the
+ * Discord labels and the persisted profile keys cannot drift apart.
+ */
+export function peopleDirectoryForumTags() {
+  if (PROFILE_TAGS.length !== 15) {
+    throw new Error('The people-directory taxonomy must contain exactly 15 managed tags.');
+  }
+  const labels = PROFILE_TAGS.map((tag) => String(tag.label ?? '').trim());
+  if (labels.some((label) => !label || label.length > 20)) {
+    throw new Error('People-directory tag labels must be non-empty and at most 20 characters.');
+  }
+  if (new Set(labels.map((label) => label.toLowerCase())).size !== labels.length) {
+    throw new Error('People-directory tag labels must be unique.');
+  }
+  return labels.map((name) => ({ name }));
 }
 
 export function universityForumTags(university) {

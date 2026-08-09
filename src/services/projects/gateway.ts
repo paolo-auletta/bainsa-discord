@@ -8,6 +8,8 @@ import { mapWithConcurrency } from './concurrency.js';
 import { formatProjectIntro, formatShowcasePost } from './formatters.js';
 import { formatDiscordUserReferences } from './validation.js';
 
+const PROJECT_HISTORY_ALLOWED_MENTIONS = Object.freeze({ parse: [] as string[] });
+
 async function fetchGuildMember(guild, userId) {
   try {
     return await guild.members.fetch(userId);
@@ -52,7 +54,10 @@ export async function createShowcaseThread(guild, project, people) {
   return forum.threads.create({
     name: project.name,
     appliedTags: tagId ? [tagId] : [],
-    message: { content: formatShowcasePost(project, people) },
+    message: {
+      content: formatShowcasePost(project, people),
+      allowedMentions: PROJECT_HISTORY_ALLOWED_MENTIONS,
+    },
     reason: `Project ${project.id} showcase post`,
   });
 }
@@ -62,12 +67,18 @@ export async function updateShowcaseThread(guild, project, people, extra = '') {
   const thread = await guild.channels.fetch(project.showcase_thread_id).catch(() => null);
   if (!thread) return;
   await thread.setName(project.name, `Update project ${project.id} showcase`).catch(() => undefined);
-  await thread.send({ content: formatShowcasePost(project, people, extra) }).catch(() => undefined);
+  await thread.send({
+    content: formatShowcasePost(project, people, extra),
+    allowedMentions: PROJECT_HISTORY_ALLOWED_MENTIONS,
+  }).catch(() => undefined);
 }
 
 export async function updateProjectChannel(guild, project, people, extra = '') {
   if (!project.discord_channel_id) return;
   const channel = await guild.channels.fetch(project.discord_channel_id).catch(() => null);
   if (!channel) return;
-  await channel.send({ content: formatProjectIntro(project, people, extra) }).catch(() => undefined);
+  await channel.send({
+    content: formatProjectIntro(project, people, extra),
+    allowedMentions: PROJECT_HISTORY_ALLOWED_MENTIONS,
+  }).catch(() => undefined);
 }

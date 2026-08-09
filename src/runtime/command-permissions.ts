@@ -78,7 +78,10 @@ function hasScopedBoardRole(member, universityName, visibility) {
 export function canDiscoverCommand({ commandName, member, channelScope }) {
   const visibility = COMMAND_VISIBILITY[commandName];
   if (!visibility || !channelScope || !member) return false;
-  if (hasRole(member, 'Global President')) return true;
+  // Global authority is exercised from the dedicated global bot log. Keeping
+  // this boundary here makes command discovery and execution agree even when
+  // a university channel overwrite is accidentally broadened.
+  if (hasRole(member, 'Global President')) return channelScope.kind === 'global';
   if (channelScope.kind !== 'university' || !channelScope.universityName) return false;
   return hasScopedBoardRole(member, channelScope.universityName, visibility);
 }

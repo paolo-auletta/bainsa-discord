@@ -656,6 +656,9 @@ test('project-close completes the project and moves the channel to history', asy
       const reconciliation = reconciliationQuery(text);
       if (reconciliation) return reconciliation;
       if (text.includes('FROM projects p')) {
+        if (text.includes('FOR UPDATE OF p')) {
+          return { rowCount: 1, rows: [project] };
+        }
         projectSelects += 1;
         return { rowCount: 1, rows: [projectSelects === 1 ? project : closedProject] };
       }
@@ -669,6 +672,9 @@ test('project-close completes the project and moves the channel to history', asy
           const reconciliation = reconciliationQuery(text);
           if (reconciliation) return reconciliation;
           if (text.includes('FROM projects p')) {
+            if (text.includes('FOR UPDATE OF p')) {
+              return { rowCount: 1, rows: [project] };
+            }
             projectSelects += 1;
             return { rowCount: 1, rows: [closedProject] };
           }

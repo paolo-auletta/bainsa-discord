@@ -150,6 +150,60 @@ Do not use this override in a production deployment: members could otherwise see
 
 New members can only see the read-only `START HERE` area. The onboarding flow collects a full name, member type, university, and exactly one division for Researchers. Alumni choose no division. A Division Head, Vice President, or President from that university—or a Global President—must approve the request before roles are assigned. Approval also sets the member's server nickname from the recorded onboarding name so Discord-native user selectors can find them by name; names longer than Discord's 32-character nickname limit remain complete in PostgreSQL and are truncated only in the nickname. Board roles cannot be requested through onboarding.
 
+## People directory
+
+`people-directory` is a global forum beside `resources`. It is visible only to approved
+Researchers and Alumni, and participation is opt-in: approval grants normal server access, but
+never publishes a profile. After approval, the bot may send a best-effort DM linking to the forum;
+the same entry point is always in its `Start here` post.
+
+Members use **Create or update my profile** in `Start here`, not a slash command. The private
+wizard follows the project-creation pattern: every screen keeps a complete grouped summary at the
+top and ends with one primary action, one clearly named Back action, and **Cancel**. It collects:
+
+- **Where you are now** — a one-line headline, current role or activity, and optional organisation
+  and location;
+- **What you want to explore** — future research, internship, role, or collaboration goals,
+  followed by interests, topics, problems, or industries; and
+- **Tags** — one to four curated fields or environments.
+
+It can also include an organisation, location, public-to-approved-members email address, LinkedIn
+profile, and research-profile link. Every contact field is optional. Discord DM is the default way
+to contact someone; members should use it respectfully. A private preview makes the approved-member
+visibility clear, and only **Publish profile** creates or changes the public profile.
+
+The bot owns one read-only forum thread and one summary message per published member. The public
+message uses the same grouped presentation shown in the wizard’s final review. It applies the member’s BAINSA
+university as a forum tag from the canonical membership record; members edit neither
+those facts nor the thread directly. Members return to `Start here` to update or unpublish. Unpublishing
+keeps the structured profile hidden for later editing and durably queues removal of its forum post.
+Member removal or departure does the same; reapproval never republishes a profile without the member
+explicitly previewing and publishing it again.
+
+The directory uses Discord's list layout and native forum text and tag search. It is a browseable
+forum, not a sortable external table. Its 15 managed tags are:
+
+| Category | Tags |
+| --- | --- |
+| BAINSA university (derived, not selectable) | `Bocconi`, `Sapienza`, `PoliMi` |
+| Field | `AI & Data`, `Econ & Finance`, `Neuroscience`, `Biology`, `Eng & Robotics`, `Life & Health Sci`, `Social Sciences`, `Math & Physics`, `Humanities & Design` |
+| Environment | `Academia`, `Industry`, `Entrepreneurship` |
+
+Each post receives exactly one derived BAINSA university tag and one to four selected tags. These stable
+categories are managed governance vocabulary: change them deliberately rather than adding tags for
+employers, job titles, laboratories, technologies, or narrow topics. Those details belong in the
+searchable profile text.
+
+The directory reconciliation worker retries pending create, update, and removal work after Discord
+failures, and performs bounded maintenance to return auto-archived profile and guide threads to the
+browseable list without posting keep-alive messages. It never adds update comments or duplicate
+profile posts during routine synchronization.
+
+V1 adds no people-directory slash commands (including `/profile` or people search), LinkedIn import
+or scraping, external table/export, phone or social-contact extras, endorsements, recommendations,
+staff editing of another member's profile, or contact tracking. This section documents the intended
+product behavior; release readiness still depends on the full quality gate.
+
 ## Development
 
 ```bash

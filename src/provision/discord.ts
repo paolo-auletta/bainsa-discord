@@ -4,6 +4,7 @@ import {
   ButtonStyle,
   ChannelType,
   Client,
+  ForumLayoutType,
   GatewayIntentBits,
   PermissionFlagsBits,
 } from 'discord.js';
@@ -24,6 +25,7 @@ import {
   divisionVoiceChannelName,
   slugify,
 } from '../naming.js';
+import { PROFILE_CUSTOM_IDS } from '../profiles/custom-ids.js';
 import { upsertProvisionedResources } from './db.js';
 import {
   globalForumTags,
@@ -32,6 +34,7 @@ import {
   legacyDivisionVoiceAliases,
   mergePersistedDivisionsIntoPlan,
   normalizePlan,
+  peopleDirectoryForumTags,
   roleSpecs,
   universityForumTags,
   CATEGORY_NAMES,
@@ -52,6 +55,7 @@ import {
   globalReadOnlyOverwrites,
   logsOverwrites,
   memberForumOverwrites,
+  peopleDirectoryForumOverwrites,
   privateBaseOverwrites,
   showcaseForumOverwrites,
   startHereOverwrites,
@@ -65,6 +69,33 @@ import {
 } from './permissions.js';
 import { ignoredLegacyWarnings } from './legacy.js';
 import { reconcileExistingMembers } from './members.js';
+
+type ForumTagInput = {
+  id?: string;
+  name: string;
+  moderated?: boolean;
+  emoji?: unknown;
+};
+
+type ChannelProvisionOptions = {
+  type: ChannelType;
+  parent?: { id?: string } | null;
+  overwrites?: unknown[];
+  aliases?: string[];
+  tags?: ForumTagInput[];
+  exactTags?: boolean;
+  defaultForumLayout?: ForumLayoutType;
+  defaultAutoArchiveDuration?: number;
+};
+
+type ForumProvisionOptions = Omit<ChannelProvisionOptions, 'type'>;
+
+type SeedMessageOptions = {
+  components?: readonly unknown[];
+  pin?: boolean;
+  legacyKeys?: readonly string[];
+  legacyHeadings?: readonly string[];
+};
 
 export function createProvisionClient() {
   return new Client({
@@ -442,6 +473,14 @@ export class DiscordProvisioner {
       overwrites: memberForumOverwrites(roleIds),
       tags: globalForumTags(),
     });
+    const peopleDirectoryForum = await this.ensureForumChannel(guild, GLOBAL_CHANNELS.PEOPLE_DIRECTORY, {
+      parent: globalCategory,
+      overwrites: peopleDirectoryForumOverwrites(roleIds),
+      tags: peopleDirectoryForumTags(),
+      exactTags: true,
+      defaultForumLayout: ForumLayoutType.ListView,
+      defaultAutoArchiveDuration: 10080,
+    });
     const channelProposalsForum = await this.ensureForumChannel(guild, GLOBAL_CHANNELS.CHANNEL_PROPOSALS, {
       parent: globalCategory,
       aliases: ['topic-proposals'],
@@ -457,6 +496,12 @@ export class DiscordProvisioner {
     await this.seedMessage(globalBoard, 'global:board', globalSeedContent.board);
     await this.seedForumGuide(globalShowcase, 'global:showcase', globalSeedContent.showcase);
     await this.seedForumGuide(resourcesForum, 'global:resources', globalSeedContent.resources);
+    await this.seedForumGuide(
+      peopleDirectoryForum,
+      'global:people-directory',
+      globalSeedContent.peopleDirectory,
+      { components: [peopleDirectoryButtonRow()] },
+    );
     await this.seedForumGuide(
       channelProposalsForum,
       'global:channel-proposals',
@@ -638,22 +683,50 @@ export class DiscordProvisioner {
     }
   }
 
-  async ensureForumChannel(guild, name, { parent = null, overwrites = [], aliases = [], tags = [] } = {}) {
+  async ensureForumChannel(guild, name, options: ForumProvisionOptions = {}) {
+    const {
+      parent = null,
+      overwrites = [],
+      aliases = [],
+      tags = [],
+      exactTags = false,
+      defaultForumLayout,
+      defaultAutoArchiveDuration,
+    } = options;
     return this.ensureChannel(guild, name, {
       parent,
       type: ChannelType.GuildForum,
       overwrites,
       aliases,
       tags,
+      exactTags,
+      defaultForumLayout,
+      defaultAutoArchiveDuration,
     });
   }
 
-  async ensureChannel(guild, name, { type, parent = null, overwrites = [], aliases = [], tags = [] }) {
+  async ensureChannel(guild, name, options: ChannelProvisionOptions) {
+    const {
+      type,
+      parent = null,
+      overwrites = [],
+      aliases = [],
+      tags = [],
+      exactTags = false,
+      defaultForumLayout,
+      defaultAutoArchiveDuration,
+    } = options;
     const match = findChannel(guild, { name, type, parent, aliases });
     if (!match.channel) {
       this.record('channels', 'created', `channel:${name}`);
       if (this.dryRun) return dryChannel(name, type, parent?.id);
-      const extra = type === ChannelType.GuildForum ? { availableTags: normalizeForumTags(tags) } : {};
+      const extra = type === ChannelType.GuildForum
+        ? {
+          availableTags: normalizeForumTags(tags),
+          ...(defaultForumLayout === undefined ? {} : { defaultForumLayout }),
+          ...(defaultAutoArchiveDuration === undefined ? {} : { defaultAutoArchiveDuration }),
+        }
+        : {};
       return guild.channels.create({
         name,
         type,
@@ -671,8 +744,19 @@ export class DiscordProvisioner {
     if (channel.name !== name) edits.name = name;
     if (parent?.id && channel.parentId !== parent.id) edits.parent = parent.id;
     if (type === ChannelType.GuildForum) {
-      const mergedTags = mergeForumTags(channel.availableTags ?? [], tags);
-      if (!sameForumTags(channel.availableTags ?? [], mergedTags)) edits.availableTags = mergedTags;
+      const desiredTags = exactTags
+        ? exactForumTags(channel.availableTags ?? [], tags)
+        : mergeForumTags(channel.availableTags ?? [], tags);
+      if (!sameForumTags(channel.availableTags ?? [], desiredTags)) edits.availableTags = desiredTags;
+      if (defaultForumLayout !== undefined && channel.defaultForumLayout !== defaultForumLayout) {
+        edits.defaultForumLayout = defaultForumLayout;
+      }
+      if (
+        defaultAutoArchiveDuration !== undefined
+        && channel.defaultAutoArchiveDuration !== defaultAutoArchiveDuration
+      ) {
+        edits.defaultAutoArchiveDuration = defaultAutoArchiveDuration;
+      }
     }
     if (overwrites.length > 0 && !samePermissionOverwrites(channel, overwrites)) {
       edits.permissionOverwrites = overwrites;
@@ -692,12 +776,7 @@ export class DiscordProvisioner {
     channel,
     key,
     content,
-    options: {
-      components?: readonly unknown[];
-      pin?: boolean;
-      legacyKeys?: readonly string[];
-      legacyHeadings?: readonly string[];
-    } = {},
+    options: SeedMessageOptions = {},
   ) {
     if (!channel?.messages?.fetch) return;
     let message = await this.findTrackedSeedMessage(channel, key);
@@ -723,9 +802,7 @@ export class DiscordProvisioner {
     }
     const sameContent = message.content === content;
     const desiredComponents = options.components ?? [];
-    const sameComponents = desiredComponents.length === 0
-      ? message.components?.length === 0
-      : message.components?.length > 0;
+    const sameComponents = sameMessageComponents(message.components ?? [], desiredComponents);
     const samePin = !options.pin || message.pinned === true;
     if (sameContent && sameComponents && samePin) {
       this.record('seeds', 'unchanged', `seed:${key}`);
@@ -757,21 +834,83 @@ export class DiscordProvisioner {
     }
   }
 
-  async seedForumGuide(forum, key, content, options = {}) {
+  async seedForumGuide(forum, key, content, options: SeedMessageOptions = {}) {
     if (!forum?.threads) return;
-    const activeThreads = await forum.threads.fetchActive().catch(() => null);
-    const thread = activeThreads?.threads?.find((candidate) => candidate.name === FORUM_GUIDE_THREAD_NAME);
+    let thread = await this.findTrackedForumGuide(forum, key);
     if (thread) {
+      await this.unarchiveForumGuide(thread);
+      await this.seedMessage(thread, key, content, options);
+      return thread;
+    }
+    const activeThreads = await forum.threads.fetchActive().catch(() => null);
+    thread = findThreadByName(activeThreads?.threads, FORUM_GUIDE_THREAD_NAME);
+    if (!thread && typeof forum.threads.fetchArchived === 'function') {
+      const archivedThreads = await forum.threads.fetchArchived().catch(() => null);
+      thread = findThreadByName(archivedThreads?.threads, FORUM_GUIDE_THREAD_NAME);
+    }
+    if (thread) {
+      await this.unarchiveForumGuide(thread);
       await this.seedMessage(thread, key, content, options);
       return thread;
     }
     this.record('seeds', 'created', `forum-seed:${key}`);
     if (this.dryRun) return null;
-    return forum.threads.create({
+    thread = await forum.threads.create({
       name: FORUM_GUIDE_THREAD_NAME,
-      message: { content },
+      message: { content, components: options.components ?? [] },
       reason: 'BAINSA v1 forum guide',
     });
+    await this.seedForumGuideStarter(thread, key, options);
+    return thread;
+  }
+
+  async findTrackedForumGuide(forum, key) {
+    if (!this.db || !this.guildId || this.seedTrackingAvailable === false) return null;
+    try {
+      const result = await this.db.query(
+        `SELECT channel_id
+           FROM provisioned_messages
+          WHERE guild_id = $1 AND content_key = $2
+          LIMIT 1`,
+        [this.guildId, key],
+      );
+      const channelId = result.rows[0]?.channel_id;
+      if (!channelId) {
+        this.seedTrackingAvailable = true;
+        return null;
+      }
+      const thread = await forum.guild?.channels?.fetch(channelId).catch(() => null);
+      if (thread?.parentId === forum.id && thread.name === FORUM_GUIDE_THREAD_NAME) {
+        this.seedTrackingAvailable = true;
+        return thread;
+      }
+      await this.db.query(
+        'DELETE FROM provisioned_messages WHERE guild_id = $1 AND content_key = $2',
+        [this.guildId, key],
+      );
+      this.seedTrackingAvailable = true;
+      return null;
+    } catch (error) {
+      if (this.seedTrackingAvailable !== false) {
+        this.seedTrackingAvailable = false;
+        this.summary.warnings.push({ type: 'seed_tracking_unavailable', reason: error.message });
+      }
+      return null;
+    }
+  }
+
+  async unarchiveForumGuide(thread) {
+    if (thread?.archived && typeof thread.setArchived === 'function') {
+      await thread.setArchived(false, 'BAINSA forum guide reconciliation');
+    }
+  }
+
+  async seedForumGuideStarter(thread, key, options) {
+    if (!thread?.fetchStarterMessage) return;
+    const message = await thread.fetchStarterMessage().catch(() => null);
+    if (!message) return;
+    await this.pinSeedMessage(message, key, options.pin);
+    await this.trackSeedMessage(thread, key, message);
   }
 
   async findSeedMessage(channel, key, content, legacyHeadings: readonly string[] = []) {
@@ -883,6 +1022,20 @@ function onboardingButtonRow() {
   );
 }
 
+function peopleDirectoryButtonRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(PROFILE_CUSTOM_IDS.START)
+      .setEmoji('🪪')
+      .setLabel('Create or update my profile')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(PROFILE_CUSTOM_IDS.UNPUBLISH)
+      .setLabel('Unpublish my profile')
+      .setStyle(ButtonStyle.Danger),
+  );
+}
+
 function findRole(guild, targetName, aliases = []) {
   const role = guild.roles.cache.find((candidate) => candidate.name === targetName);
   if (role) return { role, legacy: false };
@@ -931,6 +1084,20 @@ function oldestMessage(messages) {
   }, null);
 }
 
+function findThreadByName(threads, name) {
+  if (!threads) return null;
+  if (typeof threads.find === 'function') return threads.find((candidate) => candidate.name === name) ?? null;
+  return [...threads.values?.() ?? []].find((candidate) => candidate.name === name) ?? null;
+}
+
+function sameMessageComponents(currentComponents, desiredComponents) {
+  if (currentComponents.length !== desiredComponents.length) return false;
+  return currentComponents.every((component, index) => (
+    JSON.stringify(component?.toJSON?.() ?? component)
+      === JSON.stringify(desiredComponents[index]?.toJSON?.() ?? desiredComponents[index])
+  ));
+}
+
 function normalizeForumTags(tags) {
   return tags.map((tag) => compactTag({
     name: tag.name,
@@ -953,6 +1120,21 @@ function mergeForumTags(existingTags, requiredTags) {
     }
   }
   return merged;
+}
+
+function exactForumTags(existingTags: readonly ForumTagInput[], requiredTags: readonly ForumTagInput[]) {
+  const existingByName = new Map(
+    existingTags.map((tag) => [tag.name.toLowerCase(), tag]),
+  );
+  return requiredTags.map((tag) => {
+    const existing = existingByName.get(tag.name.toLowerCase());
+    return compactTag({
+      ...(existing?.id ? { id: existing.id } : {}),
+      name: tag.name,
+      moderated: Boolean(tag.moderated),
+      emoji: tag.emoji,
+    });
+  });
 }
 
 function compactTag(tag) {

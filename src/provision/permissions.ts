@@ -162,6 +162,21 @@ export function showcaseForumOverwrites(roleIds, viewerRoleIds) {
   ];
 }
 
+/**
+ * Directory posts are bot-managed. Approved members and the existing global
+ * viewers may read and use the persistent guide buttons, but cannot create or
+ * reply to forum posts themselves.
+ */
+export function peopleDirectoryForumOverwrites(roleIds) {
+  const viewerRoleIds = [
+    roleIds.researcher,
+    roleIds.alumni,
+    roleIds.globalPresident,
+    ...roleIds.universityPresidents,
+  ].filter(Boolean);
+  return showcaseForumOverwrites(roleIds, viewerRoleIds);
+}
+
 export function universityGeneralOverwrites(roleIds, university) {
   return [
     overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),

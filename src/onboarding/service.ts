@@ -46,7 +46,22 @@ import {
 
 const DISCORD_NICKNAME_LIMIT = 32;
 
-export function createOnboardingService({ db = { query }, runTransaction = transaction } = {}) {
+/** Sends the optional directory invitation only after approval has committed. */
+export async function notifyApprovedMemberAboutDirectory({ guild, userId }) {
+  const member = await guild.members.fetch(String(userId));
+  const directory = guild.channels?.cache?.find((channel) => channel?.name === 'people-directory');
+  const link = directory ? `https://discord.com/channels/${guild.id}/${directory.id}` : null;
+  await member.send([
+    'Welcome to BAINSA! The people directory is optional: you can create a profile to help other approved members find your work and interests.',
+    link ? `Open the directory: ${link}` : 'You can find it in the GLOBAL BAINSA category.',
+  ].join('\n'));
+}
+
+export function createOnboardingService({
+  db = { query },
+  runTransaction = transaction,
+  notifyApprovedMember = notifyApprovedMemberAboutDirectory,
+} = {}) {
   async function handleButton(interaction) {
     const parsed = parseOnboardingId(interaction.customId);
     if (!parsed) return;
@@ -289,6 +304,15 @@ export function createOnboardingService({ db = { query }, runTransaction = trans
 
     await editReviewMessage(interaction, reviewed, university, divisions);
     await interaction.editReply('Onboarding request approved.');
+    await notifyApprovedMember({
+      guild: interaction.guild,
+      userId: reviewed.discord_user_id,
+    }).catch(() => {
+      logger.warn('Could not send approved member directory invitation', {
+        requestId: String(requestId),
+        userId: String(reviewed.discord_user_id),
+      });
+    });
   }
 
   async function rejectRequest(interaction, requestId, reason) {
