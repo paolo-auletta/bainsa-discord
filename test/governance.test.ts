@@ -13,6 +13,7 @@ import {
   assertBoardAssignDivisionShape,
   assertBoardRemoveDivisionShape,
   assertCanAssignBoardRole,
+  assertHeadAssignmentCompatible,
   assertCanManageMember,
   assertCanRemoveBoardRole,
   assertCanRemoveMember,
@@ -408,6 +409,25 @@ test('board Head division rules differ for assign and remove', () => {
   assert.throws(() => assertBoardRemoveDivisionShape('president', 'Projects'), UserFacingError);
 });
 
+test('active university executives cannot also be assigned as division Heads', () => {
+  const president = [{ role: BOARD_ROLES.PRESIDENT, university_name: 'Bocconi' }];
+  const vicePresident = [{ role: BOARD_ROLES.VICE_PRESIDENT, university_name: 'Bocconi' }];
+
+  for (const [roles, label] of [[president, 'President'], [vicePresident, 'Vice President']]) {
+    assert.throws(
+      () => assertHeadAssignmentCompatible(roles, 'Bocconi'),
+      (error) =>
+        error instanceof UserFacingError
+        && error.message === `This member is already an active ${label} of Bocconi and cannot also be assigned as a division Head. Remove the ${label} role first or choose another member.`,
+    );
+  }
+  assert.doesNotThrow(() => assertHeadAssignmentCompatible(president, 'Sapienza'));
+  assert.doesNotThrow(() => assertHeadAssignmentCompatible(
+    [{ role: BOARD_ROLES.HEAD, university_name: 'Bocconi' }],
+    'Bocconi',
+  ));
+});
+
 test('Researcher to Alumni update clears divisions when divisions are omitted', () => {
   const previousDivisions = [{ name: 'Projects' }, { name: 'Analysis' }];
 
@@ -750,6 +770,7 @@ test('board Head assignment preserves an existing division membership role', asy
     async query(text) {
       if (text.includes('FROM universities')) return { rows: [{ id: 2, name: 'Sapienza' }], rowCount: 1 };
       if (text.includes('FROM members m')) return { rows: [], rowCount: 0 };
+      if (text.includes('FROM board_assignments br')) return { rows: [], rowCount: 0 };
       if (text.includes('FROM divisions')) {
         return {
           rows: [{
@@ -789,6 +810,67 @@ test('board Head assignment preserves an existing division membership role', asy
   assert.equal(headRole.lastEdit, undefined);
   assert.equal(target.roles.cache.has('sapienza-robotics-role'), true);
   assert.equal(target.roles.cache.has(headRole.id), true);
+});
+
+test('board Head assignment rejects an active executive before touching Discord roles', async () => {
+  const target = memberWithRoles();
+  let transactionCalls = 0;
+  const db = {
+    async query(text) {
+      if (text.includes('FROM universities')) return { rows: [{ id: 1, name: 'Bocconi' }], rowCount: 1 };
+      if (text.includes('FROM members m')) {
+        return { rows: [{ university_name: 'Bocconi', member_type: MEMBER_TYPES.RESEARCHER }], rowCount: 1 };
+      }
+      if (text.includes('FROM divisions')) {
+        return {
+          rows: [{
+            id: 6,
+            university_id: 1,
+            name: 'rsi',
+            color: 'red',
+            access_role_id: 'rsi-role',
+            head_role_id: 'rsi-head-role',
+          }],
+          rowCount: 1,
+        };
+      }
+      if (text.includes('FROM board_assignments br')) {
+        return {
+          rows: [{ role: BOARD_ROLES.PRESIDENT, division_id: null, university_name: 'Bocconi' }],
+          rowCount: 1,
+        };
+      }
+      throw new Error(`Unexpected query: ${text}`);
+    },
+    async transaction() {
+      transactionCalls += 1;
+      assert.fail('transaction must not start for an incompatible Head assignment');
+    },
+  };
+
+  await assert.rejects(
+    () => assignBoardRole(
+      {
+        guild: {
+          roles: { cache: cacheFrom() },
+          members: { async fetch() { return target; } },
+        },
+        user: { id: 'actor-user' },
+        member: fakeMember([ROLE_NAMES.GLOBAL_PRESIDENT]),
+      },
+      {
+        university: 'Bocconi',
+        role: BOARD_ROLES.HEAD,
+        division: 'rsi',
+        user: { id: 'target-user' },
+      },
+      { db },
+    ),
+    /already an active President of Bocconi and cannot also be assigned as a division Head/,
+  );
+
+  assert.equal(transactionCalls, 0);
+  assert.equal(target.roles.cache.values().next().done, true);
 });
 
 test('board VP assignment removes Discord division and Head roles even when assignments are stale', async () => {

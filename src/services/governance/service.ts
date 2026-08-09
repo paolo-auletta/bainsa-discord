@@ -36,6 +36,7 @@ import {
   assertNoDivisionRolesForAlumni,
   assertBoardAssignDivisionShape,
   assertBoardRemoveDivisionShape,
+  assertHeadAssignmentCompatible,
   boardRoleLabel,
   parseDivisionList,
 } from './policy.js';
@@ -1069,8 +1070,10 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
       ? await getDivisionByName(db, university.id, university.name, divisionName)
       : null;
 
-  const currentBoardRoles =
-    role === BOARD_ROLES.HEAD ? [] : await getBoardRoles(db, target.id);
+  const currentBoardRoles = await getBoardRoles(db, target.id);
+  if (role === BOARD_ROLES.HEAD) {
+    assertHeadAssignmentCompatible(currentBoardRoles, university.name);
+  }
   const universityDivisionRoleIds = role === BOARD_ROLES.HEAD
     ? []
     : await getUniversityDivisionDiscordRoleIds(db, university.id);
@@ -1113,6 +1116,9 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
     await db.transaction(async (q) => {
       await lockDivisionHeadEligibilityRows(q, headEligibilityDivisionIds);
       await lockMemberEligibilityRows(q, [target.id]);
+      if (role === BOARD_ROLES.HEAD) {
+        assertHeadAssignmentCompatible(await getBoardRoles(q, target.id), university.name);
+      }
       await assertMemberProjectAssignmentEligibility(q, {
         userId: target.id,
         memberType: MEMBER_TYPES.RESEARCHER,
