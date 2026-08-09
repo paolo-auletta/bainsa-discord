@@ -1019,6 +1019,11 @@ function onboardingButtonRow() {
       .setEmoji('🚀')
       .setLabel('Begin onboarding')
       .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('onboarding:status')
+      .setEmoji('🔎')
+      .setLabel('Check application status')
+      .setStyle(ButtonStyle.Secondary),
   );
 }
 

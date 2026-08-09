@@ -198,6 +198,7 @@ test('project setup renders a polished five-step wizard and creates only from re
   let createdInput;
   let activity;
   let finalReply;
+  let waitingReply;
   const result = {
     id: '7',
     name: 'Native project',
@@ -279,11 +280,17 @@ test('project setup renders a polished five-step wizard and creates only from re
     ...baseInteraction(componentForAction(review, PROJECT_SETUP_ACTIONS.CREATE).custom_id),
     member: { roles: { cache: [] } },
     channel: { send: async (payload) => { activity = payload; } },
-    deferUpdate: async () => undefined,
+    update: async (payload) => {
+      assert.equal(createdInput, undefined);
+      waitingReply = payload;
+    },
     editReply: async (payload) => { finalReply = payload; },
   });
 
   assert.equal(createdInput.name, result.name);
+  assert.match(allText(waitingReply), /Creating Native project/);
+  assert.match(allText(waitingReply), /message will update/i);
+  assert.equal(componentPayload(waitingReply).some((component) => component.type === ComponentType.ActionRow), false);
   assert.equal(createdInput.university, 'Bocconi');
   assert.equal(createdInput.division, 'Projects');
   assert.equal(createdInput.members, MEMBER_ID);
@@ -307,7 +314,7 @@ test('project setup renders a polished five-step wizard and creates only from re
   await assert.rejects(
     () => service.handleButton({
       ...baseInteraction(componentForAction(review, PROJECT_SETUP_ACTIONS.CREATE).custom_id),
-      deferUpdate: async () => assert.fail('must not retry project creation'),
+      update: async () => assert.fail('must not retry project creation'),
     }),
     /expired/,
   );
@@ -419,7 +426,7 @@ test('project setup keeps a committed project closed when acknowledgement delive
   await service.handleButton({
     ...baseInteraction(createId),
     channel: { send: async () => undefined },
-    deferUpdate: async () => undefined,
+    update: async () => undefined,
     editReply: async () => { throw new Error('Discord acknowledgement unavailable'); },
     followUp: async (payload) => { followUp = payload; },
   });
@@ -430,10 +437,42 @@ test('project setup keeps a committed project closed when acknowledgement delive
   await assert.rejects(
     () => service.handleButton({
       ...baseInteraction(createId),
-      deferUpdate: async () => assert.fail('must not retry project creation'),
+      update: async () => assert.fail('must not retry project creation'),
     }),
     /expired/,
   );
+});
+
+test('project setup replaces a failed pre-commit wait with retry, back, and cancel controls', async () => {
+  const service = setupService({
+    createProject: async () => { throw new Error('Database unavailable'); },
+  });
+  const participants = await chooseScope(service, await beginSetup(service));
+  const review = await completeDetails(service, await chooseTeam(service, participants));
+  let waiting;
+  let failed;
+
+  await service.handleButton({
+    ...baseInteraction(componentForAction(review, PROJECT_SETUP_ACTIONS.CREATE).custom_id),
+    update: async (payload) => { waiting = payload; },
+    editReply: async (payload) => { failed = payload; },
+  });
+
+  assert.match(allText(waiting), /Creating Native project/);
+  assert.match(allText(failed), /Project not created/);
+  assert.match(allText(failed), /Nothing was saved/);
+  assert.deepEqual(bottomButtons(failed).map((button) => button.label), [
+    'Try creating project',
+    'Back to details',
+    'Cancel setup',
+  ]);
+
+  let details;
+  await service.handleButton({
+    ...baseInteraction(componentForAction(failed, PROJECT_SETUP_ACTIONS.BACK_DETAILS).custom_id),
+    update: async (payload) => { details = payload; },
+  });
+  assert.match(allText(details), /Set the project details/);
 });
 
 test('project setup rejects the Bot and cross-role duplicate selections', async () => {

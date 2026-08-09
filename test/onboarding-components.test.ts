@@ -3,9 +3,11 @@ import test from 'node:test';
 import { ButtonStyle } from 'discord.js';
 
 import {
+  applicationStatusPayload,
   confirmPayload,
   divisionPayload,
   memberTypePayload,
+  onboardingSubmittingPayload,
   reviewPayload,
   reviewedPayload,
   universityPayload,
@@ -86,9 +88,59 @@ test('onboarding confirmation presents a clear stacked application summary', () 
   assert.equal(embed.fields, undefined);
   assert.deepEqual(actions.components.map((button) => button.label), [
     'Submit application',
+    'Back to division',
     'Cancel',
   ]);
   assert.equal(actions.components[0].style, ButtonStyle.Success);
+});
+
+test('every editable onboarding screen provides next, back, and cancel actions', () => {
+  const payloads = [
+    memberTypePayload('10', 'researcher'),
+    universityPayload('10', [university], 0, '1', 'researcher'),
+    divisionPayload('10', [{ id: '2', name: 'Analysis', color: 'orange' }], ['2']),
+    confirmPayload(
+      '10',
+      { full_name: 'Ada Lovelace', member_type: 'researcher' },
+      university,
+      [{ id: '2', name: 'Analysis', color: 'orange' }],
+    ),
+  ];
+
+  for (const payload of payloads) {
+    const buttons = payload.components.at(-1).toJSON().components as Array<{
+      label?: string;
+      style?: number;
+    }>;
+    assert.equal(buttons.length, 3);
+    assert.match(buttons[0].label, /^(Continue|Submit)/);
+    assert.match(buttons[1].label, /^Back to/);
+    assert.equal(buttons[2].label, 'Cancel');
+    assert.equal(buttons[2].style, ButtonStyle.Danger);
+  }
+});
+
+test('waiting and decided application states clearly explain what happens next', () => {
+  const waiting = onboardingSubmittingPayload();
+  assert.match(waiting.embeds[0].data.title, /Submitting/);
+  assert.match(waiting.embeds[0].data.description, /message will update/i);
+  assert.deepEqual(waiting.components, []);
+
+  const pending = applicationStatusPayload({
+    request: { ...reapplication, status: 'pending', university_id: '1', division_ids: [] },
+    university,
+    divisions: [],
+  });
+  assert.match(pending.embeds[0].data.description, /Check application status/);
+  assert.deepEqual(pending.components, []);
+
+  const rejected = applicationStatusPayload({
+    request: { ...reapplication, status: 'rejected', review_reason: 'Please clarify your university.' },
+    university,
+    divisions: [],
+  });
+  assert.match(rejected.embeds[0].data.description, /Please clarify your university/);
+  assert.equal(rejected.components[0].toJSON().components[0].label, 'Start a new application');
 });
 
 test('onboarding embeds omit helper footers and review timestamps', () => {

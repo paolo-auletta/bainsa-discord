@@ -180,7 +180,7 @@ async function assertSubmitRaceLosesDraftMutation(action) {
     customId: onboardingId(ONBOARDING_ACTIONS.SUBMIT, requestId),
     user: { id: 'onboarding-race-user' },
     guild,
-    async deferUpdate() {},
+    async update() {},
     async editReply() {},
   };
   const racingInteraction = action === 'edit'
@@ -260,7 +260,7 @@ async function assertDraftMutationWinsBeforeSubmit(action) {
     customId: onboardingId(ONBOARDING_ACTIONS.SUBMIT, requestId),
     user: { id: 'onboarding-race-user' },
     guild,
-    async deferUpdate() {},
+    async update() {},
     async editReply() {},
   };
 
@@ -271,10 +271,7 @@ async function assertDraftMutationWinsBeforeSubmit(action) {
   }
 
   if (action === 'cancel') {
-    await assert.rejects(
-      service.handleButton(submitInteraction),
-      /onboarding request is no longer editable/i,
-    );
+    await service.handleButton(submitInteraction);
     assert.equal(reviewSendCount, 0);
     assert.equal(
       (await database.query('SELECT status FROM onboarding_requests WHERE id = $1', [requestId])).rows[0].status,
@@ -365,6 +362,7 @@ test('onboarding approval rolls back its PostgreSQL transaction and Discord role
     guild,
     member: reviewer,
     async deferReply() {},
+    async editReply() {},
   };
 
   await assert.rejects(service.handleButton(interaction), /Controlled integration transaction failure/);

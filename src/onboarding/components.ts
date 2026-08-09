@@ -30,17 +30,26 @@ export function onboardingStartPayload() {
           .setEmoji("🚀")
           .setLabel("Begin onboarding")
           .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId("onboarding:status")
+          .setEmoji("🔎")
+          .setLabel("Check application status")
+          .setStyle(ButtonStyle.Secondary),
       ),
     ],
   };
 }
 
-export function memberTypePayload(requestId) {
+export function memberTypePayload(requestId, selectedMemberType = null) {
+  const selectedLabel = selectedMemberType ? memberTypeLabel(selectedMemberType) : null;
   return {
     embeds: [
       onboardingEmbed("Step 2 of 4 · Choose your path")
         .setDescription(
-          "Select the description that best reflects how you will participate in BAINSA.",
+          [
+            "Select the description that best reflects how you will participate in BAINSA.",
+            selectedLabel ? `\n**Selected:** ${selectedLabel}` : null,
+          ].filter(Boolean).join("\n"),
         )
         .addFields(
           {
@@ -66,7 +75,7 @@ export function memberTypePayload(requestId) {
           )
           .setEmoji("🔬")
           .setLabel("Researcher")
-          .setStyle(ButtonStyle.Primary),
+          .setStyle(selectedMemberType === MEMBER_TYPES.RESEARCHER ? ButtonStyle.Success : ButtonStyle.Primary),
         new ButtonBuilder()
           .setCustomId(
             onboardingId(
@@ -77,8 +86,16 @@ export function memberTypePayload(requestId) {
           )
           .setEmoji("🎓")
           .setLabel("Alumni")
-          .setStyle(ButtonStyle.Primary),
-        cancelButton(requestId),
+          .setStyle(selectedMemberType === MEMBER_TYPES.ALUMNI ? ButtonStyle.Success : ButtonStyle.Primary),
+      ),
+      footerRow(
+        requestId,
+        {
+          action: ONBOARDING_ACTIONS.MEMBER_TYPE_DONE,
+          label: "Continue to university",
+          disabled: !selectedMemberType,
+        },
+        { action: ONBOARDING_ACTIONS.BACK_NAME, label: "Back to name" },
       ),
     ],
   };
@@ -89,6 +106,7 @@ export function universityPayload(
   universities,
   page = 0,
   selectedUniversityId = null,
+  memberType = null,
 ) {
   const slice = pageItems(universities, page);
   const selectedId = selectedUniversityId == null ? null : String(selectedUniversityId);
@@ -134,12 +152,15 @@ export function universityPayload(
         slice,
       ),
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(onboardingId(ONBOARDING_ACTIONS.UNIVERSITY_DONE, requestId))
-          .setLabel("Confirm university")
-          .setStyle(ButtonStyle.Primary)
-          .setDisabled(!selectedUniversity),
-        cancelButton(requestId),
+        ...footerButtons(
+          requestId,
+          {
+            action: ONBOARDING_ACTIONS.UNIVERSITY_DONE,
+            label: memberType === MEMBER_TYPES.ALUMNI ? "Continue to review" : "Continue to division",
+            disabled: !selectedUniversity,
+          },
+          { action: ONBOARDING_ACTIONS.BACK_MEMBER_TYPE, label: "Back to path" },
+        ),
       ),
     ].filter(Boolean),
   };
@@ -192,13 +213,11 @@ export function divisionPayload(
         slice,
       ),
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(
-            onboardingId(ONBOARDING_ACTIONS.DIVISIONS_DONE, requestId),
-          )
-          .setLabel("Continue")
-          .setStyle(ButtonStyle.Primary),
-        cancelButton(requestId),
+        ...footerButtons(
+          requestId,
+          { action: ONBOARDING_ACTIONS.DIVISIONS_DONE, label: "Continue to review" },
+          { action: ONBOARDING_ACTIONS.BACK_UNIVERSITY, label: "Back to university" },
+        ),
       ),
     ].filter(Boolean),
   };
@@ -233,14 +252,130 @@ export function confirmPayload(requestId, draft, university, divisions) {
     ],
     components: [
       new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(onboardingId(ONBOARDING_ACTIONS.SUBMIT, requestId))
-          .setEmoji("📨")
-          .setLabel("Submit application")
-          .setStyle(ButtonStyle.Success),
-        cancelButton(requestId),
+        ...footerButtons(
+          requestId,
+          { action: ONBOARDING_ACTIONS.SUBMIT, label: "Submit application", style: ButtonStyle.Success, emoji: "📨" },
+          {
+            action: draft.member_type === MEMBER_TYPES.RESEARCHER
+              ? ONBOARDING_ACTIONS.BACK_DIVISIONS
+              : ONBOARDING_ACTIONS.BACK_UNIVERSITY,
+            label: draft.member_type === MEMBER_TYPES.RESEARCHER ? "Back to division" : "Back to university",
+          },
+        ),
       ),
     ],
+    allowedMentions: { parse: [] },
+  };
+}
+
+export function onboardingSubmittingPayload() {
+  return {
+    embeds: [
+      onboardingEmbed("Submitting your application")
+        .setColor(EMBED_COLORS.PENDING)
+        .setDescription(
+          "Please wait while BAINSA sends your application to the correct university board. This message will update when the request is safely recorded.",
+        ),
+    ],
+    components: [],
+  };
+}
+
+export function onboardingSubmissionFailedPayload(requestId, draft, university, divisions, message) {
+  const base = confirmPayload(requestId, draft, university, divisions);
+  const embed = EmbedBuilder.from(base.embeds[0])
+    .setColor(EMBED_COLORS.DANGER)
+    .setTitle("Application not submitted")
+    .setDescription(
+      [
+        "Nothing was sent to the university board. Your application details are still available below.",
+        "",
+        `**What happened**\n${escapeMarkdown(message)}`,
+        "",
+        base.embeds[0].data.description,
+      ].join("\n"),
+    );
+  return { ...base, embeds: [embed] };
+}
+
+export function reviewDecisionProgressPayload(decision) {
+  const approving = decision === "approve";
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(EMBED_COLORS.PENDING)
+        .setAuthor({ name: "BAINSA · Onboarding review" })
+        .setTitle(approving ? "Approving access" : "Declining application")
+        .setDescription(
+          approving
+            ? "Please wait while the member record, nickname, and Discord access are updated."
+            : "Please wait while the decision is recorded and the applicant notification is prepared.",
+        ),
+    ],
+  };
+}
+
+export function noApplicationStatusPayload() {
+  return {
+    embeds: [
+      onboardingEmbed("No application yet")
+        .setDescription("Begin onboarding when you are ready. The private application usually takes only a few minutes."),
+    ],
+    components: [startApplicationRow("Begin onboarding")],
+  };
+}
+
+export function applicationStatusPayload({ request, university, divisions, links = [], submitted = false }) {
+  const status = request.status;
+  const details = applicationDetails(request, university, divisions);
+  const reason = request.review_reason?.trim();
+  let title;
+  let color: number = EMBED_COLORS.BRAND;
+  let description;
+  let components = [];
+
+  if (status === "draft") {
+    title = "Application in progress";
+    description = "This application has not been sent to the university board yet. Continue when you are ready.";
+    components = [startApplicationRow("Continue application")];
+  } else if (status === "pending") {
+    title = submitted ? "Application sent" : "Application pending review";
+    color = EMBED_COLORS.PENDING;
+    description = [
+      "Your university board has received the application.",
+      "BAINSA will try to send the decision by DM. You can also return to #onboarding and use **Check application status** at any time.",
+    ].join("\n\n");
+  } else if (status === "approved") {
+    title = "Application approved";
+    color = EMBED_COLORS.SUCCESS;
+    description = [
+      "Your BAINSA access is active.",
+      links.length > 0 ? `**Start here**\n${links.map((line) => `• ${line}`).join("\n")}` : "Open the newly available Global BAINSA and university spaces to get started.",
+      "The people directory is optional and can be set up later from its **Start here** post.",
+    ].join("\n\n");
+  } else if (status === "rejected") {
+    title = "Application declined";
+    color = EMBED_COLORS.DANGER;
+    description = [
+      "Your access was not approved from this application.",
+      `**Reason shared by the reviewer**\n${escapeMarkdown(reason || "No reason was provided.")}`,
+      "Correct the relevant details, then start a new application when you are ready.",
+    ].join("\n\n");
+    components = [startApplicationRow("Start a new application")];
+  } else {
+    title = "Application cancelled";
+    description = "Nothing was submitted. You can begin a new application whenever you are ready.";
+    components = [startApplicationRow("Begin onboarding")];
+  }
+
+  return {
+    embeds: [
+      onboardingEmbed(title)
+        .setColor(color)
+        .setDescription(description)
+        .addFields(...details),
+    ],
+    components,
     allowedMentions: { parse: [] },
   };
 }
@@ -296,6 +431,7 @@ export function reviewPayload(request, university, divisions) {
           .setStyle(ButtonStyle.Danger),
       ),
     ],
+    allowedMentions: { parse: [] },
   };
 }
 
@@ -328,9 +464,9 @@ export function reviewedPayload(
       { name: "Reviewed by", value: `<@${reviewerId}>`, inline: true },
     );
 
-  if (reason) embed.addFields({ name: "Reason", value: reason });
+  if (reason) embed.addFields({ name: "Reason", value: escapeMarkdown(reason) });
 
-  return { embeds: [embed], components: [] };
+  return { embeds: [embed], components: [], allowedMentions: { parse: [] } };
 }
 
 function onboardingEmbed(title) {
@@ -348,7 +484,51 @@ function cancelButton(requestId) {
   return new ButtonBuilder()
     .setCustomId(onboardingId(ONBOARDING_ACTIONS.CANCEL, requestId))
     .setLabel("Cancel")
-    .setStyle(ButtonStyle.Secondary);
+    .setStyle(ButtonStyle.Danger);
+}
+
+function footerButtons(requestId, primary, back) {
+  const primaryButton = new ButtonBuilder()
+    .setCustomId(onboardingId(primary.action, requestId))
+    .setLabel(primary.label)
+    .setStyle(primary.style ?? ButtonStyle.Primary)
+    .setDisabled(Boolean(primary.disabled));
+  if (primary.emoji) primaryButton.setEmoji(primary.emoji);
+  return [
+    primaryButton,
+    new ButtonBuilder()
+      .setCustomId(onboardingId(back.action, requestId))
+      .setLabel(back.label)
+      .setStyle(ButtonStyle.Secondary),
+    cancelButton(requestId),
+  ];
+}
+
+function footerRow(requestId, primary, back) {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(...footerButtons(requestId, primary, back));
+}
+
+function startApplicationRow(label) {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("onboarding:start")
+      .setLabel(label)
+      .setStyle(ButtonStyle.Primary),
+  );
+}
+
+function applicationDetails(request, university, divisions) {
+  const divisionNames = divisions.length > 0
+    ? divisions.map((division) => divisionLabel(division.name, division.color)).join(", ")
+    : request.member_type === MEMBER_TYPES.ALUMNI
+      ? "Not required for Alumni"
+      : "Not recorded";
+  return [
+    { name: "Applicant", value: escapeMarkdown(request.full_name || "Not provided"), inline: true },
+    { name: "Path", value: memberTypeLabel(request.member_type), inline: true },
+    { name: "University", value: escapeMarkdown(university?.name || request.university_name || "Not selected"), inline: true },
+    { name: "Division", value: escapeMarkdown(divisionNames), inline: true },
+  ];
 }
 
 function paginationRow(previousId, nextId, slice) {

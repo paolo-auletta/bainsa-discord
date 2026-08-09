@@ -128,7 +128,7 @@ Projects:
 - `/project-close`
 - `/project-info`
 
-`/project-create` has no inline arguments. It opens a private five-step wizard for the project name, scope, team, dates, notes, and final review; the project is created only after confirmation.
+`/project-create` has no inline arguments. It opens a private five-step wizard for the project name, scope, team, dates, notes, and final review; the project is created only after confirmation. Creation first replaces the controls with an explicit progress state. A pre-commit failure restores the review with Try, Back, and Cancel actions; a committed project is never made retryable.
 
 Announcements and scheduled events use Discord's native UI and scoped channel permissions. There are no announcement, event, showcase-management, destructive-delete, or broad maintenance commands in v1.
 
@@ -148,7 +148,11 @@ Do not use this override in a production deployment: members could otherwise see
 
 ## Onboarding
 
-New members can only see the read-only `START HERE` area. The onboarding flow collects a full name, member type, university, and exactly one division for Researchers. Alumni choose no division. A Division Head, Vice President, or President from that university—or a Global President—must approve the request before roles are assigned. Approval also sets the member's server nickname from the recorded onboarding name so Discord-native user selectors can find them by name; names longer than Discord's 32-character nickname limit remain complete in PostgreSQL and are truncated only in the nickname. Board roles cannot be requested through onboarding.
+New members can only see the read-only `START HERE` area. The onboarding flow collects a full name, member type, university, and exactly one division for Researchers. Alumni choose no division. Every private step keeps the current choices and provides a clearly named Continue, Back, and Cancel path; the final review can return to the last editable step.
+
+A Division Head, Vice President, or President from that university—or a Global President—must approve the request before roles are assigned. Submission, approval, and rejection show an explicit in-progress message while work is running. The applicant can use **Check application status** in `#onboarding` at any time, so a closed DM does not hide the final decision. Approval sends a best-effort orientation DM with the member's access and useful starting spaces; the optional people directory is introduced only after that handoff. Rejection requires a member-facing reason and offers a new-application recovery path.
+
+Approval also sets the member's server nickname from the recorded onboarding name so Discord-native user selectors can find them by name; names longer than Discord's 32-character nickname limit remain complete in PostgreSQL and are truncated only in the nickname. Board roles cannot be requested through onboarding.
 
 ## People directory
 

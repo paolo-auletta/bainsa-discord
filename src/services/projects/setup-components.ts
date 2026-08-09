@@ -23,6 +23,7 @@ const MAX_NATIVE_SELECTIONS = 25;
 const CONTAINER_COLORS = Object.freeze({
   BRAND: 0x5865f2,
   SUCCESS: 0x57f287,
+  DANGER: 0xed4245,
 });
 
 export const PROJECT_SETUP_ACTIONS = Object.freeze({
@@ -499,6 +500,43 @@ export function createdPayload(acknowledgement) {
   const container = new ContainerBuilder()
     .setAccentColor(CONTAINER_COLORS.SUCCESS)
     .addTextDisplayComponents(text(`## Project created\n${acknowledgement}`));
+  return wizardPayload(container);
+}
+
+export function creatingPayload(session) {
+  const container = new ContainerBuilder()
+    .setAccentColor(CONTAINER_COLORS.BRAND)
+    .addTextDisplayComponents(
+      text([
+        `## Creating ${escapeMarkdown(session.name || "project")}`,
+        "Please wait while BAINSA checks eligibility, saves the project, and prepares its private Discord channel.",
+        "",
+        "This message will update when the project is ready. Do not submit it again.",
+      ].join("\n")),
+    );
+  return wizardPayload(container);
+}
+
+export function creationFailedPayload(session, message) {
+  const container = new ContainerBuilder()
+    .setAccentColor(CONTAINER_COLORS.DANGER)
+    .addTextDisplayComponents(
+      text([
+        "## Project not created",
+        "Nothing was saved. Your project setup is still available.",
+        "",
+        `**What happened**\n${escapeMarkdown(message)}`,
+      ].join("\n")),
+      projectSummary(session),
+    )
+    .addSeparatorComponents(separator())
+    .addActionRowComponents(
+      navigationRow(
+        session,
+        { action: PROJECT_SETUP_ACTIONS.CREATE, label: "Try creating project" },
+        { action: PROJECT_SETUP_ACTIONS.BACK_DETAILS, label: "Back to details" },
+      ),
+    );
   return wizardPayload(container);
 }
 

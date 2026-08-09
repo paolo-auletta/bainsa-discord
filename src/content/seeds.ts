@@ -66,7 +66,7 @@ export function startHereSeeds() {
         '• Your university — and, for Researchers, one division',
         '',
         '**What happens next**',
-        'Your university board reviews the request and assigns access once the details are confirmed.',
+        'Your university board reviews the request and assigns access once the details are confirmed. BAINSA will try to send the decision by DM; you can also return here and use **Check application status** at any time.',
         '',
         'Ready? Use the button below to begin.',
       ].join('\n'),

@@ -5,8 +5,10 @@ import { UserFacingError } from '../src/errors.js';
 import { ONBOARDING_ACTIONS, onboardingId } from '../src/onboarding/custom-ids.js';
 import {
   createDraft,
+  getLatestRequestForUser,
   getUniversity,
   listDivisionsByIds,
+  listRequestDivisionsByIds,
   listUniversities,
   markReviewed,
   upsertActiveMember,
@@ -129,6 +131,100 @@ test('getUniversity filters inactive legacy universities', async () => {
   assert.match(db.calls[0].sql, /WHERE id::text = \$1\s+AND active = true/);
 });
 
+test('application status reads the latest decision and historical scope without active filters', async () => {
+  const latest = { id: '12', status: 'rejected', university_name: 'Former chapter' };
+  const db = fakeDb([
+    { rows: [latest] },
+    { rows: [{ id: '4', name: 'Analysis' }] },
+  ]);
+
+  assert.equal(await getLatestRequestForUser(db, '100'), latest);
+  await listRequestDivisionsByIds(db, '1', ['4']);
+
+  assert.match(db.calls[0].sql, /ORDER BY r\.created_at DESC, r\.id DESC/);
+  assert.match(db.calls[0].sql, /LEFT JOIN universities/);
+  assert.doesNotMatch(db.calls[1].sql, /active = true/);
+});
+
+test('rejection controls require a reason explicitly shared with the applicant', async () => {
+  process.env.DISCORD_TOKEN ??= 'test-token';
+  process.env.DISCORD_CLIENT_ID ??= 'test-client';
+  process.env.DISCORD_GUILD_ID ??= 'test-guild';
+  process.env.DATABASE_URL ??= 'postgres://localhost/test';
+  const { createOnboardingService, notifyRejectedApplicant } = await import('../src/onboarding/service.js');
+  const service = createOnboardingService({ db: fakeDb() });
+  let modal;
+  await service.handleButton({
+    customId: onboardingId(ONBOARDING_ACTIONS.REJECT, '10'),
+    showModal: async (payload) => { modal = payload.toJSON(); },
+  });
+  const input = modal.components[0].components[0];
+  assert.equal(input.required, true);
+  assert.match(input.label, /shared with the applicant/i);
+
+  let dm;
+  const channelValues = [{ id: 'onboarding-channel', name: 'onboarding' }];
+  const cache = {
+    find: (predicate) => channelValues.find(predicate),
+  };
+  await notifyRejectedApplicant({
+    guild: {
+      id: 'guild',
+      channels: { cache },
+      members: { fetch: async () => ({ send: async (message) => { dm = message; } }) },
+    },
+    userId: '100',
+    request: {
+      member_type: 'alumni',
+      review_reason: 'Please clarify your university connection.',
+    },
+    university: { name: 'Bocconi' },
+    divisions: [],
+  });
+  assert.match(dm, /Please clarify your university connection/);
+  assert.match(dm, /start a new application/i);
+  assert.match(dm, /onboarding-channel/);
+});
+
+test('approval handoff leads with access and starting spaces before the optional directory', async () => {
+  process.env.DISCORD_TOKEN ??= 'test-token';
+  process.env.DISCORD_CLIENT_ID ??= 'test-client';
+  process.env.DISCORD_GUILD_ID ??= 'test-guild';
+  process.env.DATABASE_URL ??= 'postgres://localhost/test';
+  const { notifyApprovedMemberAboutDirectory } = await import('../src/onboarding/service.js');
+  let dm;
+  const channels = [
+    { id: 'global-general', name: 'bainsa-general' },
+    { id: 'bocconi-category', name: 'BAINSA BOCCONI' },
+    { id: 'bocconi-general', name: 'general', parentId: 'bocconi-category' },
+    { id: 'analysis-channel', name: '🟧-analysis', parentId: 'bocconi-category' },
+    { id: 'directory', name: 'people-directory' },
+  ];
+  const cache = {
+    find: (predicate) => channels.find(predicate),
+    get: (id) => channels.find((channel) => channel.id === id),
+  };
+
+  await notifyApprovedMemberAboutDirectory({
+    guild: {
+      id: 'guild',
+      channels: { cache },
+      members: { fetch: async () => ({ send: async (message) => { dm = message; } }) },
+    },
+    userId: '100',
+    request: { member_type: 'researcher' },
+    university: { name: 'Bocconi' },
+    divisions: [{ name: 'Analysis', color: 'orange', text_channel_id: 'analysis-channel' }],
+  });
+
+  assert.match(dm, /application was approved/i);
+  assert.match(dm, /Your access.*Researcher.*Bocconi.*Analysis/s);
+  assert.match(dm, /Global general/);
+  assert.match(dm, /Bocconi general/);
+  assert.match(dm, /analysis-channel/);
+  assert.ok(dm.indexOf('**Start here**') < dm.indexOf('people directory is optional'));
+});
+
 test('START on an existing pending request replies with status and no editable controls', async () => {
   process.env.DISCORD_TOKEN ??= 'test-token';
   process.env.DISCORD_CLIENT_ID ??= 'test-client';
@@ -137,7 +233,16 @@ test('START on an existing pending request replies with status and no editable c
   const { createOnboardingService } = await import('../src/onboarding/service.js');
   const db = fakeDb([
     { rows: [] },
-    { rows: [{ id: '10', status: 'pending', discord_user_id: '100' }] },
+    { rows: [{
+      id: '10',
+      status: 'pending',
+      discord_user_id: '100',
+      member_type: 'alumni',
+      full_name: 'Ada Lovelace',
+      university_id: '1',
+      division_ids: [],
+    }] },
+    { rows: [{ id: '1', name: 'Bocconi' }] },
   ]);
   const service = createOnboardingService({ db });
   let replyPayload;
@@ -150,8 +255,9 @@ test('START on an existing pending request replies with status and no editable c
     },
   });
 
-  assert.match(replyPayload.content, /already pending/i);
-  assert.equal(replyPayload.components, undefined);
+  assert.equal(replyPayload.embeds[0].data.title, 'Application pending review');
+  assert.match(replyPayload.embeds[0].data.description, /Check application status/);
+  assert.deepEqual(replyPayload.components, []);
 });
 
 test('START modal omits blank full name value so Discord accepts the text input', async () => {
@@ -213,16 +319,29 @@ test('submit sends review message before marking request pending', async () => {
       }],
     },
     { rows: [{ id: '1', name: 'Bocconi', discord_role_id: 'role-u', onboarding_review_channel_id: 'review-channel' }] },
-    { rows: [] },
+    { rows: [
+      {
+        id: '10',
+        discord_user_id: '100',
+        member_type: 'alumni',
+        full_name: 'Ada Lovelace',
+        university_id: '1',
+        division_ids: [],
+        status: 'draft',
+      },
+    ] },
+    { rows: [{ id: '1', name: 'Bocconi' }] },
   ]);
   const service = createOnboardingService({
     db,
     runTransaction: async (work) => work(db),
   });
+  let recovery;
   const interaction = {
     customId: onboardingId(ONBOARDING_ACTIONS.SUBMIT, '10'),
     user: { id: '100' },
-    deferUpdate: async () => undefined,
+    update: async () => undefined,
+    editReply: async (payload) => { recovery = payload; },
     guild: {
       channels: {
         fetch: async () => ({
@@ -235,8 +354,14 @@ test('submit sends review message before marking request pending', async () => {
     },
   };
 
-  await assert.rejects(() => service.handleButton(interaction), /Discord send failed/);
+  await service.handleButton(interaction);
   assert.equal(db.calls.some((call) => /SET .*status/.test(call.sql)), false);
+  assert.equal(recovery.embeds[0].data.title, 'Application not submitted');
+  assert.match(recovery.embeds[0].data.description, /could not deliver/i);
+  assert.deepEqual(
+    recovery.components[0].toJSON().components.map((button) => button.label),
+    ['Submit application', 'Back to university', 'Cancel'],
+  );
 });
 
 test('submit acknowledges before a slow review delivery and edits the original response', async () => {
@@ -266,12 +391,12 @@ test('submit acknowledges before a slow review delivery and edits the original r
     db,
     runTransaction: async (work) => work(db),
   });
-  let deferredUpdates = 0;
+  let waitingPayload;
   let finalPayload;
   const interaction = {
     customId: onboardingId(ONBOARDING_ACTIONS.SUBMIT, '10'),
     user: { id: '100' },
-    deferUpdate: async () => { deferredUpdates += 1; },
+    update: async (payload) => { waitingPayload = payload; },
     editReply: async (payload) => { finalPayload = payload; },
     guild: {
       channels: {
@@ -289,15 +414,14 @@ test('submit acknowledges before a slow review delivery and edits the original r
 
   const submitting = service.handleButton(interaction);
   await reviewSendStarted.promise;
-  assert.equal(deferredUpdates, 1);
+  assert.equal(waitingPayload.embeds[0].data.title, 'Submitting your application');
+  assert.deepEqual(waitingPayload.components, []);
   releaseReviewSend.resolve();
   await submitting;
 
-  assert.deepEqual(finalPayload, {
-    content: 'Your onboarding request was sent to the university board for review.',
-    embeds: [],
-    components: [],
-  });
+  assert.equal(finalPayload.embeds[0].data.title, 'Application sent');
+  assert.match(finalPayload.embeds[0].data.description, /university board has received/i);
+  assert.deepEqual(finalPayload.components, []);
 });
 
 test('draft updates report a conditional status miss without disclosing another user request', async () => {
@@ -450,6 +574,7 @@ test('a Division Head can approve, and Discord roles roll back when a later DB w
       user: { id: 'reviewer' },
       guild,
       deferReply: async () => undefined,
+      editReply: async () => undefined,
     }),
     /db write failed/,
   );
@@ -538,7 +663,10 @@ test('onboarding approval survives a directory DM failure without creating a pro
 
   assert.deepEqual([...targetRoleIds].sort(), ['bocconi-projects-role', 'bocconi-role', 'guild', 'researcher-role']);
   assert.equal(reviewEdited, true);
-  assert.equal(reply, 'Onboarding request approved.');
+  assert.equal(
+    reply,
+    'Onboarding request approved. The DM could not be delivered; the applicant can confirm the decision from #onboarding.',
+  );
   assert.equal(directoryNotificationAttempts, 1);
   assert.equal(db.calls.some(({ sql }) => /member_profiles/i.test(sql)), false);
 });

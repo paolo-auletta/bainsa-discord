@@ -207,9 +207,11 @@ The member presses **Begin onboarding** and completes a private four-step flow:
 3. Choose a university.
 4. If Researcher, choose exactly one division. Alumni choose no division.
 
-The applicant confirms the information and submits it. The bot posts the request in the chosen university’s `#onboarding-review` channel.
+Every private screen keeps the applicant's choices and ends with a destination-named Continue action, a Back action, and Cancel. The final review can return to the last editable step. When the applicant submits, the controls are replaced by a clear waiting message before the bot posts the request in the chosen university’s `#onboarding-review` channel.
 
-Any authorised board member for that university—a Division Head, Vice President, President, or Global President—can approve or reject it. Approval creates or updates the member record, assigns the correct Discord roles, and sets the member's server nickname from the onboarding name automatically. The applicant cannot request a board position through onboarding.
+Any authorised board member for that university—a Division Head, Vice President, President, or Global President—can approve or reject it. Approval creates or updates the member record, assigns the correct Discord roles, and sets the member's server nickname from the onboarding name automatically. Rejection requires a reason that is shared with the applicant and gives them a path to reapply.
+
+The bot attempts a direct decision DM, but delivery does not depend on DMs: **Check application status** in `#onboarding` always shows the latest recorded result and rejection reason. Approval first explains the member's new access and useful starting spaces; only then does it introduce the optional people directory. The applicant cannot request a board position through onboarding.
 
 The benefit is consistency: new members do not need an administrator to manually understand and reproduce the permission model every time.
 
@@ -434,6 +436,8 @@ The Projects division is the standard starting point. Presidents can create furt
 An authorised Head, Vice President, President, or Global President runs `/project-create` in the correct `#bot-log`. The command opens a polished private wizard instead of collecting arguments in the command line.
 
 The wizard moves through five screens: project name, university and division, members and supervisors, dates and optional notes, then final review. The project name stays at the top throughout. Discord-native multi-user selectors accept up to 25 people in each group. Because onboarding names are synchronized to server nicknames, the native selector can find members by their recorded name or Discord username.
+
+After **Create project**, the controls disappear and a waiting message explains that eligibility, persistence, and Discord channel setup are running. If work fails before the project commits, the complete setup returns with **Try creating project**, **Back to details**, and **Cancel setup**. Once the database commits, the setup stays closed so a failed acknowledgement can never cause a duplicate project.
 
 Members must be active Researchers in the selected division. Supervisors must be active members of the selected university and may be Alumni.
 

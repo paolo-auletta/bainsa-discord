@@ -68,6 +68,19 @@ export async function getOpenRequestForUser(db, discordUserId) {
   return rows[0] ?? null;
 }
 
+export async function getLatestRequestForUser(db, discordUserId) {
+  const { rows } = await db.query(
+    `SELECT r.*, u.name AS university_name
+     FROM onboarding_requests r
+     LEFT JOIN universities u ON u.id = r.university_id
+     WHERE r.discord_user_id = $1
+     ORDER BY r.created_at DESC, r.id DESC
+     LIMIT 1`,
+    [discordUserId],
+  );
+  return rows[0] ?? null;
+}
+
 export async function getDefaultUniversity(db) {
   const { rows } = await db.query(
     `SELECT id::text AS id, name
@@ -213,6 +226,20 @@ export async function listDivisionsByIds(db, universityId, divisionIds) {
      FROM divisions
      WHERE university_id::text = $1
        AND active = true
+       AND id = ANY($2::bigint[])
+     ORDER BY name ASC`,
+    [String(universityId), ids],
+  );
+  return rows;
+}
+
+export async function listRequestDivisionsByIds(db, universityId, divisionIds) {
+  const ids = normalizeSelectedDivisionIds(divisionIds);
+  if (ids.length === 0) return [];
+  const { rows } = await db.query(
+    `SELECT id::text AS id, university_id::text AS university_id, name, color, member_role_id, text_channel_id
+     FROM divisions
+     WHERE university_id::text = $1
        AND id = ANY($2::bigint[])
      ORDER BY name ASC`,
     [String(universityId), ids],

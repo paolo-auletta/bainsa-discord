@@ -4,10 +4,12 @@ import { MessageFlags } from 'discord.js';
 
 import { formatBoardActivity } from '../../activity/formatters.js';
 import { assertNoBotUserIds } from '../../authorization.js';
-import { assertUser } from '../../errors.js';
+import { UserFacingError, assertUser } from '../../errors.js';
 import { logger } from '../../logger.js';
 import {
   cancelledPayload,
+  creatingPayload,
+  creationFailedPayload,
   createdPayload,
   detailsPayload,
   participantsPayload,
@@ -268,7 +270,13 @@ export function createProjectSetupService({
     if (parsed.action !== PROJECT_SETUP_ACTIONS.CREATE) return;
     assertSetupComplete(session);
     session.busy = true;
-    await interaction.deferUpdate();
+    try {
+      await interaction.update(creatingPayload(session));
+    } catch (error) {
+      session.busy = false;
+      touch(session);
+      throw error;
+    }
 
     let result;
     try {
@@ -286,7 +294,11 @@ export function createProjectSetupService({
     } catch (error) {
       session.busy = false;
       touch(session);
-      throw error;
+      const message = error instanceof UserFacingError
+        ? error.message
+        : 'BAINSA could not create the project. Review the setup and try again.';
+      await interaction.editReply(creationFailedPayload(session, message));
+      return;
     }
 
     // The database transaction committed. Never reactivate this setup after
