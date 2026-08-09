@@ -466,7 +466,7 @@ Project access uses direct member overwrites, so the server does not consume one
 
 ### 3. Working phase
 
-The project channel is the single workspace for discussion, files, links, decisions, and handover information. Its first bot message is one pinned canonical project home that is edited in place. Every participant can run `/project-info` there. Project supervisors and scoped board roles can add or remove participants, change a participant’s project role, rename the project, update its expected end, pause or reactivate it, and close it without selecting the project again.
+The project channel is the single workspace for discussion, files, links, decisions, and handover information. It opens with two pinned bot messages: an editable canonical project record and a normal-text workspace guide. Every participant can run `/project-info` there. Project supervisors and scoped board roles can add or remove participants, change a participant’s project role, rename the project, update its expected end, pause or reactivate it, and close it without selecting the project again.
 
 The university showcase starter is updated in place with non-private project information. Its replies
 hold shareable progress, materials, questions, and concrete contribution interest. Newly assigned

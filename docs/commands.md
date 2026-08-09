@@ -232,7 +232,7 @@ The project name remains at the top of every setup card after it is entered. Bac
 
 The selected university and division remain authoritative: the database rejects a person who does not meet the appropriate project eligibility rule, rejects duplicate people across the two groups, and rejects the Bot account. A project has at most 994 unique direct participants across members, supervisors, and board liaisons; additional participants can be added afterward with `/project-add-member`. This reserves six of Discord's 1,000 permission overwrites for `@everyone`, the Bot, Global President, and the scoped Head, Vice President, and President roles. Discord documents this limit as error 30060, “Maximum number of channel permission overwrites reached (1000)”: [Discord API error codes](https://discord.com/developers/topics/opcodes-and-status-codes).
 
-When valid, the bot atomically commits the project, participant records, audit entry, and pending reconciliation intent to PostgreSQL. It then immediately runs an idempotent reconciliation that creates or repairs the private project channel, its scoped access, its pinned canonical overview, the university showcase starter, and the division/lifecycle tags. If Discord work fails, the committed project is reported as pending and retries automatically. Once access is ready, assigned people receive a best-effort role-aware handoff DM with links and a recommended first step.
+When valid, the bot atomically commits the project, participant records, audit entry, and pending reconciliation intent to PostgreSQL. It then immediately runs an idempotent reconciliation that creates or repairs the private project channel, its scoped access, its two pinned messages (the canonical project record and workspace guide), the university showcase starter, and the division/lifecycle tags. If Discord work fails, the committed project is reported as pending and retries automatically. Once access is ready, assigned people receive a best-effort role-aware handoff DM with links and a recommended first step.
 
 ### `/project-add-member`
 
@@ -271,7 +271,7 @@ The bot removes the participant record and direct project-channel overwrite, ref
 | `notes` | No | Replacement private working notes shown only in the project home and private lookup |
 | `status` | No | `active` or `paused`; completed projects require `/project-close` |
 
-The bot updates project metadata, channel name/topic, pinned project home, showcase starter, and lifecycle tags in place. It posts one compact transition in the project channel rather than appending another full snapshot. Summary changes are board-visible; notes-only updates remain private. Only active or paused projects can be changed.
+The bot updates project metadata, channel name/topic, pinned project record and workspace guide, showcase starter, and lifecycle tags in place. It posts one compact transition in the project channel rather than appending another full snapshot. Summary changes are board-visible; notes-only updates remain private. Only active or paused projects can be changed.
 
 ### `/project-close`
 

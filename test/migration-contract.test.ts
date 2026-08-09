@@ -57,6 +57,11 @@ const projectCanonicalMessagesMigrationUrl = projectPath(
   'migrations',
   '018_project_canonical_messages.sql',
 );
+const projectWorkspaceGuideMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '019_project_workspace_guide.sql',
+);
 
 async function migrationSql() {
   return readFile(migrationUrl, 'utf8');
@@ -122,6 +127,10 @@ async function projectCanonicalMessagesMigrationSql() {
   return readFile(projectCanonicalMessagesMigrationUrl, 'utf8');
 }
 
+async function projectWorkspaceGuideMigrationSql() {
+  return readFile(projectWorkspaceGuideMigrationUrl, 'utf8');
+}
+
 function assertIncludes(sql, snippet) {
   assert.ok(sql.includes(snippet), `Expected migration to include: ${snippet}`);
 }
@@ -148,6 +157,7 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '016_consolidate_profile_forum_message.sql',
     '017_replace_profile_identity_tags_with_university_tags.sql',
     '018_project_canonical_messages.sql',
+    '019_project_workspace_guide.sql',
   ]);
 });
 
@@ -155,6 +165,14 @@ test('adds a durable canonical project-home message identity', async () => {
   const sql = await projectCanonicalMessagesMigrationSql();
   assertIncludes(sql, 'ADD COLUMN IF NOT EXISTS home_message_id text');
   assertIncludes(sql, 'ADD COLUMN IF NOT EXISTS summary text');
+  assertIncludes(sql, 'INSERT INTO project_reconciliation');
+  assertIncludes(sql, 'desired_generation = project_reconciliation.desired_generation + 1');
+  assertIncludes(sql, "status = 'pending'");
+});
+
+test('adds a durable project workspace-guide message identity', async () => {
+  const sql = await projectWorkspaceGuideMigrationSql();
+  assertIncludes(sql, 'ADD COLUMN IF NOT EXISTS workspace_guide_message_id text');
   assertIncludes(sql, 'INSERT INTO project_reconciliation');
   assertIncludes(sql, 'desired_generation = project_reconciliation.desired_generation + 1');
   assertIncludes(sql, "status = 'pending'");

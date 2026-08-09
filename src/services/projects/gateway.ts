@@ -11,6 +11,7 @@ import {
   projectRemovalMessage,
   projectStatusLabel,
   showcasePostPayload,
+  projectWorkspaceGuidePayload,
 } from './formatters.js';
 import { formatDiscordUserReferences } from './validation.js';
 
@@ -173,6 +174,10 @@ function projectHomeMarker(projectId) {
   return `-# Project #${projectId} ·`;
 }
 
+function projectWorkspaceGuideMarker(projectId) {
+  return `-# Project #${projectId} · Pinned workspace guide`;
+}
+
 function matchingProjectHome(messages, channel, projectId) {
   const botUserId = channel.client?.user?.id;
   return messages.find(
@@ -196,6 +201,29 @@ async function findProjectHome(channel, projectId) {
   return matchingProjectHome([...recent.values()], channel, projectId);
 }
 
+function matchingProjectWorkspaceGuide(messages, channel, projectId) {
+  const botUserId = channel.client?.user?.id;
+  return messages.find(
+    (message) =>
+      message.content?.endsWith(projectWorkspaceGuideMarker(projectId))
+      && (!botUserId || !message.author?.id || String(message.author.id) === String(botUserId)),
+  ) ?? null;
+}
+
+async function findProjectWorkspaceGuide(channel, projectId) {
+  if (channel.messages?.fetchPins) {
+    const response = await channel.messages.fetchPins();
+    const pinned = response?.items
+      ?.map((item) => item.message)
+      ?? [];
+    const match = matchingProjectWorkspaceGuide(pinned, channel, projectId);
+    if (match) return match;
+  }
+  if (!channel.messages?.fetch) return null;
+  const recent = await channel.messages.fetch({ limit: 100 });
+  return matchingProjectWorkspaceGuide([...recent.values()], channel, projectId);
+}
+
 export async function syncProjectHome(guild, project, people) {
   if (!project.discord_channel_id) return;
   const channel = await fetchChannelIfPresent(guild, project.discord_channel_id);
@@ -213,6 +241,27 @@ export async function syncProjectHome(guild, project, people) {
   }
   if (!message.pinned && typeof message.pin === 'function') {
     await message.pin(`Pin canonical project ${project.id} overview`);
+  }
+  return message;
+}
+
+export async function syncProjectWorkspaceGuide(guild, project) {
+  if (!project.discord_channel_id) return;
+  const channel = await fetchChannelIfPresent(guild, project.discord_channel_id);
+  if (!channel) return;
+  let message = await fetchMessageIfPresent(channel, project.workspace_guide_message_id);
+  if (!message) message = await findProjectWorkspaceGuide(channel, project.id);
+  const payload = {
+    ...projectWorkspaceGuidePayload(project),
+    allowedMentions: PROJECT_HISTORY_ALLOWED_MENTIONS,
+  };
+  if (!message) {
+    message = await channel.send(payload);
+  } else {
+    await message.edit(payload);
+  }
+  if (!message.pinned && typeof message.pin === 'function') {
+    await message.pin(`Pin project ${project.id} workspace guide`);
   }
   return message;
 }

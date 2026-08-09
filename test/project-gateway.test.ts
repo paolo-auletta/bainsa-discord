@@ -5,6 +5,7 @@ import { ChannelType } from 'discord.js';
 
 import {
   syncProjectHome,
+  syncProjectWorkspaceGuide,
   syncShowcaseThread,
 } from '../src/services/projects/gateway.js';
 
@@ -25,6 +26,7 @@ const project = {
   showcase_thread_id: null,
   discord_channel_id: 'project-channel',
   home_message_id: null,
+  workspace_guide_message_id: null,
 };
 const people = [{ discord_user_id: 'member', role: 'supervisor' }];
 
@@ -162,7 +164,48 @@ test('project home reconciliation edits and pins one canonical overview', async 
   assert.match(pinReason, /canonical project 42 overview/);
   assert.deepEqual(editedPayload.allowedMentions, { parse: [] });
   assert.equal(editedPayload.embeds[0].data.title, '@everyone project');
-  assert.match(editedPayload.embeds[0].data.fields.at(-1).value, /`\/project-info`/);
+  assert.equal(editedPayload.embeds[0].data.fields.at(-2).name, 'Workspace');
+  assert.equal(editedPayload.embeds[0].data.fields.at(-1).name, 'Shareable record');
+  assert.equal(editedPayload.embeds[0].data.fields.some((field) => field.name === 'How to use this space'), false);
+});
+
+test('project workspace guide is a separate pinned normal message', async () => {
+  let editedPayload;
+  let pinReason;
+  let sent = false;
+  const message = {
+    id: 'workspace-guide',
+    pinned: false,
+    async edit(payload) { editedPayload = payload; },
+    async pin(reason) { pinReason = reason; },
+  };
+  const channel = {
+    messages: {
+      async fetch(id) {
+        assert.equal(id, 'workspace-guide');
+        return message;
+      },
+    },
+    async send() { sent = true; },
+  };
+  const guild = {
+    channels: {
+      async fetch(id) { return id === 'project-channel' ? channel : null; },
+    },
+  };
+
+  const result = await syncProjectWorkspaceGuide(
+    guild,
+    { ...project, workspace_guide_message_id: 'workspace-guide' },
+  );
+
+  assert.equal(result, message);
+  assert.equal(sent, false);
+  assert.match(pinReason, /project 42 workspace guide/);
+  assert.deepEqual(editedPayload.allowedMentions, { parse: [] });
+  assert.match(editedPayload.content, /^\*\*How to use this space\*\*/);
+  assert.match(editedPayload.content, /`\/project-info`/);
+  assert.match(editedPayload.content, /Pinned workspace guide$/);
 });
 
 test('canonical record fetches retry transient Discord failures instead of creating duplicates', async () => {

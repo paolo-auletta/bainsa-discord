@@ -159,7 +159,7 @@ test('records post-commit Discord failures, repairs them, and does not replay a 
   const callsAfterSuccess = calls;
   assert.deepEqual(await retryProjectReconciliations({ guild, db: database, limit: 1 }), []);
   assert.equal(calls, callsAfterSuccess);
-  assert.equal(canonicalWrites, 1, 'durable retries create one canonical home and never replay history');
+  assert.equal(canonicalWrites, 2, 'durable retries create one canonical project record and workspace guide without replaying history');
 });
 
 test('serializes two workers and leaves a newer desired generation pending after an older completion', async () => {

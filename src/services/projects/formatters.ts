@@ -131,16 +131,29 @@ function projectTeamFields(people) {
 
 function projectWorkspaceGuidance(project) {
   if (project.status === PROJECT_STATUSES.COMPLETED || project.status === PROJECT_STATUSES.ARCHIVED) {
-    return 'This workspace preserves the project history. Members can read it; supervisors and scoped board retain handover access.';
+    return [
+      '**How to use this space**',
+      '',
+      'This workspace preserves the project history. Members can read it; supervisors and scoped board retain handover access.',
+      '',
+      `-# Project #${project.id} · Pinned workspace guide`,
+    ].join('\n');
   }
   return [
-    'Keep discussion, drafts, decisions, and internal files in this channel.',
-    'Members can run `/project-info`. Supervisors can also update the project, manage participants, and close it here; the project is selected automatically.',
+    '**How to use this space**',
+    '',
+    'Keep discussion, drafts, decisions, and internal files in this private workspace.',
+    '',
+    '**Everyone** · Run `/project-info` for the current project record, then use this channel for day-to-day work.',
+    '**Supervisors & scoped board** · Run project commands here to update the project, manage participants, or close it. The project is selected automatically.',
+    '',
     'Use the showcase post for shareable progress, materials, questions, and expressions of interest.',
+    '',
+    `-# Project #${project.id} · Pinned workspace guide`,
   ].join('\n');
 }
 
-export function projectHomePayload(project, people) {
+function projectRecordEmbed(project, people) {
   const embed = new EmbedBuilder()
     .setColor(projectColor(project))
     .setTitle(project.name)
@@ -155,14 +168,37 @@ export function projectHomePayload(project, people) {
   if (project.notes) embed.addFields({ name: 'Internal working notes', value: embedFieldValue(project.notes) });
   if (project.outcome) embed.addFields({ name: 'Conclusion', value: embedFieldValue(project.outcome) });
   if (project.final_notes) embed.addFields({ name: 'Internal handover notes', value: embedFieldValue(project.final_notes) });
-  embed
-    .addFields({ name: 'How to use this space', value: projectWorkspaceGuidance(project) })
-    .setFooter({ text: `Project #${project.id} · This pinned overview updates automatically` });
+  return embed;
+}
+
+function projectRecordLinks(project) {
+  return [
+    {
+      name: 'Workspace',
+      value: project.discord_channel_id ? `<#${project.discord_channel_id}>` : 'Not provisioned',
+      inline: true,
+    },
+    {
+      name: 'Shareable record',
+      value: project.showcase_thread_id ? `<#${project.showcase_thread_id}>` : 'Pending',
+      inline: true,
+    },
+  ];
+}
+
+export function projectHomePayload(project, people) {
+  const embed = projectRecordEmbed(project, people)
+    .addFields(...projectRecordLinks(project))
+    .setFooter({ text: `Project #${project.id} · Pinned project record · Updates automatically` });
 
   return {
     content: `-# Project #${project.id} · ${project.university_name} project workspace`,
     embeds: [embed],
   };
+}
+
+export function projectWorkspaceGuidePayload(project) {
+  return { content: projectWorkspaceGuidance(project) };
 }
 
 export function showcasePostPayload(project, people) {
@@ -202,15 +238,9 @@ export function showcasePostPayload(project, people) {
 }
 
 export function projectInfoMessage(project, people) {
-  const channel = project.discord_channel_id ? `<#${project.discord_channel_id}>` : 'Not provisioned';
-  const showcase = project.showcase_thread_id ? `<#${project.showcase_thread_id}>` : 'Pending';
-  const payload = projectHomePayload(project, people);
-  const embed = EmbedBuilder.from(payload.embeds[0])
+  const embed = projectRecordEmbed(project, people)
     .setFooter({ text: `Project #${project.id} · Private project record` })
-    .addFields(
-      { name: 'Workspace', value: channel, inline: true },
-      { name: 'Showcase', value: showcase, inline: true },
-    );
+    .addFields(...projectRecordLinks(project));
   return { embeds: [embed] };
 }
 
@@ -232,20 +262,25 @@ export function projectAssignmentMessage(guildId, project, role, previousRole = 
     ? `https://discord.com/channels/${guildId}/${project.showcase_thread_id}`
     : null;
   const roleLabel = projectStatusLabel(role);
+  const title = previousRole
+    ? `**Your role on ${project.name} changed**`
+    : `**You joined ${project.name}**`;
   const roleLine = previousRole
-    ? `Your project role changed from **${projectStatusLabel(previousRole)}** to **${roleLabel}**.`
-    : `You joined as **${roleLabel}**.`;
+    ? `**Role** · ${projectStatusLabel(previousRole)} → ${roleLabel}`
+    : `**Role** · ${roleLabel}`;
   const nextStep = role === PROJECT_PERSON_ROLES.SUPERVISOR
-    ? 'Read the pinned project overview, welcome the team, and use the project-scoped commands in the workspace to keep the record current.'
-    : 'Read the pinned project overview, introduce yourself, and check the latest discussion, files, and decisions.';
+    ? 'Read the two pinned messages, welcome the team, and use project commands in the workspace to keep the record current.'
+    : 'Read the two pinned messages, introduce yourself, and follow the latest discussion, files, and decisions.';
   return formatMessage([
-    `**You joined ${project.name}**`,
+    title,
     `${project.university_name} · ${divisionLabel(project.division_name, project.division_color)}`,
     roleLine,
     '',
-    `**Start here** · ${nextStep}`,
-    workspaceUrl ? `Project workspace: ${workspaceUrl}` : null,
-    showcaseUrl ? `Shareable project record: ${showcaseUrl}` : null,
+    '**Start here**',
+    workspaceUrl ? `1. [Open the project workspace](${workspaceUrl})` : '1. Your project workspace is being prepared.',
+    '2. Read the pinned project record and workspace guide.',
+    `3. ${nextStep}`,
+    showcaseUrl ? `[View the shareable project record](${showcaseUrl})` : null,
   ]);
 }
 

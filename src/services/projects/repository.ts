@@ -17,6 +17,7 @@ const PROJECT_SELECT = `
   p.closed_at,
   p.channel_id AS discord_channel_id,
   p.home_message_id,
+  p.workspace_guide_message_id,
   p.showcase_thread_id,
   u.name AS university_name,
   u.category_id,

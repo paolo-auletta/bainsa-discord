@@ -211,7 +211,7 @@ export async function createProject(input, deps: ProjectDependencies = {}) {
         (name, university_id, division_id, start_date, expected_end, summary, notes, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id, name, university_id, division_id, start_date::text, expected_end::text, summary, notes, status,
-         outcome, final_notes, closed_at, channel_id AS discord_channel_id, home_message_id, showcase_thread_id`,
+         outcome, final_notes, closed_at, channel_id AS discord_channel_id, home_message_id, workspace_guide_message_id, showcase_thread_id`,
       [
         name,
         divisionRecord.university_id,

@@ -8,7 +8,7 @@ channel appeared. The redesigned journey gives each project two maintained surfa
 ```text
 Private project channel                         University projects showcase
 Operational home                               Shareable record
-├── one pinned canonical overview              ├── one bot-owned canonical starter
+├── pinned project record + workspace guide      ├── one bot-owned canonical starter
 ├── private discussion, drafts, and decisions  ├── division + lifecycle tags
 ├── project-scoped commands                    ├── shareable progress and files in replies
 └── chronological transition messages          └── questions and contribution interest
@@ -86,8 +86,9 @@ members may reply, which also creates the missing discovery-to-participation pat
 
 ## Project home message system
 
-The first bot message is now one pinned project overview, stored by Discord message ID and edited in
-place. Its information order is:
+The project channel opens with two pinned bot messages: a canonical project record, stored by Discord
+message ID and edited in place, followed by a normal-text workspace guide with its own durable message
+identity. The project record's information order is:
 
 1. Project name and private-workspace scope.
 2. Public project summary.
@@ -95,7 +96,9 @@ place. Its information order is:
 4. Members, supervisors, and any board liaisons.
 5. Private internal working notes, when present.
 6. On completion, the public conclusion and private internal handover notes.
-7. Role-aware instructions for using the workspace and its project-scoped commands.
+
+The separate workspace guide tells every participant where to keep private work, how to inspect the
+record, and which project-scoped commands supervisors and scoped board can run in the channel.
 
 Bot-generated changes use a smaller transition-message pattern with a single event title, the
 meaningful change, its consequence, and a reminder that the pinned overview is current. Full project

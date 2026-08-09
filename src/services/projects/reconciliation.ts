@@ -3,13 +3,13 @@ import { ChannelType } from 'discord.js';
 import { PROJECT_STATUSES, ROLE_NAMES } from '../../constants.js';
 import { logger } from '../../logger.js';
 import { divisionHeadRoleName, projectChannelName, universityBoardRoleName, universityCategoryName } from '../../naming.js';
-import { syncProjectHome, syncShowcaseThread } from './gateway.js';
+import { syncProjectHome, syncProjectWorkspaceGuide, syncShowcaseThread } from './gateway.js';
 import { buildProjectPermissionOverwrites, projectPersonIdsByRole, uniqueIds } from './permissions.js';
 
 const PROJECT_SELECT = `
   p.id, p.name, p.university_id, p.division_id, p.start_date::text AS start_date,
   p.expected_end::text AS expected_end, p.summary, p.notes, p.status, p.outcome, p.final_notes, p.closed_at,
-  p.channel_id AS discord_channel_id, p.home_message_id, p.showcase_thread_id,
+  p.channel_id AS discord_channel_id, p.home_message_id, p.workspace_guide_message_id, p.showcase_thread_id,
   u.name AS university_name, u.category_id, u.showcase_channel_id, d.name AS division_name, d.color AS division_color,
   d.head_role_id AS division_head_role_id
 `;
@@ -148,6 +148,15 @@ async function applyDesiredDiscordState(client, guild, project, people) {
       [homeMessage.id, project.id],
     );
     project.home_message_id = homeMessage.id;
+  }
+
+  const workspaceGuide = await syncProjectWorkspaceGuide(guild, project);
+  if (workspaceGuide && String(workspaceGuide.id) !== String(project.workspace_guide_message_id ?? '')) {
+    await client.query(
+      'UPDATE projects SET workspace_guide_message_id = $1, updated_at = now() WHERE id = $2',
+      [workspaceGuide.id, project.id],
+    );
+    project.workspace_guide_message_id = workspaceGuide.id;
   }
 }
 

@@ -130,7 +130,7 @@ Projects:
 
 `/project-create` has no inline arguments. It opens a private five-step wizard for the project name, scope, team, dates, public summary, optional internal notes, and final review; the project is created only after confirmation. Creation first replaces the controls with an explicit progress state. A pre-commit failure restores the review with Try, Back, and Cancel actions; a committed project is never made retryable.
 
-Each project has one pinned canonical overview in its private channel and one bot-managed canonical starter in the university showcase. Both are edited in place. University members may reply and attach shareable progress or questions inside existing showcase posts, but only the bot can create those posts.
+Each project has two pinned messages in its private channel: an editable canonical project record and a plain-language workspace guide. It also has one bot-managed canonical starter in the university showcase. The record, guide, and showcase starter are repaired in place. University members may reply and attach shareable progress or questions inside existing showcase posts, but only the bot can create those posts.
 
 Announcements and scheduled events use Discord's native UI and scoped channel permissions. There are no announcement, event, showcase-management, destructive-delete, or broad maintenance commands in v1.
 

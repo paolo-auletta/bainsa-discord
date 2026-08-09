@@ -801,6 +801,8 @@ test('successful project create, update, and close maintain canonical Discord re
   const channels = new Map();
   const workspaceMessages = [];
   const workspaceEdits = [];
+  const workspaceGuides = [];
+  const workspaceGuideEdits = [];
   const workspaceTransitions = [];
   const starterEdits = [];
   let appliedTags = [];
@@ -827,19 +829,39 @@ test('successful project create, update, and close maintain canonical Discord re
     cache: { has: (id) => channels.has(id), find: (predicate) => [...channels.values()].find(predicate) },
     async fetch(id) { return id == null ? channels : channels.get(id) ?? null; },
     async create(options) {
+      const projectMessages = new Map();
       const homeMessage = {
         id: 'home-message', pinned: false,
         async edit(payload) { workspaceEdits.push(payload); },
         async pin() { homeMessage.pinned = true; },
       };
+      const workspaceGuide = {
+        id: 'workspace-guide', pinned: false,
+        async edit(payload) { workspaceGuideEdits.push(payload); },
+        async pin() { workspaceGuide.pinned = true; },
+      };
       const workspace = {
         id: 'workspace', name: options.name, topic: options.topic, parentId: null,
         permissionOverwrites: { async set() {} }, async setName() {}, async setParent() {}, async setTopic() {},
-        messages: { async fetch(id) { return id === homeMessage.id ? homeMessage : null; } },
+        messages: {
+          async fetch(id) {
+            if (typeof id === 'string') return projectMessages.get(id) ?? null;
+            return projectMessages;
+          },
+          async fetchPins() {
+            return { items: [...projectMessages.values()].filter((message) => message.pinned).map((message) => ({ message })) };
+          },
+        },
         async send(payload) {
-          if (payload.content?.includes('Project #')) {
+          if (payload.content?.startsWith('-# Project #')) {
             workspaceMessages.push(payload);
+            projectMessages.set(homeMessage.id, homeMessage);
             return homeMessage;
+          }
+          if (payload.content?.endsWith('Pinned workspace guide')) {
+            workspaceGuides.push(payload);
+            projectMessages.set(workspaceGuide.id, workspaceGuide);
+            return workspaceGuide;
           }
           workspaceTransitions.push(payload);
           return { id: `transition-${workspaceTransitions.length}` };
@@ -859,6 +881,9 @@ test('successful project create, update, and close maintain canonical Discord re
   await closeProject({ interaction, project: String(created.id), outcome: 'Done', finalNotes: 'Handed over' }, { db: database });
   assert.equal(workspaceMessages.length, 1);
   assert.equal(workspaceEdits.length, 2);
+  assert.equal(workspaceGuides.length, 1);
+  assert.equal(workspaceGuideEdits.length, 2);
+  assert.match(workspaceGuides[0].content, /^\*\*How to use this space\*\*/);
   assert.equal(workspaceTransitions.length, 2);
   assert.equal(workspaceEdits.at(-1).embeds[0].data.fields.find((field) => field.name === 'Conclusion').value, 'Done');
   assert.equal(workspaceEdits.at(-1).embeds[0].data.fields.find((field) => field.name === 'Internal handover notes').value, 'Handed over');
