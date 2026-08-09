@@ -29,7 +29,7 @@ This plan deliberately separates membership approval from profile publication. A
 3. An approved member presses **Create or update my profile**. The bot verifies `members.status = 'active'` server-side and starts a private wizard. No slash command is added.
 4. The wizard asks the member to complete the required profile fields, choose one to four curated tags, and optionally add professional contact links.
 5. A private preview states that publishing makes the content visible to every approved BAINSA member. Only **Publish profile** mutates the public profile row.
-6. The bot creates or updates exactly one read-only forum post. The member’s type, BAINSA university, and Researcher division are derived from canonical membership tables and cannot be edited in the profile wizard.
+6. The bot creates or updates exactly one read-only forum thread with one profile summary message. The member’s type, BAINSA university, and Researcher division are derived from canonical membership tables and cannot be edited in the profile wizard.
 7. The member returns to `Start here` to update or unpublish. **Unpublish my profile** requires confirmation, preserves the structured record as hidden for easy republishing, and durably queues deletion of the Discord thread.
 8. Removing or departing a member hides their profile and queues deletion. Reapproval does not silently republish it; the returning member must preview and publish again.
 
@@ -59,12 +59,13 @@ All contact values are optional. Do not add phone, X, Instagram, mandatory email
 
 ### Forum tag taxonomy
 
-Discord permits at most 20 available tags per forum and at most five applied tags per post. Provision exactly the following 14 managed tags, leaving six slots for future taxonomy changes. Store stable lowercase keys in PostgreSQL; map them to labels at the Discord boundary.
+Discord permits at most 20 available tags per forum and at most five applied tags per post. Provision exactly the following 15 managed tags, leaving five slots for future taxonomy changes. Store stable lowercase keys in PostgreSQL; map them to labels at the Discord boundary.
 
 | Category    | Key                 | Discord label         | Application rule                                                   |
 | ----------- | ------------------- | --------------------- | ------------------------------------------------------------------ |
-| Identity    | `researcher`        | `Researcher`          | Derived automatically from `members.member_type`; never selectable |
-| Identity    | `alumni`            | `Alumni`              | Derived automatically from `members.member_type`; never selectable |
+| University  | `bocconi`           | `Bocconi`             | Derived automatically from `universities.name`; never selectable   |
+| University  | `sapienza`          | `Sapienza`            | Derived automatically from `universities.name`; never selectable   |
+| University  | `polimi`            | `PoliMi`              | Derived automatically from `universities.name`; never selectable   |
 | Field       | `ai_data`           | `AI & Data`           | Selectable                                                         |
 | Field       | `econ_finance`      | `Econ & Finance`      | Selectable                                                         |
 | Field       | `neuroscience`      | `Neuroscience`        | Selectable                                                         |
@@ -78,19 +79,19 @@ Discord permits at most 20 available tags per forum and at most five applied tag
 | Environment | `industry`          | `Industry`            | Selectable                                                         |
 | Environment | `entrepreneurship`  | `Entrepreneurship`    | Selectable                                                         |
 
-At publication, apply exactly one derived identity tag plus the member’s one to four selected tags. Validate that all labels are unique and at most 20 characters, that the taxonomy has at most 20 entries, and that no published post receives more than five tags. Job titles, employers, specific laboratories, technologies, and narrow research topics remain searchable profile text rather than an ever-growing tag list.
+At publication, apply exactly one derived BAINSA university tag plus the member’s one to four selected tags. Validate that all labels are unique and at most 20 characters, that the taxonomy has at most 20 entries, and that no published post receives more than five tags. Job titles, employers, specific laboratories, technologies, and narrow research topics remain searchable profile text rather than an ever-growing tag list.
 
 ### Forum presentation
 
 - Provision `people-directory` beside `resources` under `GLOBAL BAINSA`; do not reuse the resources forum.
 - Only approved membership roles may view it. Humans may not create posts, send replies, edit bot messages, or create threads. The bot may manage messages and threads.
 - Configure Discord’s list layout and the maximum supported auto-archive duration (10,080 minutes).
-- The thread name is derived as `Full Name — Current role` and truncated safely to Discord’s 100-character limit. Do not include a Discord ID in the title.
-- Put all discovery text in the plain starter-message content so native Discord text search can find it. Render contact links separately in an embed if needed to keep the plain content below 2,000 characters.
-- The plain body contains: full name, headline, derived Researcher/Alumni status, BAINSA university/division, About, Currently, Aiming for, selected tag labels, Discord mention, and last-updated timestamp.
+- The thread name is derived as `Nickname — Headline` and truncated safely to Discord’s 100-character limit. Do not include a Discord ID in the title.
+- Put all profile text in one Components V2 starter card using the same grouped summary shown in the wizard’s final review. Keep its text display below 4,000 characters.
+- The starter contains the authored profile fields, selected tag labels, and the owner mention used for Discord contact and recovery.
 - Set `allowedMentions: { parse: [] }` for create and edit operations so profile publication never pings the owner, roles, or `@everyone`.
 - Escape member-authored Markdown where it could imitate headings or alter the fixed structure. Validate URLs before rendering links.
-- Add no comments/replies for routine synchronization and no “keep alive” messages.
+- Add no unmanaged comments/replies for routine synchronization and no “keep alive” messages.
 
 ### Privacy and authorization rules
 
@@ -206,15 +207,15 @@ Do not add drafts to PostgreSQL. The existing wizard convention keeps unsubmitte
 
 Under `src/profiles/`, create pure modules before any Discord/database orchestration:
 
-- Define the exact 14-entry taxonomy above as frozen data with stable keys, labels, category, descriptions, and a `selectable`/derived distinction.
-- Export pure guards/mappers that reject unknown, duplicate, derived, or more than four selected keys; combine them with exactly one canonical member-type tag; assert the resulting applied set has at most five entries.
+- Define the exact 15-entry taxonomy above as frozen data with stable keys, labels, category, descriptions, and a `selectable`/derived distinction.
+- Export pure guards/mappers that reject unknown, duplicate, derived, or more than four selected keys; combine them with exactly one canonical university tag; assert the resulting applied set has at most five entries.
 - Normalize all text consistently. Treat blank optional values as `null`; never turn a missing organization into literal “undefined” or “None”.
 - Parse URLs with the platform `URL` class. Allow only HTTP(S), require HTTPS for LinkedIn, enforce its host constraint without substring matching, remove surrounding whitespace, and reject credentials in URLs.
 - Add a pragmatic email validator and normalized value; do not send verification mail.
 - Implement `canPublishProfile`/`assertPublishableProfile` as the single source of required-field and length rules used by UI and service layers.
-- Implement a formatter returning the thread name, plain content, optional contact embed, applied tag keys/labels, and safe allowed-mentions configuration. Keep core content at most 2,000 characters for the maximum legal field values. Escape Markdown in authored values and include a natural owner marker via the Discord mention so recovery can identify orphaned bot-created threads.
+- Implement one shared summary formatter for the wizard review and forum starter, returning the thread name, card text, applied tag keys/labels, and safe allowed-mentions configuration. Keep the text display at most 4,000 characters for the maximum legal field values. Escape Markdown in authored values and include a natural owner marker via the Discord mention so recovery can identify orphaned bot-created threads.
 
-Write exhaustive pure tests for boundaries, whitespace normalization, invalid schemes/hosts, false-positive hostnames, unknown/duplicate tags, member-type derivation, five-tag maximum, Markdown/mention safety, absent optional fields, title truncation, and maximum-length post formatting.
+Write exhaustive pure tests for boundaries, whitespace normalization, invalid schemes/hosts, false-positive hostnames, unknown/duplicate tags, university derivation, five-tag maximum, Markdown/mention safety, absent optional fields, title truncation, and maximum-length post formatting.
 
 **Verify**: `npm run check && npm test` → exit 0; all boundary cases pass.
 
@@ -225,12 +226,12 @@ Model the interaction service after `src/services/projects/setup.ts`, with an is
 1. Custom IDs must remain under Discord’s 100-character limit and separate the persistent start/unpublish actions from UUID-bound session actions.
 2. `start(interaction)` queries the canonical active member and any existing profile, creates one actor/guild-bound session, prefills it on edit/republish, and opens the first modal. Reject non-guild use and inactive/missing members.
 3. Use a 30-minute sliding TTL, one active session per member/guild, a busy guard around publish, and deterministic expiry cleanup. Cancellation destroys only the in-memory session and cannot change the published profile.
-4. Split the questions across private screens so each modal stays within Discord’s current component limit:
-   - Identity screen: headline and about (including interests/passions).
-   - Current/future screen: current role, optional organization, optional location, and goals.
-   - Tag screen: one string-select containing only the 12 selectable tags, `minValues=1`, `maxValues=4`, followed by Continue/Edit controls.
+4. Split the questions across private screens so each modal stays within Discord’s current component limit and mirror project creation’s complete top summary plus primary/Back/Cancel navigation:
+   - Where-you-are-now screen: headline, current role, optional organization, and optional location.
+   - What-you-want-to-explore screen: goals first, followed by about/interests/passions.
+   - Tag screen: one string-select containing only the 12 selectable tags, `minValues=1`, `maxValues=4`.
    - Contact screen: optional email, LinkedIn, and research-profile URL.
-   - Review screen: complete private preview, explicit visibility notice, Publish, edit-section buttons, and Cancel.
+   - Review screen: complete private preview, explicit visibility notice, Publish, Back to contact, and Cancel.
 5. The persistent guide provides **Create or update my profile** and **Unpublish my profile**. Unpublish opens a private confirmation and is idempotent when nothing is published.
 6. On publish, validate again server-side, start a database transaction, lock the member/profile rows, re-check active membership, upsert the public profile as `published`, increment/insert reconciliation desired state, and write a privacy-safe audit record. Commit before attempting Discord reconciliation.
 7. Return a private success message containing the forum-post link when synchronization succeeds, or a clear “saved; Discord synchronization will retry automatically” message when pending.
@@ -249,7 +250,7 @@ The reconciler must:
 
 1. Lock one `member_profile_reconciliation` row for the complete attempt and generation-guard completion, matching the project reconciliation concurrency rule.
 2. Load canonical `members`, `universities`, and active `member_divisions` data for formatting. Never trust member type/university/division supplied by the wizard.
-3. For a published active member, resolve the provisioned global directory forum, map desired tag labels to the forum’s current tag IDs, and create or update exactly one bot-owned thread. Fetch and edit the starter message; do not append update messages.
+3. For a published active member, resolve the provisioned global directory forum, map desired tag labels to the forum’s current tag IDs, and create or update exactly one bot-owned thread. Fetch and edit the starter message and remove any legacy managed follow-ups.
 4. Set new threads to the 10,080-minute auto-archive duration. Before editing an archived thread, unarchive it through the channel update API without sending a message.
 5. If a stored thread/message was manually deleted, clear the stale IDs and recreate it. Before creating when IDs are absent, make a recovery-only scan of active and archived bot-authored profile posts for the natural owner mention and adopt the oldest matching post; delete confirmed duplicates. This closes the “Discord create succeeded, DB ID persistence failed” gap without exposing internal IDs in thread titles.
 6. For hidden, removed, or departed members, delete every confidently matched profile thread and clear stored Discord IDs. A missing thread counts as successful deletion.
@@ -274,7 +275,7 @@ Update the provisioning contract:
 6. Attach the persistent Create/update and Unpublish buttons on both first creation and later seed reconciliation. Fix `seedForumGuide` so `options.components` are forwarded when it creates the thread, not only when it updates an existing one.
 7. Ensure provisioning can recover the tracked guide even after auto-archive rather than creating duplicate `Start here` threads. Prefer the existing `provisioned_messages` identity before scanning active/archived threads.
 
-Add provisioning tests for channel placement/type, exact 14 managed tags and six-slot reserve, label uniqueness/length, list layout, auto-archive, approved-only read access, denied human posting, bot posting, guide buttons on first provision and update, archived guide adoption, and unchanged semantics for all existing forums.
+Add provisioning tests for channel placement/type, exact 15 managed tags and five-slot reserve, label uniqueness/length, list layout, auto-archive, approved-only read access, denied human posting, bot posting, guide buttons on first provision and update, archived guide adoption, and unchanged semantics for all existing forums.
 
 **Verify**: `npm run check && npm test` → exit 0; existing resource/showcase tag tests still pass.
 
@@ -283,7 +284,7 @@ Add provisioning tests for channel placement/type, exact 14 managed tags and six
 Add lifecycle hooks without making profile availability part of membership correctness:
 
 - After `approveRequest` has committed and the review message is updated, best-effort fetch/DM the approved member with a link to `people-directory` and a short explanation that the profile is optional. DM failure logs only identifiers and never changes the approval result. Inject this notifier into onboarding so onboarding tests do not need real Discord/profile infrastructure.
-- When governance changes an active member’s type, university, or division, request profile reconciliation in the same database transaction if a published profile exists. The next post must derive the new identity tag and BAINSA details.
+- When governance changes an active member’s type, university, or division, request profile reconciliation in the same database transaction if a published profile exists. The next post must derive the new BAINSA university tag and details.
 - Inside canonical `removeMember`, hide any profile and increment its desired reconciliation generation in the same transaction as the member status change. Include only visibility/sync metadata in the audit record.
 - Add a `GuildMemberRemove` listener that idempotently hides/queues a profile for voluntary departures and kick events; it must not change the existing membership record or duplicate the governance removal audit.
 - Reapproval leaves hidden profiles hidden. The member can reopen the prefilled wizard and explicitly republish.
@@ -303,7 +304,7 @@ Update `README.md` and `docs/bainsa-discord-presentation-guide.md` to describe:
 - bot ownership of posts and button-based member editing;
 - native forum text/tag search and list layout, not a true sortable table;
 - retry/unpublish/removal behavior and the maintenance worker;
-- the 14-tag taxonomy and governance rule: change stable categories deliberately, keep employers/job titles/narrow topics in free text;
+- the 15-tag taxonomy and governance rule: change stable categories deliberately, keep employers/job titles/narrow topics in free text;
 - explicit v1 exclusions: no slash commands, LinkedIn import/scraping, external table, phone, or endorsements.
 
 Do not describe implementation as complete until the tests and full quality gate pass.
@@ -334,12 +335,12 @@ Expected: every command exits 0; only files listed in Scope plus `plans/README.m
 
 At minimum, add the following coverage using Node’s `node:test`/`assert` style and the repository’s existing dependency-injected fakes:
 
-- **Pure state/validation**: every required/optional boundary, URL-host attack shapes, email normalization, exact taxonomy invariants, derived identity tags, aggregate tag limit, maximum post size, Markdown and allowed-mention safety.
+- **Pure state/validation**: every required/optional boundary, URL-host attack shapes, email normalization, exact taxonomy invariants, derived university tags, aggregate tag limit, maximum post size, Markdown and allowed-mention safety.
 - **Components/session**: all modal/select/review paths, prefilled edit, cancel, expiry, owner/guild binding, inactive users, invalid replay, double submit, visibility notice, and optional contact rendering.
 - **Repository/service**: publish upsert + generation increment, update, hidden republish, idempotent unpublish, audit minimization, transaction rollback, member fact revalidation.
-- **Discord gateway**: create/update starter message rather than append, map exact tag IDs, unarchive, delete, missing resources, recovery adoption, duplicate cleanup, no-ping payload.
+- **Discord gateway**: create/update one starter message without duplicate appends, remove legacy managed follow-ups, map exact tag IDs, unarchive, delete, missing resources, recovery adoption, duplicate cleanup, and preserve the no-ping payload.
 - **Reconciliation**: generation race, stale processing retry, failure metadata, startup retry, bounded maintenance, archived profiles/guide visibility, worker stop semantics.
-- **Provisioning**: exact 14 managed directory tags, human read-only permissions, bot permissions, list layout, max auto-archive, first-run guide buttons, archived guide adoption, and no changes to other forums.
+- **Provisioning**: exact 15 managed directory tags, human read-only permissions, bot permissions, list layout, max auto-archive, first-run guide buttons, archived guide adoption, and no changes to other forums.
 - **Lifecycle integration**: approval prompt failure isolation, canonical member updates, removal/departure, reapproval staying hidden, and fresh/idempotent migrations.
 - **Regression**: existing onboarding, governance, project, dispatcher, provisioner, migration, reset, and service-boundary tests remain green; command registration contains no new profile/search command.
 
@@ -348,13 +349,13 @@ At minimum, add the following coverage using Node’s `node:test`/`assert` style
 All must hold:
 
 - [ ] Migration `013_member_profiles.sql` applies on a fresh disposable database, upgrades the current schema, and is idempotently tracked without editing earlier migrations.
-- [ ] `people-directory` is provisioned under `GLOBAL BAINSA` with list layout, approved-only visibility, read-only human permissions, and exactly the 14 managed tags above.
+- [ ] `people-directory` is provisioned under `GLOBAL BAINSA` with list layout, approved-only visibility, read-only human permissions, and exactly the 15 managed tags above.
 - [ ] `Start here` has working Create/update and Unpublish buttons on first and repeated provisioning, including after guide auto-archive.
 - [ ] No slash command, command permission, autocomplete, or command registration entry was added.
 - [ ] Only active approved members can start or submit their own profile flow.
 - [ ] Incomplete/cancelled profile sessions never change public PostgreSQL or Discord state.
-- [ ] A legal published profile contains every required field, zero to all optional contact fields, one derived identity tag, and one to four selectable tags.
-- [ ] Publishing/editing creates or edits exactly one bot-owned starter message; it never appends synchronization messages or triggers mentions.
+- [ ] A legal published profile contains every required field, zero to all optional contact fields, one derived BAINSA university tag, and one to four selectable tags.
+- [ ] Publishing/editing creates or edits exactly one bot-owned profile message; retries never append duplicates or trigger mentions.
 - [ ] Discord create/edit/delete failures persist retryable desired state and recover without duplicate profile threads.
 - [ ] Unpublish, member removal, and guild departure durably hide the row and delete the forum post; reapproval does not auto-publish.
 - [ ] Auto-archived profile and guide threads are returned to the browseable list without keep-alive messages.

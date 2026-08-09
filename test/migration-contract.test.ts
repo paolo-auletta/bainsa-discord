@@ -37,6 +37,21 @@ const executiveExclusivityRepairMigrationUrl = projectPath(
   'migrations',
   '014_repair_executive_exclusivity.sql',
 );
+const profileForumLayoutMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '015_rebuild_profile_forum_layout.sql',
+);
+const profileForumConsolidationMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '016_consolidate_profile_forum_message.sql',
+);
+const profileUniversityTagsMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '017_replace_profile_identity_tags_with_university_tags.sql',
+);
 
 async function migrationSql() {
   return readFile(migrationUrl, 'utf8');
@@ -86,6 +101,18 @@ async function executiveExclusivityRepairMigrationSql() {
   return readFile(executiveExclusivityRepairMigrationUrl, 'utf8');
 }
 
+async function profileForumLayoutMigrationSql() {
+  return readFile(profileForumLayoutMigrationUrl, 'utf8');
+}
+
+async function profileForumConsolidationMigrationSql() {
+  return readFile(profileForumConsolidationMigrationUrl, 'utf8');
+}
+
+async function profileUniversityTagsMigrationSql() {
+  return readFile(profileUniversityTagsMigrationUrl, 'utf8');
+}
+
 function assertIncludes(sql, snippet) {
   assert.ok(sql.includes(snippet), `Expected migration to include: ${snippet}`);
 }
@@ -108,7 +135,37 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '012_removed_member_onboarding.sql',
     '013_member_profiles.sql',
     '014_repair_executive_exclusivity.sql',
+    '015_rebuild_profile_forum_layout.sql',
+    '016_consolidate_profile_forum_message.sql',
+    '017_replace_profile_identity_tags_with_university_tags.sql',
   ]);
+});
+
+test('queues published profiles to adopt the redesigned forum layout', async () => {
+  const sql = await profileForumLayoutMigrationSql();
+
+  assertIncludes(sql, 'INSERT INTO member_profile_reconciliation');
+  assertIncludes(sql, "WHERE visibility = 'published'");
+  assertIncludes(sql, 'desired_generation = member_profile_reconciliation.desired_generation + 1');
+  assertIncludes(sql, "status = 'pending'");
+});
+
+test('queues published profiles when consolidating the forum layout to one message', async () => {
+  const sql = await profileForumConsolidationMigrationSql();
+
+  assertIncludes(sql, 'INSERT INTO member_profile_reconciliation');
+  assertIncludes(sql, "WHERE visibility = 'published'");
+  assertIncludes(sql, 'desired_generation = member_profile_reconciliation.desired_generation + 1');
+  assertIncludes(sql, "status = 'pending'");
+});
+
+test('queues published profiles to replace identity tags with BAINSA university tags', async () => {
+  const sql = await profileUniversityTagsMigrationSql();
+
+  assertIncludes(sql, 'INSERT INTO member_profile_reconciliation');
+  assertIncludes(sql, "WHERE visibility = 'published'");
+  assertIncludes(sql, 'desired_generation = member_profile_reconciliation.desired_generation + 1');
+  assertIncludes(sql, "status = 'pending'");
 });
 
 test('keeps the deployed executive exclusivity migration immutable and upgrades it append-only', async () => {

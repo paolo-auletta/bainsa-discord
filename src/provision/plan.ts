@@ -340,8 +340,8 @@ export function globalForumTags() {
  * Discord labels and the persisted profile keys cannot drift apart.
  */
 export function peopleDirectoryForumTags() {
-  if (PROFILE_TAGS.length !== 14) {
-    throw new Error('The people-directory taxonomy must contain exactly 14 managed tags.');
+  if (PROFILE_TAGS.length !== 15) {
+    throw new Error('The people-directory taxonomy must contain exactly 15 managed tags.');
   }
   const labels = PROFILE_TAGS.map((tag) => String(tag.label ?? '').trim());
   if (labels.some((label) => !label || label.length > 20)) {

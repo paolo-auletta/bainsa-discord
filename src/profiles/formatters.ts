@@ -2,12 +2,14 @@ import {
   appliedProfileTagKeys,
   appliedProfileTags,
   assertPublishableProfile,
+  normalizeOptionalProfileText,
   normalizeProfileText,
+  profileTag,
   type ProfileInput,
   type ProfileTagKey,
 } from './state.js';
 
-const DISCORD_MESSAGE_LIMIT = 2_000;
+const DISCORD_TEXT_DISPLAY_LIMIT = 4_000;
 const DISCORD_THREAD_NAME_LIMIT = 100;
 const SAFE_ALLOWED_MENTIONS = Object.freeze({ parse: [] as string[] });
 
@@ -24,15 +26,9 @@ export interface ProfilePostInput extends ProfileInput {
   updated_at?: Date | string | number | null;
 }
 
-export interface ProfileContactEmbed {
-  title: string;
-  fields: Array<{ name: string; value: string; inline: boolean }>;
-}
-
 export interface FormattedProfilePost {
   threadName: string;
   content: string;
-  contactEmbed: ProfileContactEmbed | null;
   appliedTagKeys: ProfileTagKey[];
   appliedTagLabels: string[];
   allowedMentions: { parse: string[] };
@@ -51,20 +47,45 @@ function truncate(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
-function timestamp(value: ProfilePostInput['updated_at']): string {
-  const date = value == null ? new Date() : new Date(value);
-  if (Number.isNaN(date.getTime())) return 'Recently';
-  return `<t:${Math.floor(date.getTime() / 1_000)}:F>`;
+function optionalSummaryValue(value: unknown): string {
+  const normalized = normalizeOptionalProfileText(value);
+  return normalized ? escapeProfileMarkdown(normalized) : 'Not added';
 }
 
-function contactEmbed(profile: ReturnType<typeof assertPublishableProfile>): ProfileContactEmbed | null {
-  const fields: ProfileContactEmbed['fields'] = [];
-  if (profile.email) fields.push({ name: 'Email', value: escapeProfileMarkdown(profile.email), inline: false });
-  if (profile.linkedin_url) fields.push({ name: 'LinkedIn', value: profile.linkedin_url, inline: false });
-  if (profile.research_profile_url) {
-    fields.push({ name: 'Research profile', value: profile.research_profile_url, inline: false });
-  }
-  return fields.length ? { title: 'Contact', fields } : null;
+function summaryTagLabels(values: unknown): string {
+  if (!Array.isArray(values) || values.length === 0) return 'Not selected';
+  return values
+    .map((value) => profileTag(value)?.label ?? normalizeProfileText(value))
+    .map(escapeProfileMarkdown)
+    .join(', ');
+}
+
+export function formatProfileSummary(
+  profile: ProfileInput,
+  { discordUserId = null }: { discordUserId?: unknown } = {},
+): string {
+  const discord = normalizeProfileText(discordUserId);
+  return [
+    '## Your BAINSA directory profile',
+    '',
+    '🪪 **Where you are now**',
+    `**Headline** · ${optionalSummaryValue(profile.headline)}`,
+    `**What are you doing now?** · ${optionalSummaryValue(profile.current_role)}`,
+    `**Organisation** · ${optionalSummaryValue(profile.current_organization)}`,
+    `**Location** · ${optionalSummaryValue(profile.location)}`,
+    '',
+    '🧭 **What you want to explore**',
+    `**What would you like to explore next?** · ${optionalSummaryValue(profile.goals)}`,
+    `**You and your interests** · ${optionalSummaryValue(profile.about)}`,
+    '',
+    '💬 **How members can reach you**',
+    ...(discord ? [`**Discord** · <@${discord}>`] : []),
+    `**Email** · ${optionalSummaryValue(profile.email)}`,
+    `**LinkedIn** · ${optionalSummaryValue(profile.linkedin_url)}`,
+    `**Research profile** · ${optionalSummaryValue(profile.research_profile_url)}`,
+    '',
+    `**Tags** · ${summaryTagLabels(profile.selected_tags)}`,
+  ].join('\n');
 }
 
 export function profileThreadName(fullName: unknown, currentRole: unknown): string {
@@ -73,34 +94,16 @@ export function profileThreadName(fullName: unknown, currentRole: unknown): stri
 
 export function formatProfilePost(input: ProfilePostInput): FormattedProfilePost {
   const profile = assertPublishableProfile(input, input.member.member_type);
-  const tags = appliedProfileTags(input.member.member_type, profile.selected_tags);
-  const appliedTagKeys = appliedProfileTagKeys(input.member.member_type, profile.selected_tags);
+  const tags = appliedProfileTags(input.member.university_name, profile.selected_tags);
+  const appliedTagKeys = appliedProfileTagKeys(input.member.university_name, profile.selected_tags);
   const member = input.member;
-  const memberName = truncate(escapeProfileMarkdown(member.full_name) || 'BAINSA member', 160);
-  const university = truncate(escapeProfileMarkdown(member.university_name) || 'BAINSA', 160);
-  const division = member.division_name ? truncate(escapeProfileMarkdown(member.division_name), 160) : null;
-  const identity = tags[0]!.label;
-  const selectableLabels = tags.slice(1).map((tag) => tag.label).join(', ');
-  const lines = [
-    `**Name:** ${memberName}`,
-    `**Headline:** ${escapeProfileMarkdown(profile.headline)}`,
-    `**BAINSA status:** ${identity}`,
-    `**BAINSA university${division ? ' / division' : ''}:** ${university}${division ? ` / ${division}` : ''}`,
-    `**About:** ${escapeProfileMarkdown(profile.about)}`,
-    `**Currently:** ${escapeProfileMarkdown(profile.current_role)}${profile.current_organization ? ` at ${escapeProfileMarkdown(profile.current_organization)}` : ''}${profile.location ? ` · ${escapeProfileMarkdown(profile.location)}` : ''}`,
-    `**Aiming for:** ${escapeProfileMarkdown(profile.goals)}`,
-    `**Tags:** ${selectableLabels}`,
-    `**Discord:** <@${member.discord_user_id}>`,
-    `**Last updated:** ${timestamp(input.updated_at)}`,
-  ];
-
-  // Valid authored fields fit well below Discord's limit. This final guard also
-  // protects the post if a legacy membership name or university is unexpectedly long.
-  const content = truncate(lines.join('\n'), DISCORD_MESSAGE_LIMIT);
+  const content = truncate(
+    formatProfileSummary(profile, { discordUserId: member.discord_user_id }),
+    DISCORD_TEXT_DISPLAY_LIMIT,
+  );
   return {
-    threadName: profileThreadName(member.full_name, profile.current_role),
+    threadName: profileThreadName(member.full_name, profile.headline),
     content,
-    contactEmbed: contactEmbed(profile),
     appliedTagKeys,
     appliedTagLabels: tags.map((tag) => tag.label),
     allowedMentions: { parse: [...SAFE_ALLOWED_MENTIONS.parse] },

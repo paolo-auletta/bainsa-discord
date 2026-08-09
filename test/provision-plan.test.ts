@@ -226,8 +226,9 @@ test('people directory has exactly the managed profile taxonomy and no legacy av
   assert.deepEqual(
     peopleDirectoryForumTags().map((tag) => tag.name),
     [
-      'Researcher',
-      'Alumni',
+      'Bocconi',
+      'Sapienza',
+      'PoliMi',
       'AI & Data',
       'Econ & Finance',
       'Neuroscience',
@@ -242,8 +243,8 @@ test('people directory has exactly the managed profile taxonomy and no legacy av
       'Entrepreneurship',
     ],
   );
-  assert.equal(PROFILE_TAGS.length, 14);
-  assert.equal(new Set(PROFILE_TAGS.map((tag) => tag.label)).size, 14);
+  assert.equal(PROFILE_TAGS.length, 15);
+  assert.equal(new Set(PROFILE_TAGS.map((tag) => tag.label)).size, 15);
   assert.ok(PROFILE_TAGS.every((tag) => tag.label.length <= 20));
   assert.equal(PROFILE_TAGS.some((tag) => /climate|policy|availability/i.test(tag.key)), false);
 });
@@ -466,7 +467,7 @@ test('directory-only forum options replace managed tags and configure list layou
     name: 'people-directory',
     type: ChannelType.GuildForum,
     parentId: 'global-category',
-    availableTags: [{ id: 'identity', name: 'Researcher' }, { id: 'obsolete', name: 'Obsolete' }],
+    availableTags: [{ id: 'university', name: 'Bocconi' }, { id: 'obsolete', name: 'Obsolete' }],
     defaultForumLayout: ForumLayoutType.GalleryView,
     defaultAutoArchiveDuration: 1440,
     permissionOverwrites: { cache: new Map() },
@@ -490,7 +491,7 @@ test('directory-only forum options replace managed tags and configure list layou
   assert.equal(edits[0].defaultForumLayout, ForumLayoutType.ListView);
   assert.equal(edits[0].defaultAutoArchiveDuration, 10080);
   assert.deepEqual(edits[0].availableTags.map((tag) => tag.name), peopleDirectoryForumTags().map((tag) => tag.name));
-  assert.equal(edits[0].availableTags[0].id, 'identity');
+  assert.equal(edits[0].availableTags[0].id, 'university');
 });
 
 test('new directory forum receives the list layout and one-week archive defaults on creation', async () => {

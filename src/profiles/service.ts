@@ -16,14 +16,17 @@ import { reconcileProfile } from './reconciliation.js';
 import {
   profileCancelledPayload,
   profileContactModal,
+  profileContactPayload,
   profileCurrentModal,
-  profileCurrentPayload,
-  profileIdentityModal,
+  profileDirectionModal,
+  profileDirectionPayload,
   profileMutationFailedPayload,
   profilePublishedPayload,
+  profilePublishingPayload,
   profileReviewPayload,
   profileTagsPayload,
   profileUnpublishedPayload,
+  profileUnpublishingPayload,
   profileUnpublishConfirmationPayload,
 } from './components.js';
 import { parseProfileId, PROFILE_ACTIONS } from './custom-ids.js';
@@ -35,17 +38,19 @@ const BUTTON_ACTIONS = new Set<string>([
   PROFILE_ACTIONS.START,
   PROFILE_ACTIONS.UNPUBLISH,
   PROFILE_ACTIONS.UNPUBLISH_CONFIRM,
-  PROFILE_ACTIONS.IDENTITY,
   PROFILE_ACTIONS.CURRENT,
+  PROFILE_ACTIONS.DIRECTION,
+  PROFILE_ACTIONS.DIRECTION_OPEN,
   PROFILE_ACTIONS.TAGS,
   PROFILE_ACTIONS.CONTACT,
+  PROFILE_ACTIONS.CONTACT_OPEN,
   PROFILE_ACTIONS.REVIEW,
   PROFILE_ACTIONS.PUBLISH,
   PROFILE_ACTIONS.CANCEL,
 ]);
 const MODAL_ACTIONS = new Set<string>([
-  PROFILE_ACTIONS.IDENTITY_MODAL,
   PROFILE_ACTIONS.CURRENT_MODAL,
+  PROFILE_ACTIONS.DIRECTION_MODAL,
   PROFILE_ACTIONS.CONTACT_MODAL,
 ]);
 
@@ -157,7 +162,7 @@ export function createProfileService({
       profile: profileDraft(profile),
       previousVisibility: profile?.visibility ?? null,
       mode,
-      screen: mode === 'unpublish' ? 'unpublish' : 'identity',
+      screen: mode === 'unpublish' ? 'unpublish' : 'current',
       busy: false,
       expiresAt: now() + PROFILE_SESSION_TTL_MS,
     };
@@ -173,7 +178,7 @@ export function createProfileService({
     return member;
   }
 
-  async function requireSession(interaction, parsed, { allowBusy = false } = {}) {
+  async function requireSession(interaction, parsed) {
     sweepExpiredSessions();
     assertUser(parsed.kind === 'session', 'This profile control is no longer available.');
     assertUser(parsed.ownerId === String(interaction.user.id), 'Only the person who started this profile can use it.');
@@ -181,7 +186,7 @@ export function createProfileService({
     assertUser(session, 'This profile editing session has expired. Start again from the directory guide.');
     assertUser(session.actorId === String(interaction.user.id), 'Only the person who started this profile can use it.');
     assertUser(session.guildId === String(interaction.guildId), 'This profile belongs to another server.');
-    assertUser(allowBusy || !session.busy, 'This profile is already being published.');
+    assertUser(!session.busy, 'This profile update is already in progress.');
     const member = await requireActiveMember(interaction);
     touch(session);
     return { session, member };
@@ -197,7 +202,12 @@ export function createProfileService({
     assertUser(session, 'This profile editing session has expired. Start again from the directory guide.');
     assertUser(session.actorId === String(interaction.user.id), 'Only the person who started this profile can use it.');
     assertUser(session.guildId === String(interaction.guildId), 'This profile belongs to another server.');
-    assertUser(!session.busy, 'This profile is already being published.');
+    assertUser(
+      !session.busy,
+      session.mode === 'unpublish'
+        ? 'This profile is already being unpublished.'
+        : 'This profile is already being published.',
+    );
     session.busy = true;
     return session;
   }
@@ -209,7 +219,7 @@ export function createProfileService({
     assertUser(profile, 'Only active members can create a directory profile.');
     const session = createSession({ interaction, profile });
     try {
-      await interaction.showModal(profileIdentityModal(session));
+      await interaction.showModal(profileCurrentModal(session));
     } catch (error) {
       deleteSession(session);
       throw error;
@@ -239,15 +249,15 @@ export function createProfileService({
 
   async function publishSession(interaction, session, reserved = false) {
     let saved;
-    let deferred = false;
+    let acknowledged = false;
     try {
       const profile = assertPublishableProfile(session.profile);
       if (!reserved) {
         assertUser(!session.busy, 'This profile is already being published.');
         session.busy = true;
       }
-      await interaction.deferUpdate();
-      deferred = true;
+      await interaction.update(messageEditPayload(profilePublishingPayload()));
+      acknowledged = true;
       saved = await runTransaction(async (client) => {
         const result = await publish(client, interaction.user.id, profile);
         await audit(client, {
@@ -267,7 +277,7 @@ export function createProfileService({
     } catch (error) {
       session.busy = false;
       touch(session);
-      if (!deferred) throw error;
+      if (!acknowledged) throw error;
       logger[error instanceof UserFacingError ? 'warn' : 'error']('Profile publication failed', {
         discordUserId: String(interaction.user.id),
         error: error instanceof UserFacingError ? error.message : 'Profile database operation failed.',
@@ -278,24 +288,27 @@ export function createProfileService({
       })));
       return;
     }
-    deleteSession(session);
     const sync = await attemptReconciliation(interaction.user.id, interaction.guild);
-    await interaction.editReply(messageEditPayload(profilePublishedPayload({
-      pending: sync.pending,
-      forumThreadId: sync.forumThreadId ?? saved.profile?.forum_thread_id,
-    })));
+    try {
+      await interaction.editReply(messageEditPayload(profilePublishedPayload({
+        pending: sync.pending,
+        forumThreadId: sync.forumThreadId ?? saved.profile?.forum_thread_id,
+      })));
+    } finally {
+      deleteSession(session);
+    }
   }
 
   async function unpublishSession(interaction, session, reserved = false) {
     let hidden;
-    let deferred = false;
+    let acknowledged = false;
     try {
       if (!reserved) {
-        assertUser(!session.busy, 'This profile is already being published.');
+        assertUser(!session.busy, 'This profile is already being unpublished.');
         session.busy = true;
       }
-      await interaction.deferUpdate();
-      deferred = true;
+      await interaction.update(messageEditPayload(profileUnpublishingPayload()));
+      acknowledged = true;
       hidden = await runTransaction(async (client) => {
         const active = await loadActiveMember(client, interaction.user.id);
         assertUser(active, 'Only active members can manage a directory profile.');
@@ -315,7 +328,7 @@ export function createProfileService({
     } catch (error) {
       session.busy = false;
       touch(session);
-      if (!deferred) throw error;
+      if (!acknowledged) throw error;
       logger[error instanceof UserFacingError ? 'warn' : 'error']('Profile unpublish failed', {
         discordUserId: String(interaction.user.id),
         error: error instanceof UserFacingError ? error.message : 'Profile database operation failed.',
@@ -326,9 +339,12 @@ export function createProfileService({
       })));
       return;
     }
-    deleteSession(session);
     if (hidden) await attemptReconciliation(interaction.user.id, interaction.guild);
-    await interaction.editReply(messageEditPayload(profileUnpublishedPayload({ alreadyHidden: !hidden })));
+    try {
+      await interaction.editReply(messageEditPayload(profileUnpublishedPayload({ alreadyHidden: !hidden })));
+    } finally {
+      deleteSession(session);
+    }
   }
 
   async function handleButton(interaction) {
@@ -340,38 +356,35 @@ export function createProfileService({
       return;
     }
     const mutating = parsed.action === PROFILE_ACTIONS.PUBLISH || parsed.action === PROFILE_ACTIONS.UNPUBLISH_CONFIRM;
-    let reserved = null;
-    if (mutating) reserved = reserveMutation(interaction, parsed);
-    let required;
-    try {
-      required = await requireSession(interaction, parsed, { allowBusy: Boolean(reserved) });
-    } catch (error) {
-      if (reserved) {
-        reserved.busy = false;
-        touch(reserved);
-      }
-      throw error;
+    if (mutating) {
+      const session = reserveMutation(interaction, parsed);
+      if (parsed.action === PROFILE_ACTIONS.PUBLISH) return publishSession(interaction, session, true);
+      return unpublishSession(interaction, session, true);
     }
-    const { session, member } = required;
+    const { session, member } = await requireSession(interaction, parsed);
     if (parsed.action === PROFILE_ACTIONS.CANCEL) {
       deleteSession(session);
       await interaction.update(messageEditPayload(profileCancelledPayload()));
       return;
     }
-    if (parsed.action === PROFILE_ACTIONS.IDENTITY) return interaction.showModal(profileIdentityModal(session));
     if (parsed.action === PROFILE_ACTIONS.CURRENT) return interaction.showModal(profileCurrentModal(session));
+    if (parsed.action === PROFILE_ACTIONS.DIRECTION) {
+      return interaction.update(messageEditPayload(profileDirectionPayload(session)));
+    }
+    if (parsed.action === PROFILE_ACTIONS.DIRECTION_OPEN) return interaction.showModal(profileDirectionModal(session));
     if (parsed.action === PROFILE_ACTIONS.TAGS) {
       return interaction.update(messageEditPayload(profileTagsPayload(session)));
     }
-    if (parsed.action === PROFILE_ACTIONS.CONTACT) return interaction.showModal(profileContactModal(session));
+    if (parsed.action === PROFILE_ACTIONS.CONTACT) {
+      return interaction.update(messageEditPayload(profileContactPayload(session)));
+    }
+    if (parsed.action === PROFILE_ACTIONS.CONTACT_OPEN) return interaction.showModal(profileContactModal(session));
     if (parsed.action === PROFILE_ACTIONS.REVIEW) {
       assertPublishableProfile(session.profile, member.member_type);
       session.screen = 'review';
       await interaction.update(messageEditPayload(profileReviewPayload(session)));
       return;
     }
-    if (parsed.action === PROFILE_ACTIONS.PUBLISH) return publishSession(interaction, session, Boolean(reserved));
-    if (parsed.action === PROFILE_ACTIONS.UNPUBLISH_CONFIRM) return unpublishSession(interaction, session, Boolean(reserved));
   }
 
   async function handleStringSelect(interaction) {
@@ -388,28 +401,28 @@ export function createProfileService({
     if (!parsed || parsed.kind !== 'session' || !MODAL_ACTIONS.has(parsed.action)) return;
     const { session, member } = await requireSession(interaction, parsed);
     const fields = interaction.fields;
-    if (parsed.action === PROFILE_ACTIONS.IDENTITY_MODAL) {
-      session.profile.headline = fields.getTextInputValue('headline');
-      session.profile.about = fields.getTextInputValue('about');
-      session.screen = 'current';
-      await respondToModal(interaction, profileCurrentPayload(session));
-      return;
-    }
     if (parsed.action === PROFILE_ACTIONS.CURRENT_MODAL) {
+      session.profile.headline = fields.getTextInputValue('headline');
       session.profile.current_role = fields.getTextInputValue('current_role');
       session.profile.current_organization = fields.getTextInputValue('current_organization');
       session.profile.location = fields.getTextInputValue('location');
+      session.screen = 'direction';
+      await respondToModal(interaction, profileDirectionPayload(session));
+      return;
+    }
+    if (parsed.action === PROFILE_ACTIONS.DIRECTION_MODAL) {
       session.profile.goals = fields.getTextInputValue('goals');
-      session.screen = 'tags';
-      await respondToModal(interaction, profileTagsPayload(session));
+      session.profile.about = fields.getTextInputValue('about');
+      session.screen = 'direction';
+      await respondToModal(interaction, profileDirectionPayload(session));
       return;
     }
     session.profile.email = fields.getTextInputValue('email');
     session.profile.linkedin_url = fields.getTextInputValue('linkedin_url');
     session.profile.research_profile_url = fields.getTextInputValue('research_profile_url');
     assertPublishableProfile(session.profile, member.member_type);
-    session.screen = 'review';
-    await respondToModal(interaction, profileReviewPayload(session));
+    session.screen = 'contact';
+    await respondToModal(interaction, profileContactPayload(session));
   }
 
   return {

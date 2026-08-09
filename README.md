@@ -158,36 +158,38 @@ never publishes a profile. After approval, the bot may send a best-effort DM lin
 the same entry point is always in its `Start here` post.
 
 Members use **Create or update my profile** in `Start here`, not a slash command. The private
-wizard collects these required profile concepts:
+wizard follows the project-creation pattern: every screen keeps a complete grouped summary at the
+top and ends with one primary action, one clearly named Back action, and **Cancel**. It collects:
 
-- a one-line **headline**;
-- **About** — interests, topics, problems, or industries;
-- **Currently** — current role or activity;
-- **Aiming for** — future research, internship, role, or collaboration goals; and
-- one to four curated directory tags.
+- **Where you are now** — a one-line headline, current role or activity, and optional organisation
+  and location;
+- **What you want to explore** — future research, internship, role, or collaboration goals,
+  followed by interests, topics, problems, or industries; and
+- **Tags** — one to four curated fields or environments.
 
 It can also include an organisation, location, public-to-approved-members email address, LinkedIn
 profile, and research-profile link. Every contact field is optional. Discord DM is the default way
 to contact someone; members should use it respectfully. A private preview makes the approved-member
 visibility clear, and only **Publish profile** creates or changes the public profile.
 
-The bot owns one read-only forum post per published member. It derives the member type, BAINSA
-university, and any Researcher division from the canonical membership record; members edit neither
-those facts nor the post directly. Members return to `Start here` to update or unpublish. Unpublishing
+The bot owns one read-only forum thread and one summary message per published member. The public
+message uses the same grouped presentation shown in the wizard’s final review. It applies the member’s BAINSA
+university as a forum tag from the canonical membership record; members edit neither
+those facts nor the thread directly. Members return to `Start here` to update or unpublish. Unpublishing
 keeps the structured profile hidden for later editing and durably queues removal of its forum post.
 Member removal or departure does the same; reapproval never republishes a profile without the member
 explicitly previewing and publishing it again.
 
 The directory uses Discord's list layout and native forum text and tag search. It is a browseable
-forum, not a sortable external table. Its 14 managed tags are:
+forum, not a sortable external table. Its 15 managed tags are:
 
 | Category | Tags |
 | --- | --- |
-| Identity (derived, not selectable) | `Researcher`, `Alumni` |
+| BAINSA university (derived, not selectable) | `Bocconi`, `Sapienza`, `PoliMi` |
 | Field | `AI & Data`, `Econ & Finance`, `Neuroscience`, `Biology`, `Eng & Robotics`, `Life & Health Sci`, `Social Sciences`, `Math & Physics`, `Humanities & Design` |
 | Environment | `Academia`, `Industry`, `Entrepreneurship` |
 
-Each post receives exactly one derived identity tag and one to four selected tags. These stable
+Each post receives exactly one derived BAINSA university tag and one to four selected tags. These stable
 categories are managed governance vocabulary: change them deliberately rather than adding tags for
 employers, job titles, laboratories, technologies, or narrow topics. Those details belong in the
 searchable profile text.

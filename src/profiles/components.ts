@@ -15,7 +15,8 @@ import {
 } from 'discord.js';
 
 import { profileSessionId, PROFILE_ACTIONS } from './custom-ids.js';
-import { normalizeOptionalProfileText, profileTag, selectableProfileTags } from './state.js';
+import { formatProfileSummary } from './formatters.js';
+import { selectableProfileTags } from './state.js';
 
 const BRAND = 0x5865f2;
 
@@ -27,11 +28,18 @@ function separator() {
   return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Large);
 }
 
-function actionButton(session, action: string, label: string, style = ButtonStyle.Secondary) {
+function actionButton(
+  session,
+  action: string,
+  label: string,
+  style = ButtonStyle.Secondary,
+  { disabled = false }: { disabled?: boolean } = {},
+) {
   return new ButtonBuilder()
     .setCustomId(profileSessionId(action, session.id, session.actorId))
     .setLabel(label)
-    .setStyle(style);
+    .setStyle(style)
+    .setDisabled(disabled);
 }
 
 function wizardPayload(container: ContainerBuilder) {
@@ -42,30 +50,20 @@ function wizardPayload(container: ContainerBuilder) {
   };
 }
 
-function optional(value: unknown) {
-  return normalizeOptionalProfileText(value) ?? 'Not added';
-}
-
-function tagLabels(values: unknown) {
-  return Array.isArray(values)
-    ? values.map((value) => profileTag(value)?.label ?? String(value)).join(', ')
-    : '';
-}
-
 function profileSummary(session) {
-  const profile = session.profile;
-  return [
-    '## Your BAINSA directory profile',
-    '',
-    `**Headline** · ${optional(profile.headline)}`,
-    `**Current role** · ${optional(profile.current_role)}`,
-    `**Tags** · ${profile.selected_tags?.length ? tagLabels(profile.selected_tags) : 'Not selected'}`,
-  ].join('\n');
+  return formatProfileSummary(session.profile, { discordUserId: session.actorId });
 }
 
-function navigation(session, nextAction: string, nextLabel: string, backAction: string, backLabel: string) {
+function navigation(
+  session,
+  nextAction: string,
+  nextLabel: string,
+  backAction: string,
+  backLabel: string,
+  { nextDisabled = false }: { nextDisabled?: boolean } = {},
+) {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    actionButton(session, nextAction, nextLabel, ButtonStyle.Primary),
+    actionButton(session, nextAction, nextLabel, ButtonStyle.Primary, { disabled: nextDisabled }),
     actionButton(session, backAction, backLabel),
     actionButton(session, PROFILE_ACTIONS.CANCEL, 'Cancel', ButtonStyle.Danger),
   );
@@ -91,27 +89,15 @@ function modalInput(customId: string, label: string, value: unknown, options: {
   return new ActionRowBuilder<TextInputBuilder>().addComponents(input);
 }
 
-export function profileIdentityModal(session) {
+export function profileCurrentModal(session) {
   return new ModalBuilder()
-    .setCustomId(profileSessionId(PROFILE_ACTIONS.IDENTITY_MODAL, session.id, session.actorId))
-    .setTitle('Profile · About you')
+    .setCustomId(profileSessionId(PROFILE_ACTIONS.CURRENT_MODAL, session.id, session.actorId))
+    .setTitle('Profile · Where you are now')
     .addComponents(
       modalInput('headline', 'Your one-line headline', session.profile.headline, {
         required: true, style: TextInputStyle.Short, minLength: 10, maxLength: 80,
         placeholder: 'How should BAINSA members understand what you do?',
       }),
-      modalInput('about', 'About you and your interests', session.profile.about, {
-        required: true, style: TextInputStyle.Paragraph, minLength: 20, maxLength: 300,
-        placeholder: 'Topics, problems, or industries that interest you',
-      }),
-    );
-}
-
-export function profileCurrentModal(session) {
-  return new ModalBuilder()
-    .setCustomId(profileSessionId(PROFILE_ACTIONS.CURRENT_MODAL, session.id, session.actorId))
-    .setTitle('Profile · Current and future')
-    .addComponents(
       modalInput('current_role', 'What are you doing now?', session.profile.current_role, {
         required: true, style: TextInputStyle.Short, minLength: 2, maxLength: 80,
         placeholder: 'MSc student, research assistant, ML engineer…',
@@ -122,8 +108,20 @@ export function profileCurrentModal(session) {
       modalInput('location', 'Location (optional)', session.profile.location, {
         required: false, style: TextInputStyle.Short, maxLength: 60,
       }),
+    );
+}
+
+export function profileDirectionModal(session) {
+  return new ModalBuilder()
+    .setCustomId(profileSessionId(PROFILE_ACTIONS.DIRECTION_MODAL, session.id, session.actorId))
+    .setTitle('Profile · What you want to explore')
+    .addComponents(
       modalInput('goals', 'What would you like to explore next?', session.profile.goals, {
         required: true, style: TextInputStyle.Paragraph, minLength: 10, maxLength: 250,
+      }),
+      modalInput('about', 'You and your interests', session.profile.about, {
+        required: true, style: TextInputStyle.Paragraph, minLength: 20, maxLength: 300,
+        placeholder: 'Topics, problems, or industries that interest you',
       }),
     );
 }
@@ -131,7 +129,7 @@ export function profileCurrentModal(session) {
 export function profileContactModal(session) {
   return new ModalBuilder()
     .setCustomId(profileSessionId(PROFILE_ACTIONS.CONTACT_MODAL, session.id, session.actorId))
-    .setTitle('Profile · Optional contact')
+    .setTitle('Profile · How members can reach you')
     .addComponents(
       modalInput('email', 'Public contact email (optional)', session.profile.email, {
         required: false, style: TextInputStyle.Short, maxLength: 254,
@@ -161,58 +159,63 @@ export function profileTagsPayload(session) {
     .setAccentColor(BRAND)
     .addTextDisplayComponents(text(profileSummary(session)))
     .addSeparatorComponents(separator())
-    .addTextDisplayComponents(text('### Choose your tags\nPick one to four fields or environments.'))
+    .addTextDisplayComponents(text('### Choose your tags\nPick one to four fields or environments that will help members find you.'))
     .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu))
-    .addActionRowComponents(navigation(session, PROFILE_ACTIONS.CONTACT, 'Continue to contact', PROFILE_ACTIONS.CURRENT, 'Edit current/future'));
+    .addSeparatorComponents(separator())
+    .addActionRowComponents(navigation(
+      session,
+      PROFILE_ACTIONS.CONTACT,
+      'Continue to contact',
+      PROFILE_ACTIONS.DIRECTION,
+      'Back to exploration',
+      { nextDisabled: selected.size === 0 },
+    ));
   return wizardPayload(container);
 }
 
-export function profileCurrentPayload(session) {
+export function profileDirectionPayload(session) {
   const container = new ContainerBuilder()
     .setAccentColor(BRAND)
     .addTextDisplayComponents(text(profileSummary(session)))
     .addSeparatorComponents(separator())
-    .addTextDisplayComponents(text('### Current and future\nAdd your current role, optional organisation and location, and what you would like to explore next.'))
+    .addTextDisplayComponents(text('### What you want to explore\nShare what you would like to explore next, followed by the topics, problems, or industries that interest you.'))
     .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
-      actionButton(session, PROFILE_ACTIONS.CURRENT, 'Edit current/future', ButtonStyle.Primary),
-      actionButton(session, PROFILE_ACTIONS.TAGS, 'Continue to tags'),
-      actionButton(session, PROFILE_ACTIONS.IDENTITY, 'Back to about'),
-      actionButton(session, PROFILE_ACTIONS.CANCEL, 'Cancel', ButtonStyle.Danger),
+      actionButton(session, PROFILE_ACTIONS.DIRECTION_OPEN, session.profile.goals ? 'Edit what you want to explore' : 'Add what you want to explore', ButtonStyle.Primary),
+    ))
+    .addSeparatorComponents(separator())
+    .addActionRowComponents(navigation(
+      session,
+      PROFILE_ACTIONS.TAGS,
+      'Continue to tags',
+      PROFILE_ACTIONS.CURRENT,
+      'Back to current',
+      { nextDisabled: !session.profile.goals || !session.profile.about },
     ));
   return wizardPayload(container);
 }
 
-export function profileReviewPayload(session) {
-  const profile = session.profile;
-  const contact = [
-    profile.email && `Email: ${profile.email}`,
-    profile.linkedin_url && `LinkedIn: ${profile.linkedin_url}`,
-    profile.research_profile_url && `Research profile: ${profile.research_profile_url}`,
-  ].filter(Boolean).join('\n') || 'No public contact details added. Discord is the default contact path.';
+export function profileContactPayload(session) {
+  const hasContact = Boolean(session.profile.email || session.profile.linkedin_url || session.profile.research_profile_url);
   const container = new ContainerBuilder()
     .setAccentColor(BRAND)
-    .addTextDisplayComponents(text([
-      '## Review your profile',
-      '',
-      `**Headline**\n${optional(profile.headline)}`,
-      `**About**\n${optional(profile.about)}`,
-      `**Currently**\n${optional(profile.current_role)}${profile.current_organization ? ` · ${profile.current_organization}` : ''}${profile.location ? ` · ${profile.location}` : ''}`,
-      `**Aiming for**\n${optional(profile.goals)}`,
-      `**Tags**\n${tagLabels(profile.selected_tags) || 'Not selected'}`,
-      `**Contact**\n${contact}`,
-    ].join('\n\n')))
+    .addTextDisplayComponents(text(profileSummary(session)))
     .addSeparatorComponents(separator())
-    .addTextDisplayComponents(text('Publishing makes this profile visible to every approved BAINSA member.'))
+    .addTextDisplayComponents(text('### How members can reach you\nPublic contact details are optional. Members can always reach you through Discord.'))
     .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
-      actionButton(session, PROFILE_ACTIONS.PUBLISH, 'Publish profile', ButtonStyle.Success),
-      actionButton(session, PROFILE_ACTIONS.IDENTITY, 'Edit about'),
-      actionButton(session, PROFILE_ACTIONS.CURRENT, 'Edit current'),
-      actionButton(session, PROFILE_ACTIONS.TAGS, 'Edit tags'),
-      actionButton(session, PROFILE_ACTIONS.CONTACT, 'Edit contact'),
+      actionButton(session, PROFILE_ACTIONS.CONTACT_OPEN, hasContact ? 'Edit contact details' : 'Add contact details', ButtonStyle.Primary),
     ))
-    .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
-      actionButton(session, PROFILE_ACTIONS.CANCEL, 'Cancel', ButtonStyle.Danger),
-    ));
+    .addSeparatorComponents(separator())
+    .addActionRowComponents(navigation(session, PROFILE_ACTIONS.REVIEW, 'Continue to review', PROFILE_ACTIONS.TAGS, 'Back to tags'));
+  return wizardPayload(container);
+}
+
+export function profileReviewPayload(session) {
+  const container = new ContainerBuilder()
+    .setAccentColor(BRAND)
+    .addTextDisplayComponents(text(profileSummary(session)))
+    .addSeparatorComponents(separator())
+    .addTextDisplayComponents(text('### Ready to publish?\nPublishing makes this profile visible to every approved BAINSA member.'))
+    .addActionRowComponents(navigation(session, PROFILE_ACTIONS.PUBLISH, 'Publish profile', PROFILE_ACTIONS.CONTACT, 'Back to contact'));
   return wizardPayload(container);
 }
 
@@ -226,6 +229,10 @@ export function profilePublishedPayload({ pending = false, forumThreadId = null 
     ? 'Your profile was saved. Discord synchronization will retry automatically.'
     : `Your profile is published.${link}`;
   return terminalProfilePayload(content);
+}
+
+export function profilePublishingPayload() {
+  return terminalProfilePayload('## Publishing your profile\nPlease wait while your directory post is updated.');
 }
 
 export function profileUnpublishConfirmationPayload(session) {
@@ -245,6 +252,10 @@ export function profileUnpublishedPayload({ alreadyHidden = false } = {}) {
       ? 'Your profile is already unpublished.'
       : 'Your profile is unpublished. Discord cleanup will retry automatically if needed.',
   );
+}
+
+export function profileUnpublishingPayload() {
+  return terminalProfilePayload('## Unpublishing your profile\nPlease wait while your directory post is removed.');
 }
 
 export function profileMutationFailedPayload(session, { action, message }) {

@@ -77,62 +77,67 @@ async function completeToReview(wizard) {
   const modal = await begin(wizard);
   let payload;
   await wizard.handleModalSubmit(interaction(modal.custom_id, {
-    fields: fieldValues({ headline: valid.headline, about: valid.about }),
+    fields: fieldValues({ headline: valid.headline, current_role: valid.current_role }),
     isFromMessage: () => false, reply: async (next) => { payload = next; },
   }));
-  let current;
-  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CURRENT), { showModal: async (next) => { current = next.toJSON(); } }));
-  await wizard.handleModalSubmit(interaction(current.custom_id, {
-    fields: fieldValues({ current_role: valid.current_role, goals: valid.goals }),
+  let direction;
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.DIRECTION_OPEN), { showModal: async (next) => { direction = next.toJSON(); } }));
+  await wizard.handleModalSubmit(interaction(direction.custom_id, {
+    fields: fieldValues({ goals: valid.goals, about: valid.about }),
     isFromMessage: () => true, update: async (next) => { payload = next; },
   }));
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.TAGS), { update: async (next) => { payload = next; } }));
   const menu = components(payload).find((item) => item.type === ComponentType.StringSelect);
   await wizard.handleStringSelect(interaction(menu.custom_id, { values: ['ai_data'], update: async (next) => { payload = next; } }));
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CONTACT), { update: async (next) => { payload = next; } }));
   let contact;
-  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CONTACT), { showModal: async (next) => { contact = next.toJSON(); } }));
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CONTACT_OPEN), { showModal: async (next) => { contact = next.toJSON(); } }));
   await wizard.handleModalSubmit(interaction(contact.custom_id, {
     fields: fieldValues({}), isFromMessage: () => true, update: async (next) => { payload = next; },
   }));
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.REVIEW), { update: async (next) => { payload = next; } }));
   return actionId(payload, PROFILE_ACTIONS.PUBLISH);
 }
 
-test('private wizard visits identity, current, tags, contact, review and supports back/edit', async () => {
+test('private wizard visits current, interests, tags, contact, and review with project-style back navigation', async () => {
   const wizard = service();
-  const identity = await begin(wizard);
-  assert.equal(identity.title, 'Profile · About you');
+  const current = await begin(wizard);
+  assert.equal(current.title, 'Profile · Where you are now');
   let payload;
-  await wizard.handleModalSubmit(interaction(identity.custom_id, {
-    fields: fieldValues({ headline: valid.headline, about: valid.about }),
+  await wizard.handleModalSubmit(interaction(current.custom_id, {
+    fields: fieldValues({ headline: valid.headline, current_role: valid.current_role, current_organization: 'BAINSA', location: 'Milan' }),
     isFromMessage: () => false, reply: async (next) => { payload = next; },
   }));
-  let currentModal;
-  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CURRENT), { showModal: async (next) => { currentModal = next.toJSON(); } }));
-  await wizard.handleModalSubmit(interaction(currentModal.custom_id, {
-    fields: fieldValues({ current_role: valid.current_role, current_organization: 'BAINSA', location: 'Milan', goals: valid.goals }),
+  assert.match(payloadText(payload), /BAINSA/);
+  let directionModal;
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.DIRECTION_OPEN), { showModal: async (next) => { directionModal = next.toJSON(); } }));
+  await wizard.handleModalSubmit(interaction(directionModal.custom_id, {
+    fields: fieldValues({ goals: valid.goals, about: valid.about }),
     isFromMessage: () => true, update: async (next) => { payload = next; },
   }));
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.TAGS), { update: async (next) => { payload = next; } }));
   assert.equal(payload.flags, MessageFlags.IsComponentsV2);
   const tagMenu = components(payload).find((item) => item.type === ComponentType.StringSelect);
   await wizard.handleStringSelect(interaction(tagMenu.custom_id, { values: ['ai_data', 'academia'], update: async (next) => { payload = next; } }));
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CONTACT), { update: async (next) => { payload = next; } }));
   let contactModal;
-  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CONTACT), { showModal: async (next) => { contactModal = next.toJSON(); } }));
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CONTACT_OPEN), { showModal: async (next) => { contactModal = next.toJSON(); } }));
   await wizard.handleModalSubmit(interaction(contactModal.custom_id, {
     fields: fieldValues({ email: 'ada@example.test', linkedin_url: 'https://www.linkedin.com/in/ada', research_profile_url: '' }),
     isFromMessage: () => true, update: async (next) => { payload = next; },
   }));
-  assert.ok(actionId(payload, PROFILE_ACTIONS.IDENTITY));
-  assert.ok(actionId(payload, PROFILE_ACTIONS.CURRENT));
-  assert.ok(actionId(payload, PROFILE_ACTIONS.TAGS));
-  assert.ok(actionId(payload, PROFILE_ACTIONS.CONTACT));
+  assert.ok(actionId(payload, PROFILE_ACTIONS.REVIEW));
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.TAGS), { update: async (next) => { payload = next; } }));
+  assert.ok(actionId(payload, PROFILE_ACTIONS.DIRECTION));
 });
 
 test('the first modal replies privately instead of replacing the public directory guide', async () => {
   const wizard = service();
-  const identity = await begin(wizard);
+  const current = await begin(wizard);
   let reply;
   let updateCalls = 0;
-  await wizard.handleModalSubmit(interaction(identity.custom_id, {
-    fields: fieldValues({ headline: valid.headline, about: valid.about }),
+  await wizard.handleModalSubmit(interaction(current.custom_id, {
+    fields: fieldValues({ headline: valid.headline, current_role: valid.current_role }),
     isFromMessage: () => true,
     message: { flags: { has: () => false } },
     reply: async (next) => { reply = next; },
@@ -140,31 +145,35 @@ test('the first modal replies privately instead of replacing the public director
   }));
   assert.equal(updateCalls, 0);
   assert.equal(reply.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2);
-  assert.ok(actionId(reply, PROFILE_ACTIONS.CURRENT));
+  assert.ok(actionId(reply, PROFILE_ACTIONS.DIRECTION_OPEN));
 });
 
 test('wizard rejects replay, inactive members, expiry, invalid review, and cancel never writes', async () => {
   let clock = 1_000;
   let published = 0;
   const wizard = service({ now: () => clock, publish: async () => { published += 1; return { profile: {}, desiredGeneration: 1 }; } });
-  const identity = await begin(wizard);
-  await assert.rejects(() => wizard.handleModalSubmit(interaction(identity.custom_id, { user: { id: 'other' }, fields: fieldValues({}), reply: async () => undefined })), /Only the person/);
+  const current = await begin(wizard);
+  await assert.rejects(() => wizard.handleModalSubmit(interaction(current.custom_id, { user: { id: 'other' }, fields: fieldValues({}), reply: async () => undefined })), /Only the person/);
   clock += PROFILE_SESSION_TTL_MS + 1;
-  await assert.rejects(() => wizard.handleModalSubmit(interaction(identity.custom_id, { fields: fieldValues({}), reply: async () => undefined })), /expired/);
+  await assert.rejects(() => wizard.handleModalSubmit(interaction(current.custom_id, { fields: fieldValues({}), reply: async () => undefined })), /expired/);
 
   const invalid = await begin(wizard);
   let payload;
-  await wizard.handleModalSubmit(interaction(invalid.custom_id, { fields: fieldValues({ headline: 'short', about: 'too short' }), isFromMessage: () => false, reply: async (next) => { payload = next; } }));
-  let invalidContact;
+  await wizard.handleModalSubmit(interaction(invalid.custom_id, { fields: fieldValues({ headline: 'short', current_role: 'x' }), isFromMessage: () => false, reply: async (next) => { payload = next; } }));
+  let invalidDirection;
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.DIRECTION_OPEN), { showModal: async (next) => { invalidDirection = next.toJSON(); } }));
+  await wizard.handleModalSubmit(interaction(invalidDirection.custom_id, { fields: fieldValues({ goals: 'short', about: 'too short' }), isFromMessage: () => true, update: async (next) => { payload = next; } }));
   await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.TAGS), { update: async (next) => { payload = next; } }));
-  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CONTACT), { showModal: async (next) => { invalidContact = next.toJSON(); } }));
-  await assert.rejects(() => wizard.handleModalSubmit(interaction(invalidContact.custom_id, {
-    fields: fieldValues({}), isFromMessage: () => true, update: async () => undefined,
+  const invalidMenu = components(payload).find((item) => item.type === ComponentType.StringSelect);
+  await wizard.handleStringSelect(interaction(invalidMenu.custom_id, { values: ['ai_data'], update: async (next) => { payload = next; } }));
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CONTACT), { update: async (next) => { payload = next; } }));
+  await assert.rejects(() => wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.REVIEW), {
+    update: async () => undefined,
   })), /must be between/);
 
   const cancelModal = await begin(wizard);
   let cancelled;
-  await wizard.handleModalSubmit(interaction(cancelModal.custom_id, { fields: fieldValues({ headline: valid.headline, about: valid.about }), isFromMessage: () => false, reply: async (next) => { payload = next; } }));
+  await wizard.handleModalSubmit(interaction(cancelModal.custom_id, { fields: fieldValues({ headline: valid.headline, current_role: valid.current_role }), isFromMessage: () => false, reply: async (next) => { payload = next; } }));
   await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CANCEL), { update: async (next) => { cancelled = next; } }));
   assert.equal(payloadText(cancelled), 'Profile editing cancelled. Nothing was changed.');
   assert.equal(cancelled.flags, MessageFlags.IsComponentsV2);
@@ -184,21 +193,16 @@ test('publish serializes duplicate submissions, writes privacy-safe audit data, 
     audit: async (_client, entry) => { audits.push(entry); },
     reconcile: async () => ({ status: 'failed' }),
   });
-  const modal = await begin(wizard);
-  let payload;
-  await wizard.handleModalSubmit(interaction(modal.custom_id, { fields: fieldValues({ headline: valid.headline, about: valid.about }), isFromMessage: () => false, reply: async (next) => { payload = next; } }));
-  let current;
-  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CURRENT), { showModal: async (next) => { current = next.toJSON(); } }));
-  await wizard.handleModalSubmit(interaction(current.custom_id, { fields: fieldValues({ current_role: valid.current_role, goals: valid.goals }), isFromMessage: () => true, update: async (next) => { payload = next; } }));
-  const menu = components(payload).find((item) => item.type === ComponentType.StringSelect);
-  await wizard.handleStringSelect(interaction(menu.custom_id, { values: ['ai_data'], update: async (next) => { payload = next; } }));
-  let contact;
-  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CONTACT), { showModal: async (next) => { contact = next.toJSON(); } }));
-  await wizard.handleModalSubmit(interaction(contact.custom_id, { fields: fieldValues({}), isFromMessage: () => true, update: async (next) => { payload = next; } }));
-  const publishId = actionId(payload, PROFILE_ACTIONS.PUBLISH);
+  const publishId = await completeToReview(wizard);
   let reply;
-  const first = wizard.handleButton(interaction(publishId, { deferUpdate: async () => undefined, editReply: async (next) => { reply = next; } }));
-  await assert.rejects(() => wizard.handleButton(interaction(publishId, { deferUpdate: async () => undefined })), /already being published/);
+  let progress;
+  const first = wizard.handleButton(interaction(publishId, {
+    update: async (next) => { progress = next; },
+    editReply: async (next) => { reply = next; },
+  }));
+  assert.match(payloadText(progress), /Publishing your profile.*Please wait/is);
+  assert.equal(components(progress).some((item) => item.custom_id), false);
+  await assert.rejects(() => wizard.handleButton(interaction(publishId)), /already being published/);
   release();
   await first;
   assert.match(payloadText(reply), /saved.*retry automatically/i);
@@ -214,10 +218,38 @@ test('unpublish confirmation is transactional and idempotent for hidden or missi
   await wizard.handleButton(interaction('pf:unpub', { reply: async (next) => { confirmation = next; } }));
   const confirmId = actionId(confirmation, PROFILE_ACTIONS.UNPUBLISH_CONFIRM);
   let reply;
-  await wizard.handleButton(interaction(confirmId, { deferUpdate: async () => undefined, editReply: async (next) => { reply = next; } }));
+  let progress;
+  await wizard.handleButton(interaction(confirmId, {
+    update: async (next) => { progress = next; },
+    editReply: async (next) => { reply = next; },
+  }));
+  assert.match(payloadText(progress), /Unpublishing your profile.*Please wait/is);
+  assert.equal(components(progress).some((item) => item.custom_id), false);
   assert.equal(payloadText(reply), 'Your profile is already unpublished.');
   assert.equal(reply.flags, MessageFlags.IsComponentsV2);
   assert.equal(calls.length, 0);
+});
+
+test('unpublish removes its controls immediately and keeps duplicate clicks in the busy state', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const wizard = service({
+    hide: async () => { await gate; return { profile: {}, desiredGeneration: 5 }; },
+  });
+  let confirmation;
+  await wizard.handleButton(interaction('pf:unpub', { reply: async (next) => { confirmation = next; } }));
+  const confirmId = actionId(confirmation, PROFILE_ACTIONS.UNPUBLISH_CONFIRM);
+  let progress;
+  const first = wizard.handleButton(interaction(confirmId, {
+    update: async (next) => { progress = next; },
+    editReply: async () => undefined,
+  }));
+
+  assert.match(payloadText(progress), /Unpublishing your profile.*Please wait/is);
+  assert.equal(components(progress).some((item) => item.custom_id), false);
+  await assert.rejects(() => wizard.handleButton(interaction(confirmId)), /already being unpublished/);
+  release();
+  await first;
 });
 
 test('successful immediate reconciliation returns the private directory post link', async () => {
@@ -228,7 +260,7 @@ test('successful immediate reconciliation returns the private directory post lin
   const publishId = await completeToReview(wizard);
   let reply;
   await wizard.handleButton(interaction(publishId, {
-    deferUpdate: async () => undefined,
+    update: async () => undefined,
     editReply: async (next) => { reply = next; },
   }));
   assert.match(payloadText(reply), /<#synced-thread>/);
@@ -244,7 +276,7 @@ test('a transaction failure leaves a profile session retryable and does not reco
   const publishId = await completeToReview(wizard);
   let failure;
   await wizard.handleButton(interaction(publishId, {
-    deferUpdate: async () => undefined, editReply: async (next) => { failure = next; },
+    update: async () => undefined, editReply: async (next) => { failure = next; },
   }));
   assert.equal(reconciliationCalls, 0);
   assert.match(payloadText(failure), /not changed.*try again/i);
@@ -252,7 +284,7 @@ test('a transaction failure leaves a profile session retryable and does not reco
   assert.equal(actionId(failure, PROFILE_ACTIONS.PUBLISH), publishId);
   // A failure releases the reservation; a corrected retry is not permanently locked out.
   await wizard.handleButton(interaction(publishId, {
-    deferUpdate: async () => undefined, editReply: async (next) => { failure = next; },
+    update: async () => undefined, editReply: async (next) => { failure = next; },
   }));
   assert.match(payloadText(failure), /try again/i);
 });
@@ -263,14 +295,16 @@ test('unpublish is guild-only and invalid optional contact values cannot reach r
 
   const modal = await begin(wizard);
   let payload;
-  await wizard.handleModalSubmit(interaction(modal.custom_id, { fields: fieldValues({ headline: valid.headline, about: valid.about }), isFromMessage: () => false, reply: async (next) => { payload = next; } }));
-  let current;
-  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CURRENT), { showModal: async (next) => { current = next.toJSON(); } }));
-  await wizard.handleModalSubmit(interaction(current.custom_id, { fields: fieldValues({ current_role: valid.current_role, goals: valid.goals }), isFromMessage: () => true, update: async (next) => { payload = next; } }));
+  await wizard.handleModalSubmit(interaction(modal.custom_id, { fields: fieldValues({ headline: valid.headline, current_role: valid.current_role }), isFromMessage: () => false, reply: async (next) => { payload = next; } }));
+  let direction;
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.DIRECTION_OPEN), { showModal: async (next) => { direction = next.toJSON(); } }));
+  await wizard.handleModalSubmit(interaction(direction.custom_id, { fields: fieldValues({ goals: valid.goals, about: valid.about }), isFromMessage: () => true, update: async (next) => { payload = next; } }));
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.TAGS), { update: async (next) => { payload = next; } }));
   const menu = components(payload).find((item) => item.type === ComponentType.StringSelect);
   await wizard.handleStringSelect(interaction(menu.custom_id, { values: ['ai_data'], update: async (next) => { payload = next; } }));
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CONTACT), { update: async (next) => { payload = next; } }));
   let contact;
-  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CONTACT), { showModal: async (next) => { contact = next.toJSON(); } }));
+  await wizard.handleButton(interaction(actionId(payload, PROFILE_ACTIONS.CONTACT_OPEN), { showModal: async (next) => { contact = next.toJSON(); } }));
   await assert.rejects(() => wizard.handleModalSubmit(interaction(contact.custom_id, {
     fields: fieldValues({ email: 'not an email' }), isFromMessage: () => true, update: async () => undefined,
   })), /email must be a valid/);

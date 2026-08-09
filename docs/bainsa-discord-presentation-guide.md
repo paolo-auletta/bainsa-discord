@@ -291,12 +291,14 @@ removed members, and is not required for approval or ordinary server access.
 
 After approval, a member may receive a best-effort DM linking here; `Start here` remains the reliable
 entry point. The member presses **Create or update my profile** to open a private, button-driven
-wizard—there is no profile slash command. The wizard asks for:
+wizard—there is no profile slash command. Like project creation, every screen keeps the complete
+grouped summary at the top and ends with one primary action, one named Back action, and **Cancel**.
+The wizard asks for:
 
-- **Headline:** one line explaining what the member does.
-- **About:** interests, topics, problems, or industries that matter to them.
-- **Currently:** their current role or activity.
-- **Aiming for:** research, internship, role, or collaboration goals.
+- **Where you are now:** a one-line headline, current role or activity, and optional organisation
+  and location.
+- **What you want to explore:** research, internship, role, or collaboration goals, followed by
+  interests, topics, problems, or industries that matter to the member.
 - **Directory tags:** one to four tags that describe their field or environment.
 
 Organisation and location are optional context. Public-to-approved-members email, a LinkedIn profile,
@@ -305,8 +307,9 @@ should be respectful and relevant. A private preview explains that publication m
 visible to every approved BAINSA member, and only **Publish profile** makes it public.
 
 Members cannot write forum posts or replies here. The bot creates and maintains exactly one read-only
-post for each published profile; it derives Researcher/Alumni status, BAINSA university, and a
-Researcher division from the membership record. To change the profile, members return to `Start here`;
+thread with one summary message for each published profile. The message uses the same grouped
+presentation shown in the wizard’s final review. It applies the member’s BAINSA university as a forum tag from
+the membership record. To change the profile, members return to `Start here`;
 they do not edit the forum post directly. **Unpublish my profile** asks for confirmation, hides the
 saved record for easy republishing, and queues deletion of the Discord post. Removing or departing a
 member also hides the profile and queues deletion. Reapproval does not silently republish it.
@@ -316,18 +319,18 @@ table. The complete managed tag set is:
 
 | Category | Tags |
 | --- | --- |
-| Identity — added by the bot | `Researcher`, `Alumni` |
+| BAINSA university — added by the bot | `Bocconi`, `Sapienza`, `PoliMi` |
 | Field | `AI & Data`, `Econ & Finance`, `Neuroscience`, `Biology`, `Eng & Robotics`, `Life & Health Sci`, `Social Sciences`, `Math & Physics`, `Humanities & Design` |
 | Environment | `Academia`, `Industry`, `Entrepreneurship` |
 
-Each profile has one derived identity tag plus one to four selected tags. Treat this as stable,
+Each profile has one derived BAINSA university tag plus one to four selected tags. Treat this as stable,
 managed governance vocabulary: change categories deliberately. Employers, job titles, laboratories,
 technologies, and narrow research topics belong in the searchable free text rather than in new tags.
 
 The bot's reconciliation worker retries pending create, edit, and deletion work if Discord is
 temporarily unavailable. It also performs bounded maintenance to return auto-archived profiles and
-the guide to the browseable list without sending keep-alive replies. Routine updates edit the existing
-bot-owned post instead of adding comments.
+the guide to the browseable list without sending keep-alive replies. Routine updates edit the
+starter message in place instead of adding duplicates.
 
 V1 adds no people-directory slash commands, LinkedIn imports or scraping, any external sortable
 table or export, phone and social-contact extras, endorsements, recommendations, direct-message

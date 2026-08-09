@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { formatProfilePost, profileThreadName } from '../src/profiles/formatters.js';
+import { formatProfilePost, formatProfileSummary, profileThreadName } from '../src/profiles/formatters.js';
 
 const member = Object.freeze({
   discord_user_id: '123456789012345678',
@@ -19,22 +19,27 @@ const profile = Object.freeze({
   selected_tags: ['ai_data', 'academia'],
 });
 
-test('profile formatter creates a safe searchable starter message and derived tags', () => {
+test('profile formatter uses the exact review summary in one starter card', () => {
   const formatted = formatProfilePost({ ...profile, member, updated_at: '2026-08-08T10:30:00.000Z' });
-  assert.equal(formatted.threadName, 'Ada Lovelace — MSc student');
-  assert.match(formatted.content, /\*\*Name:\*\* Ada Lovelace/);
-  assert.match(formatted.content, /\*\*BAINSA status:\*\* Researcher/);
-  assert.match(formatted.content, /\*\*BAINSA university \/ division:\*\* Bocconi \/ Analysis/);
-  assert.match(formatted.content, /\*\*Tags:\*\* AI & Data, Academia/);
-  assert.match(formatted.content, /\*\*Discord:\*\* <@123456789012345678>/);
-  assert.match(formatted.content, /<t:1786185000:F>/);
-  assert.deepEqual(formatted.appliedTagKeys, ['researcher', 'ai_data', 'academia']);
-  assert.deepEqual(formatted.appliedTagLabels, ['Researcher', 'AI & Data', 'Academia']);
+  assert.equal(formatted.threadName, 'Ada Lovelace — Researcher building practical AI systems');
+  assert.equal(
+    formatted.content,
+    formatProfileSummary(profile, { discordUserId: member.discord_user_id }),
+  );
+  assert.match(formatted.content, /🪪 \*\*Where you are now\*\*/);
+  assert.match(formatted.content, /🧭 \*\*What you want to explore\*\*/);
+  assert.match(formatted.content, /💬 \*\*How members can reach you\*\*/);
+  assert.match(formatted.content, /\*\*Discord\*\* · <@123456789012345678>/);
+  assert.match(formatted.content, /\*\*Tags\*\* · AI & Data, Academia$/);
+  assert.equal((formatted.content.match(/🪪|🧭|💬/gu) ?? []).length, 3);
+  assert.doesNotMatch(formatted.content, /Discoverability|💼|🏢|📍|💡|✉️|🔗|🔬|🏷️/u);
+  assert.equal('sections' in formatted, false);
+  assert.deepEqual(formatted.appliedTagKeys, ['bocconi', 'ai_data', 'academia']);
+  assert.deepEqual(formatted.appliedTagLabels, ['Bocconi', 'AI & Data', 'Academia']);
   assert.deepEqual(formatted.allowedMentions, { parse: [] });
-  assert.equal(formatted.contactEmbed, null);
 });
 
-test('profile formatter escapes authored markdown, keeps mentions inert, and renders optional contact separately', () => {
+test('profile formatter escapes authored markdown, keeps mentions inert, and renders optional contact cleanly', () => {
   const formatted = formatProfilePost({
     ...profile,
     headline: '# @everyone [Click](https://malicious.test) *now*',
@@ -46,17 +51,12 @@ test('profile formatter escapes authored markdown, keeps mentions inert, and ren
     research_profile_url: 'https://orcid.org/0000-0001',
     member: { ...member, full_name: 'Ada [Lovelace]' },
   });
-  assert.ok(formatted.content.includes('Ada \\[Lovelace\\]'));
   assert.ok(formatted.content.includes('\\# @everyone \\[Click\\]\\(https://malicious.test\\) \\*now\\*'));
   assert.ok(formatted.content.includes('Research \\*Lab\\*'));
-  assert.deepEqual(formatted.contactEmbed, {
-    title: 'Contact',
-    fields: [
-      { name: 'Email', value: 'ada@example.com', inline: false },
-      { name: 'LinkedIn', value: 'https://www.linkedin.com/in/ada', inline: false },
-      { name: 'Research profile', value: 'https://orcid.org/0000-0001', inline: false },
-    ],
-  });
+  assert.ok(formatted.content.includes('`code`'.replace(/`/g, '\\`')));
+  assert.match(formatted.content, /ada@example\.com/);
+  assert.match(formatted.content, /https:\/\/www\.linkedin\.com\/in\/ada/);
+  assert.match(formatted.content, /https:\/\/orcid\.org\/0000-0001/);
 });
 
 test('thread names and maximum legal profiles remain within Discord limits', () => {
@@ -72,6 +72,6 @@ test('thread names and maximum legal profiles remain within Discord limits', () 
     member: { ...member, full_name: 'N'.repeat(120) },
   });
   assert.ok(formatted.threadName.length <= 100);
-  assert.ok(formatted.content.length <= 2_000);
+  assert.ok(formatted.content.length <= 4_000);
   assert.match(formatted.content, /<@123456789012345678>/);
 });

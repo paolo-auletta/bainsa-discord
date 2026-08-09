@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MEMBER_TYPES } from '../src/constants.js';
 import {
   PROFILE_CUSTOM_IDS,
   PROFILE_ACTIONS,
@@ -31,16 +30,16 @@ const validProfile = Object.freeze({
   selected_tags: ['ai_data', 'academia'],
 });
 
-test('profile taxonomy is the exact managed fourteen-tag contract', () => {
-  assert.equal(PROFILE_TAGS.length, 14);
+test('profile taxonomy is the exact managed fifteen-tag contract', () => {
+  assert.equal(PROFILE_TAGS.length, 15);
   assert.deepEqual(PROFILE_TAGS.map((tag) => tag.key), [
-    'researcher', 'alumni', 'ai_data', 'econ_finance', 'neuroscience', 'biology', 'eng_robotics',
+    'bocconi', 'sapienza', 'polimi', 'ai_data', 'econ_finance', 'neuroscience', 'biology', 'eng_robotics',
     'life_health', 'social_sciences', 'math_physics', 'humanities_design', 'academia', 'industry',
     'entrepreneurship',
   ]);
   assert.equal(selectableProfileTags().length, 12);
-  assert.equal(PROFILE_TAGS.filter((tag) => !tag.selectable).length, 2);
-  assert.equal(new Set(PROFILE_TAGS.map((tag) => tag.label)).size, 14);
+  assert.equal(PROFILE_TAGS.filter((tag) => !tag.selectable).length, 3);
+  assert.equal(new Set(PROFILE_TAGS.map((tag) => tag.label)).size, 15);
   assert.ok(PROFILE_TAGS.every((tag) => tag.label.length <= 20));
 });
 
@@ -84,22 +83,22 @@ test('required and optional profile fields obey their publication boundaries', (
   assert.equal(canPublishProfile({ ...validProfile, email: 'a'.repeat(255) }), false);
 });
 
-test('selected tags reject unknown, duplicate, identity, and out-of-range values', () => {
+test('selected tags reject unknown, duplicate, derived university, and out-of-range values', () => {
   assert.deepEqual(normalizeSelectedProfileTags(['AI_DATA']), ['ai_data']);
   for (const tags of [
     [],
     ['ai_data', 'ai_data'],
-    ['researcher'],
+    ['bocconi'],
     ['unknown'],
     ['ai_data', 'academia', 'industry', 'biology', 'neuroscience'],
   ]) {
     assert.throws(() => normalizeSelectedProfileTags(tags));
   }
-  assert.deepEqual(appliedProfileTagKeys(MEMBER_TYPES.RESEARCHER, ['ai_data', 'academia']), [
-    'researcher', 'ai_data', 'academia',
+  assert.deepEqual(appliedProfileTagKeys('Bocconi', ['ai_data', 'academia']), [
+    'bocconi', 'ai_data', 'academia',
   ]);
-  assert.deepEqual(appliedProfileTagKeys(MEMBER_TYPES.ALUMNI, ['industry']), ['alumni', 'industry']);
-  assert.throws(() => appliedProfileTagKeys('pending', ['industry']));
+  assert.deepEqual(appliedProfileTagKeys('PoliMi', ['industry']), ['polimi', 'industry']);
+  assert.throws(() => appliedProfileTagKeys('unsupported university', ['industry']));
 });
 
 test('email and URLs are normalized and reject unsafe shapes', () => {

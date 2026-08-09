@@ -1,8 +1,18 @@
-import { ChannelType } from 'discord.js';
+import {
+  ChannelType,
+  ContainerBuilder,
+  MessageFlags,
+  TextDisplayBuilder,
+} from 'discord.js';
 
 import { GLOBAL_CHANNELS } from '../provision/plan.js';
 
 const DIRECTORY_AUTO_ARCHIVE_MINUTES = 10_080;
+const PROFILE_CARD_COLOR = 0x5865f2;
+const LEGACY_PROFILE_SECTION_HEADINGS = Object.freeze([
+  '## 🔭 What I’d like to explore next',
+  '## 🧭 Discover & connect',
+]);
 
 function valuesOf(collection) {
   if (!collection) return [];
@@ -79,7 +89,10 @@ async function unarchive(thread, reason) {
 async function isOwnedProfileThread(thread, ownerId, expectedBotUserId) {
   const message = await starterMessage(thread);
   if (!message) return null;
-  if (!String(message.content ?? '').includes(`<@${ownerId}>`)) return null;
+  const componentText = JSON.stringify(
+    valuesOf(message.components).map((component) => component?.toJSON?.() ?? component),
+  );
+  if (!String(message.content ?? '').includes(`<@${ownerId}>`) && !componentText.includes(`<@${ownerId}>`)) return null;
   if (!expectedBotUserId || String(message.author?.id ?? '') !== String(expectedBotUserId)) return null;
   return { thread, message };
 }
@@ -127,17 +140,58 @@ async function recoverOwnedThread({ forum, ownerId, botId }) {
   return adopted;
 }
 
-function messagePayload(post) {
+function profileCard(post) {
+  return new ContainerBuilder()
+    .setAccentColor(PROFILE_CARD_COLOR)
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(post.content));
+}
+
+function starterPayload(post) {
   return {
-    content: post.content,
-    embeds: post.contactEmbed ? [post.contactEmbed] : [],
+    components: [profileCard(post)],
+    flags: MessageFlags.IsComponentsV2,
     allowedMentions: post.allowedMentions,
   };
 }
 
+function hasComponentsV2(message) {
+  if (typeof message?.flags?.has === 'function') return message.flags.has(MessageFlags.IsComponentsV2);
+  const bitfield = Number(message?.flags?.bitfield ?? message?.flags ?? 0);
+  return (bitfield & MessageFlags.IsComponentsV2) === MessageFlags.IsComponentsV2;
+}
+
+async function editStarter(message, post) {
+  if (!hasComponentsV2(message)) {
+    await message.edit({ content: null, embeds: [], components: [] });
+  }
+  return message.edit(starterPayload(post));
+}
+
+async function deleteMessage(message) {
+  if (typeof message?.delete !== 'function') return;
+  try {
+    await message.delete();
+  } catch (error) {
+    if (!isMissingDiscordResource(error)) throw error;
+  }
+}
+
+async function removeLegacyProfileSections({ thread, starter, expectedBotUserId }) {
+  if (typeof thread?.messages?.fetch !== 'function') {
+    throw new Error('The profile thread cannot remove legacy section messages.');
+  }
+  const fetched = await thread.messages.fetch({ limit: 100 });
+  const legacySections = valuesOf(fetched).filter((message) => (
+    String(message?.id ?? '') !== String(starter?.id ?? '')
+    && (!expectedBotUserId || String(message?.author?.id ?? '') === String(expectedBotUserId))
+    && LEGACY_PROFILE_SECTION_HEADINGS.some((heading) => String(message?.content ?? '').startsWith(heading))
+  ));
+  await Promise.all(legacySections.map(deleteMessage));
+}
+
 /**
- * Applies a desired profile post without consulting PostgreSQL. It always edits
- * the forum starter message and never sends synchronization replies.
+ * Applies a desired profile post without consulting PostgreSQL. The starter is
+ * the sole desired message; legacy managed follow-ups are removed on update.
  */
 export async function upsertProfileForumPost({
   guild,
@@ -171,7 +225,7 @@ export async function upsertProfileForumPost({
       name: post.threadName,
       autoArchiveDuration: DIRECTORY_AUTO_ARCHIVE_MINUTES,
       appliedTags: tagIds,
-      message: messagePayload(post),
+      message: starterPayload(post),
       reason: 'Create BAINSA directory profile',
     });
     message = await starterMessage(thread);
@@ -187,9 +241,10 @@ export async function upsertProfileForumPost({
   if (!sameIds(thread.appliedTags, tagIds) && typeof thread.setAppliedTags === 'function') {
     await thread.setAppliedTags(tagIds, 'Reconcile BAINSA directory profile');
   }
-  // The starter is the sole bot-owned content surface for a profile. A stale
-  // stored message ID is deliberately ignored in favour of this API identity.
-  await message.edit(messagePayload(post));
+  // A stale stored message ID is deliberately ignored in favour of the
+  // starter-message API identity.
+  await editStarter(message, post);
+  await removeLegacyProfileSections({ thread, starter: message, expectedBotUserId: resolvedBotUserId });
   return {
     forumThreadId: String(thread.id),
     forumMessageId: String(message.id ?? forumMessageId ?? thread.id),

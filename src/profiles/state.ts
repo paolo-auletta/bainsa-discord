@@ -15,14 +15,15 @@ export const PROFILE_LIMITS = Object.freeze({
 });
 
 export const PROFILE_TAG_CATEGORIES = Object.freeze({
-  IDENTITY: 'identity',
+  UNIVERSITY: 'university',
   FIELD: 'field',
   ENVIRONMENT: 'environment',
 });
 
 export const PROFILE_TAGS = Object.freeze([
-  Object.freeze({ key: 'researcher', label: 'Researcher', category: PROFILE_TAG_CATEGORIES.IDENTITY, description: 'Current BAINSA researcher.', selectable: false }),
-  Object.freeze({ key: 'alumni', label: 'Alumni', category: PROFILE_TAG_CATEGORIES.IDENTITY, description: 'BAINSA alumnus or alumna.', selectable: false }),
+  Object.freeze({ key: 'bocconi', label: 'Bocconi', category: PROFILE_TAG_CATEGORIES.UNIVERSITY, description: 'BAINSA Bocconi member.', selectable: false }),
+  Object.freeze({ key: 'sapienza', label: 'Sapienza', category: PROFILE_TAG_CATEGORIES.UNIVERSITY, description: 'BAINSA Sapienza member.', selectable: false }),
+  Object.freeze({ key: 'polimi', label: 'PoliMi', category: PROFILE_TAG_CATEGORIES.UNIVERSITY, description: 'BAINSA PoliMi member.', selectable: false }),
   Object.freeze({ key: 'ai_data', label: 'AI & Data', category: PROFILE_TAG_CATEGORIES.FIELD, description: 'Artificial intelligence, machine learning, and data.', selectable: true }),
   Object.freeze({ key: 'econ_finance', label: 'Econ & Finance', category: PROFILE_TAG_CATEGORIES.FIELD, description: 'Economics, markets, and finance.', selectable: true }),
   Object.freeze({ key: 'neuroscience', label: 'Neuroscience', category: PROFILE_TAG_CATEGORIES.FIELD, description: 'Neuroscience and cognition.', selectable: true }),
@@ -68,7 +69,7 @@ export interface NormalizedProfile {
 }
 
 const profileTagsByKey = new Map<string, ProfileTag>(PROFILE_TAGS.map((tag) => [tag.key, tag]));
-const identityTagKeys = new Set<ProfileTagKey>(['researcher', 'alumni']);
+const universityTagKeys = new Set<ProfileTagKey>(['bocconi', 'sapienza', 'polimi']);
 const selectableTagKeys = new Set<ProfileTagKey>(
   PROFILE_TAGS.filter((tag) => tag.selectable).map((tag) => tag.key),
 );
@@ -128,8 +129,8 @@ export function selectableProfileTags(): ProfileTag[] {
 }
 
 export function validateProfileTagTaxonomy(): void {
-  if (PROFILE_TAGS.length !== 14 || PROFILE_TAGS.length > 20) {
-    throw new Error('Profile taxonomy must contain exactly 14 tags and stay within Discord’s 20-tag limit.');
+  if (PROFILE_TAGS.length !== 15 || PROFILE_TAGS.length > 20) {
+    throw new Error('Profile taxonomy must contain exactly 15 tags and stay within Discord’s 20-tag limit.');
   }
   const keys = new Set<string>();
   const labels = new Set<string>();
@@ -140,8 +141,8 @@ export function validateProfileTagTaxonomy(): void {
     keys.add(tag.key);
     labels.add(tag.label);
   }
-  if (identityTagKeys.size !== 2 || selectableTagKeys.size !== 12) {
-    throw new Error('Profile taxonomy must have two derived identity tags and twelve selectable tags.');
+  if (universityTagKeys.size !== 3 || selectableTagKeys.size !== 12) {
+    throw new Error('Profile taxonomy must have three derived university tags and twelve selectable tags.');
   }
 }
 
@@ -157,27 +158,34 @@ export function normalizeSelectedProfileTags(values: unknown): ProfileTagKey[] {
   return normalized.map((key) => {
     const tag = profileTag(key);
     if (!tag) validationError(`selected_tags contains an unknown tag.`);
-    if (!selectableTagKeys.has(tag.key)) validationError('selected_tags cannot contain derived identity tags.');
+    if (!selectableTagKeys.has(tag.key)) validationError('selected_tags cannot contain derived university tags.');
     return tag.key;
   });
 }
 
-export function derivedProfileTag(memberType: unknown): ProfileTagKey {
+export function assertProfileMemberType(memberType: unknown): void {
   const normalized = String(memberType ?? '').trim().toLowerCase();
-  if (normalized === MEMBER_TYPES.RESEARCHER) return 'researcher';
-  if (normalized === MEMBER_TYPES.ALUMNI) return 'alumni';
-  validationError('A profile can only be published by a Researcher or Alumni member.');
+  if (normalized !== MEMBER_TYPES.RESEARCHER && normalized !== MEMBER_TYPES.ALUMNI) {
+    validationError('A profile can only be published by a Researcher or Alumni member.');
+  }
 }
 
-export function appliedProfileTagKeys(memberType: unknown, selectedTags: unknown): ProfileTagKey[] {
+export function derivedProfileTag(universityName: unknown): ProfileTagKey {
+  const normalized = String(universityName ?? '').trim().toLowerCase();
+  const tag = profileTag(normalized);
+  if (tag && universityTagKeys.has(tag.key)) return tag.key;
+  validationError('A profile can only be published by a supported BAINSA university member.');
+}
+
+export function appliedProfileTagKeys(universityName: unknown, selectedTags: unknown): ProfileTagKey[] {
   const selected = normalizeSelectedProfileTags(selectedTags);
-  const applied = [derivedProfileTag(memberType), ...selected];
+  const applied = [derivedProfileTag(universityName), ...selected];
   if (applied.length > 5) validationError('A directory post cannot have more than five tags.');
   return applied;
 }
 
-export function appliedProfileTags(memberType: unknown, selectedTags: unknown): ProfileTag[] {
-  return appliedProfileTagKeys(memberType, selectedTags).map((key) => profileTag(key)!);
+export function appliedProfileTags(universityName: unknown, selectedTags: unknown): ProfileTag[] {
+  return appliedProfileTagKeys(universityName, selectedTags).map((key) => profileTag(key)!);
 }
 
 export function normalizeProfileEmail(value: unknown): string | null {
@@ -254,7 +262,7 @@ export function canPublishProfile(input: ProfileInput, memberType?: unknown): bo
 
 export function assertPublishableProfile(input: ProfileInput, memberType?: unknown): NormalizedProfile {
   const profile = normalizeProfile(input);
-  if (memberType != null) appliedProfileTagKeys(memberType, profile.selected_tags);
+  if (memberType != null) assertProfileMemberType(memberType);
   return profile;
 }
 

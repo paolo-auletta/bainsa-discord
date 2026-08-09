@@ -48,10 +48,10 @@ test.after(async () => {
 test('runs every migration against a fresh database and keeps the final contract idempotent', async () => {
   const first = await resetAndMigrate();
   assert.equal(first.pending, 0);
-  assert.equal(first.appliedNow.length, 12);
+  assert.equal(first.appliedNow.length, 15);
   assert.deepEqual(first.status.map((row) => row.status), [
     'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
-    'applied', 'applied',
+    'applied', 'applied', 'applied', 'applied', 'applied',
   ]);
 
   const tables = await database.query(`
@@ -155,12 +155,70 @@ test('runs every migration against a fresh database and keeps the final contract
 
   const second = await migrate();
   assert.deepEqual(second.appliedNow, []);
-  assert.equal(second.applied, 12);
+  assert.equal(second.applied, 15);
   assert.equal(second.pending, 0);
 
   const status = await migrate({ statusOnly: true });
-  assert.equal(status.applied, 12);
+  assert.equal(status.applied, 15);
   assert.equal(status.pending, 0);
+});
+
+test('university tag upgrade queues existing published profiles exactly once', async () => {
+  await database.resetPublicSchema();
+  const temporaryDir = await mkdtemp(path.join(os.tmpdir(), 'bainsa-migrations-before-017-'));
+
+  try {
+    for (const filename of await readdir(migrationsDir)) {
+      if (!filename.endsWith('.sql') || filename === '017_replace_profile_identity_tags_with_university_tags.sql') continue;
+      await copyFile(path.join(migrationsDir, filename), path.join(temporaryDir, filename));
+    }
+    await migrate({ migrationsDir: temporaryDir });
+    const universityId = await insertUniversity('Profile Layout University');
+    await database.query(
+      `INSERT INTO members (discord_user_id, university_id, member_type)
+       VALUES ('layout-profile', $1, 'researcher')`,
+      [universityId],
+    );
+    await database.query(
+      `INSERT INTO member_profiles (
+         discord_user_id, headline, about, "current_role", goals, selected_tags
+       ) VALUES (
+         'layout-profile', 'Applied AI researcher',
+         'I enjoy machine learning and collaborative research projects.',
+         'MSc student', 'Explore research and internship collaborations.', ARRAY['ai_data']
+       )`,
+    );
+    await database.query(
+      `INSERT INTO member_profile_reconciliation (
+         discord_user_id, desired_generation, status, attempts, succeeded_at
+       ) VALUES ('layout-profile', 4, 'succeeded', 3, now())`,
+    );
+
+    const migrated = await migrate();
+    assert.deepEqual(
+      migrated.appliedNow.map((migration) => migration.filename),
+      ['017_replace_profile_identity_tags_with_university_tags.sql'],
+    );
+    const queued = await database.query(
+      `SELECT desired_generation, status, attempts, started_at, succeeded_at, failed_at, last_error
+         FROM member_profile_reconciliation
+        WHERE discord_user_id = 'layout-profile'`,
+    );
+    assert.deepEqual(queued.rows[0], {
+      desired_generation: '5',
+      status: 'pending',
+      attempts: 0,
+      started_at: null,
+      succeeded_at: null,
+      failed_at: null,
+      last_error: null,
+    });
+
+    const second = await migrate();
+    assert.equal(second.appliedNow.length, 0);
+  } finally {
+    await rm(temporaryDir, { recursive: true, force: true });
+  }
 });
 
 test('executive exclusivity handles head promotion and multi-row division assignments', async () => {
@@ -536,7 +594,7 @@ test('upgrades the tracked legacy university and division shape in place', async
   );
 
   const result = await migrate();
-  assert.equal(result.applied, 12);
+  assert.equal(result.applied, 15);
   assert.equal(result.recordedNotLocal, 1);
 
   const university = await database.query(
