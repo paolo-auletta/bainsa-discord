@@ -23,6 +23,11 @@ test('onboarding custom ids parse seed and compact ids', () => {
     action: ONBOARDING_ACTIONS.STATUS,
     parts: [],
   });
+  assert.deepEqual(parseOnboardingId(onboardingId(ONBOARDING_ACTIONS.SPACES)), {
+    namespace: 'ob',
+    action: ONBOARDING_ACTIONS.SPACES,
+    parts: [],
+  });
 
   const customId = onboardingId(ONBOARDING_ACTIONS.APPROVE, '123');
   assert.equal(customId, 'ob:app:123');

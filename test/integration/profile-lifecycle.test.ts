@@ -44,7 +44,7 @@ function directoryGuild({ failCreates = 0 } = {}) {
   const threads = new Map();
   const forum = {
     id: 'directory-forum',
-    name: 'people-directory',
+    name: 'people-database',
     type: ChannelType.GuildForum,
     availableTags: [
       { id: 'bocconi', name: 'Bocconi' },

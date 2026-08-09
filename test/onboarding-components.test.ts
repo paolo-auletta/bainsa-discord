@@ -6,6 +6,7 @@ import {
   applicationStatusPayload,
   confirmPayload,
   divisionPayload,
+  memberSpacesPayload,
   memberTypePayload,
   onboardingStartPayload,
   onboardingSubmittingPayload,
@@ -13,6 +14,7 @@ import {
   reviewedPayload,
   universityPayload,
 } from '../src/onboarding/components.js';
+import { PROFILE_CUSTOM_IDS } from '../src/profiles/custom-ids.js';
 
 const university = { id: '1', name: 'Bocconi' };
 const reapplication = {
@@ -183,6 +185,38 @@ test('waiting and decided application states clearly explain what happens next',
   });
   assert.match(rejected.embeds[0].data.description, /Please clarify your university/);
   assert.equal(rejected.components[0].toJSON().components[0].label, 'Start a new application');
+});
+
+test('member-space guide explains channels without restating application details', () => {
+  const payload = memberSpacesPayload({
+    university,
+    divisions: [{ id: '2', name: 'Analysis', color: 'orange', text_channel_id: 'division' }],
+    channels: {
+      globalGeneral: { id: 'global-general' },
+      universityGeneral: { id: 'university-general' },
+      division: { id: 'division' },
+      resources: { id: 'resources' },
+      projectShowcase: { id: 'showcase' },
+      peopleDatabase: { id: 'database' },
+    },
+  });
+  const embed = payload.embeds[0].toJSON();
+
+  assert.equal(embed.author.name, 'BAINSA');
+  assert.equal(embed.title, 'Find your place in BAINSA');
+  assert.deepEqual(embed.fields.map((field) => field.name), [
+    'Global BAINSA', 'Bocconi', 'Your division', 'Resources', 'Projects showcase', 'People database', 'Make yourself findable',
+  ]);
+  assert.match(embed.fields.find((field) => field.name === 'Resources').value, /<#resources>/);
+  assert.match(embed.fields.find((field) => field.name === 'Projects showcase').value, /<#showcase>/);
+  assert.match(embed.fields.find((field) => field.name === 'People database').value, /<#database>/);
+  assert.match(embed.fields.find((field) => field.name === 'Make yourself findable').value, /<#database>/);
+  assert.doesNotMatch(embed.description, /application approved|access is active|Applicant|Path/i);
+  assert.equal(payload.components[0].toJSON().components[0].custom_id, PROFILE_CUSTOM_IDS.START);
+
+  const published = memberSpacesPayload({ university, profilePublished: true });
+  assert.equal(published.components.length, 0);
+  assert.equal(published.embeds[0].data.fields.some((field) => field.name === 'Make yourself findable'), false);
 });
 
 test('onboarding embeds omit helper footers and review timestamps', () => {

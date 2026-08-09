@@ -66,7 +66,7 @@ export function formatProfileSummary(
 ): string {
   const discord = normalizeProfileText(discordUserId);
   return [
-    '## Your BAINSA directory profile',
+    '## Your BAINSA people database profile',
     '',
     '🪪 **Where you are now**',
     `**Headline** · ${optionalSummaryValue(profile.headline)}`,

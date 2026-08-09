@@ -9,6 +9,7 @@ import {
 } from "discord.js";
 
 import { divisionLabel, MEMBER_TYPES } from "../constants.js";
+import { PROFILE_CUSTOM_IDS } from "../profiles/custom-ids.js";
 import { onboardingId, ONBOARDING_ACTIONS } from "./custom-ids.js";
 import { pageItems } from "./state.js";
 
@@ -365,7 +366,7 @@ export function applicationStatusPayload({ request, university, divisions, links
     description = [
       "Your BAINSA access is active.",
       links.length > 0 ? `**Start here**\n${links.map((line) => `• ${line}`).join("\n")}` : "Open the newly available Global BAINSA and university spaces to get started.",
-      "The people directory is optional and can be set up later from its **Start here** post.",
+      "The people database is optional and can be set up later from its **Start here** post.",
     ].join("\n\n");
   } else if (status === "rejected") {
     title = "Application declined";
@@ -390,6 +391,77 @@ export function applicationStatusPayload({ request, university, divisions, links
         .addFields(...details),
     ],
     components,
+    allowedMentions: { parse: [] },
+  };
+}
+
+/** A persistent, role-aware guide reached from the shared #welcome message. */
+export function memberSpacesPayload({
+  university,
+  divisions = [],
+  channels = {},
+  profilePublished = false,
+}) {
+  const universityName = escapeMarkdown(university?.name ?? "your university");
+  const channel = (key, fallback) => channels[key] ? `<#${channels[key].id}>` : fallback;
+  const division = divisions[0];
+  const fields = [
+    {
+      name: "Global BAINSA",
+      value: `${channel("globalGeneral", "#bainsa-general")}\nCross-university discussion.`,
+      inline: true,
+    },
+    {
+      name: universityName,
+      value: `${channel("universityGeneral", "#general")}\nLocal coordination and updates.`,
+      inline: true,
+    },
+    ...(division ? [{
+      name: "Your division",
+      value: `${channel("division", "your division room")}\nFocused work with your team.`,
+      inline: true,
+    }] : []),
+    {
+      name: "Resources",
+      value: `${channel("resources", "#resources")}\nPapers, tools, datasets, and templates.`,
+      inline: true,
+    },
+    {
+      name: "Projects showcase",
+      value: `${channel("projectShowcase", "#projects-showcase")}\nBrowse work; active projects stay private.`,
+      inline: true,
+    },
+    {
+      name: "People database",
+      value: `${channel("peopleDatabase", "#people-database")}\nFind collaborators by work and interests.`,
+      inline: true,
+    },
+    ...(!profilePublished ? [{
+      name: "Make yourself findable",
+      value: `Create a profile in ${channel("peopleDatabase", "#people-database")} so members can find you for research, projects, and collaboration.`,
+      inline: false,
+    }] : []),
+  ];
+
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(EMBED_COLORS.BRAND)
+        .setAuthor({ name: "BAINSA" })
+        .setTitle("Find your place in BAINSA")
+        .setDescription("Your map to the community. Keep conversations in the narrowest useful space.")
+        .addFields(...fields),
+    ],
+    components: profilePublished
+      ? []
+      : [
+        new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(PROFILE_CUSTOM_IDS.START)
+            .setLabel("Create my profile")
+            .setStyle(ButtonStyle.Primary),
+        ),
+      ],
     allowedMentions: { parse: [] },
   };
 }

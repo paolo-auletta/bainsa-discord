@@ -222,8 +222,8 @@ test('global channel proposals use clear plural naming in the channel and guide'
   assert.match(seeds.channelProposals, /Suggest a new shared channel/);
 });
 
-test('people directory has exactly the managed profile taxonomy and no legacy availability tags', () => {
-  assert.equal(GLOBAL_CHANNELS.PEOPLE_DIRECTORY, 'people-directory');
+test('people database has exactly the managed profile taxonomy and no legacy availability tags', () => {
+  assert.equal(GLOBAL_CHANNELS.PEOPLE_DIRECTORY, 'people-database');
   assert.deepEqual(
     peopleDirectoryForumTags().map((tag) => tag.name),
     [
@@ -293,6 +293,32 @@ test('legacy topic proposals forum is renamed in place', async () => {
   assert.equal(provisioner.summary.channels.adopted, 1);
   assert.equal(provisioner.summary.channels.updated, 1);
   assert.deepEqual(edits, [{ name: 'channel-proposals', reason: 'BAINSA v1 provisioning' }]);
+});
+
+test('legacy people-directory forum is renamed in place as people-database', async () => {
+  const edits = [];
+  const legacyForum = {
+    id: 'legacy-people-directory',
+    name: 'people-directory',
+    type: ChannelType.GuildForum,
+    parentId: 'global-category',
+    availableTags: [],
+    async edit(payload) {
+      edits.push(payload);
+      if (payload.name) this.name = payload.name;
+      return this;
+    },
+  };
+  const guild = { channels: { cache: { find: (predicate) => [legacyForum].find(predicate) } } };
+  const provisioner = new DiscordProvisioner({ client: {}, config: {}, db: null, dryRun: false, plan: samplePlan, logger: {} });
+
+  const forum = await provisioner.ensureForumChannel(guild, GLOBAL_CHANNELS.PEOPLE_DIRECTORY, {
+    parent: { id: 'global-category' },
+    aliases: ['people-directory'],
+  });
+
+  assert.equal(forum.name, 'people-database');
+  assert.deepEqual(edits, [{ name: 'people-database', reason: 'BAINSA v1 provisioning' }]);
 });
 
 test('text and start permissions match v1 Discord policy', () => {
@@ -466,7 +492,7 @@ test('university showcase members may reply and attach without creating showcase
   }
 });
 
-test('people directory grants approved identities read-only forum access and bot forum management', () => {
+test('people database grants approved identities read-only forum access and bot forum management', () => {
   const overwrites = peopleDirectoryForumOverwrites({
     everyone: 'everyone',
     bot: 'bot',
@@ -492,7 +518,7 @@ test('directory-only forum options replace managed tags and configure list layou
   const edits = [];
   const forum = {
     id: 'directory',
-    name: 'people-directory',
+    name: 'people-database',
     type: ChannelType.GuildForum,
     parentId: 'global-category',
     availableTags: [{ id: 'university', name: 'Bocconi' }, { id: 'obsolete', name: 'Obsolete' }],
@@ -507,7 +533,7 @@ test('directory-only forum options replace managed tags and configure list layou
   const guild = { channels: { cache: { find: (predicate) => [forum].find(predicate) } } };
   const provisioner = new DiscordProvisioner({ client: {}, config: {}, db: null, dryRun: false, plan: samplePlan, logger: {} });
 
-  await provisioner.ensureForumChannel(guild, 'people-directory', {
+  await provisioner.ensureForumChannel(guild, 'people-database', {
     parent: { id: 'global-category' },
     tags: peopleDirectoryForumTags(),
     exactTags: true,
@@ -535,7 +561,7 @@ test('new directory forum receives the list layout and one-week archive defaults
   };
   const provisioner = new DiscordProvisioner({ client: {}, config: {}, db: null, dryRun: false, plan: samplePlan, logger: {} });
 
-  await provisioner.ensureForumChannel(guild, 'people-directory', {
+  await provisioner.ensureForumChannel(guild, 'people-database', {
     parent: { id: 'global-category' },
     tags: peopleDirectoryForumTags(),
     exactTags: true,
@@ -698,7 +724,7 @@ test('provisioning creates one global and one university voice room in their sco
     .map(({ label }) => label);
   assert.ok(createdChannels.includes('channel:bainsa-general-room'));
   assert.ok(createdChannels.includes('channel:general-room'));
-  assert.ok(createdChannels.includes('channel:people-directory'));
+  assert.ok(createdChannels.includes('channel:people-database'));
 });
 
 test('legacy name normalization adopts pipe and emoji-prefixed resources', () => {
@@ -748,6 +774,91 @@ test('plain division channels are adopted into icon-prefixed names', async () =>
   assert.equal(channel.id, existing.id);
   assert.equal(provisioner.summary.channels.adopted, 1);
   assert.equal(provisioner.summary.channels.updated, 1);
+});
+
+test('provisioning writes a durable topic and reconciles a text channel position', async () => {
+  const edits = [];
+  const existing = {
+    id: 'bocconi-general',
+    name: 'general',
+    type: ChannelType.GuildText,
+    parentId: 'bocconi-category',
+    position: 7,
+    topic: 'Old guidance',
+    async edit(payload) {
+      edits.push(payload);
+      Object.assign(this, payload);
+      return this;
+    },
+  };
+  const guild = {
+    channels: {
+      cache: {
+        find(predicate) {
+          return [existing].find(predicate);
+        },
+      },
+    },
+  };
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: {},
+    db: null,
+    dryRun: false,
+    plan: samplePlan,
+    logger: {},
+  });
+
+  await provisioner.ensureTextChannel(guild, 'general', {
+    parent: { id: 'bocconi-category' },
+    topic: 'BAINSA BOCCONI · Local coordination.',
+    position: 0,
+  });
+
+  assert.deepEqual(edits, [{
+    topic: 'BAINSA BOCCONI · Local coordination.',
+    position: 0,
+    reason: 'BAINSA v1 provisioning',
+  }]);
+  assert.equal(provisioner.summary.channels.updated, 1);
+});
+
+test('welcome guidance provisions a persistent personal-space action', async () => {
+  const seedCalls = [];
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: {},
+    db: null,
+    dryRun: true,
+    plan: samplePlan,
+    logger: {},
+  });
+  provisioner.seedMessage = async (...args) => seedCalls.push(args);
+  provisioner.seedForumGuide = async () => {};
+  const roleIds = {
+    everyone: 'everyone',
+    bot: 'bot',
+    researcher: 'researcher',
+    alumni: 'alumni',
+    globalPresident: 'global',
+    universityPresidents: ['president'],
+    universityHeadRoleIds: new Map([['Bocconi', ['head']]]),
+    roles: new Map([
+      ['Bocconi', 'university'],
+      ['Bocconi - President', 'president'],
+      ['Bocconi - Vice President', 'vp'],
+      ['Bocconi - Projects', 'projects'],
+      ['Bocconi - Head of Projects', 'head'],
+    ]),
+  };
+
+  await provisioner.ensureStructure({ channels: { cache: { find: () => null, values: () => [] } } }, roleIds);
+
+  const [, , , options] = seedCalls.find(([, key]) => key === 'start:welcome');
+  const component = options.components[0].toJSON().components[0];
+  assert.equal(component.custom_id, 'ob:spc');
+  assert.equal(component.label, 'Find my spaces');
+  assert.equal(options.pin, true);
 });
 
 test('seed messages adopt an untracked matching bot message instead of sending a duplicate', async () => {

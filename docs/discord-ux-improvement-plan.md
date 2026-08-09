@@ -35,7 +35,7 @@ I would:
    Make it answer “What can I do here?” rather than present an alphabetical command list. Each workflow should explain scope, prerequisites, effects, and next steps in plain language.
 
 5. **Design forum operating rules**
-   For `resources`, `projects-showcase`, `people-directory`, and `channel-proposals`, I’d define:
+   For `resources`, `projects-showcase`, `people-database`, and `channel-proposals`, I’d define:
 
    - What a post is for
    - Required post structure or templates

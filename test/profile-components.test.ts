@@ -72,7 +72,7 @@ test('every profile screen keeps a complete grouped summary and the same three n
   for (const { payload, labels } of screens) {
     assert.equal(payload.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2);
     const all = nestedComponents(payload);
-    const summary = all.find((item) => item.content?.includes('## Your BAINSA directory profile'))?.content ?? '';
+    const summary = all.find((item) => item.content?.includes('## Your BAINSA people database profile'))?.content ?? '';
     for (const expected of [
       'Where you are now', 'Headline', 'What are you doing now?', 'Organisation', 'Location',
       'What you want to explore', 'What would you like to explore next?', 'You and your interests',

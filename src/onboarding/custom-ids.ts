@@ -6,6 +6,7 @@ const MAX_CUSTOM_ID_LENGTH = 100;
 export const ONBOARDING_ACTIONS = Object.freeze({
   START: 'start',
   STATUS: 'sts',
+  SPACES: 'spc',
   NAME_MODAL: 'nam',
   MEMBER_TYPE: 'mt',
   MEMBER_TYPE_DONE: 'mtd',

@@ -65,7 +65,7 @@ function appliedTagIds(forum, labels) {
   const available = valuesOf(forum?.availableTags);
   return labels.map((label) => {
     const tag = available.find((candidate) => String(candidate.name).toLowerCase() === String(label).toLowerCase());
-    if (!tag?.id) throw new Error(`People-directory forum is missing the managed tag ${label}.`);
+    if (!tag?.id) throw new Error(`People-database forum is missing the managed tag ${label}.`);
     return String(tag.id);
   });
 }
@@ -136,7 +136,7 @@ async function recoverOwnedThread({ forum, ownerId, botId }) {
   const matches = await profileThreadCandidates({ forum, ownerId, botId });
   if (matches.length === 0) return null;
   const [adopted, ...duplicates] = matches;
-  await Promise.all(duplicates.map(({ thread }) => deleteThread(thread, 'Remove duplicate BAINSA directory profile')));
+  await Promise.all(duplicates.map(({ thread }) => deleteThread(thread, 'Remove duplicate BAINSA people database profile')));
   return adopted;
 }
 
@@ -202,7 +202,7 @@ export async function upsertProfileForumPost({
   botUserId: explicitBotUserId = null,
 }) {
   const forum = await resolvePeopleDirectoryForum(guild);
-  if (!forum) throw new Error('The people-directory forum is unavailable.');
+  if (!forum) throw new Error('The people-database forum is unavailable.');
   const tagIds = appliedTagIds(forum, post.appliedTagLabels);
   const resolvedBotUserId = botUserId(guild, explicitBotUserId);
   let thread = await fetchChannel(guild, forumThreadId);
@@ -226,7 +226,7 @@ export async function upsertProfileForumPost({
       autoArchiveDuration: DIRECTORY_AUTO_ARCHIVE_MINUTES,
       appliedTags: tagIds,
       message: starterPayload(post),
-      reason: 'Create BAINSA directory profile',
+      reason: 'Create BAINSA people database profile',
     });
     message = await starterMessage(thread);
     // Discord forum post starter-message IDs are currently the thread IDs.
@@ -234,12 +234,12 @@ export async function upsertProfileForumPost({
     return { forumThreadId: String(thread.id), forumMessageId: String(message?.id ?? thread.id), created: true };
   }
 
-  await unarchive(thread, 'Reconcile BAINSA directory profile');
+  await unarchive(thread, 'Reconcile BAINSA people database profile');
   if (thread.name !== post.threadName && typeof thread.setName === 'function') {
-    await thread.setName(post.threadName, 'Reconcile BAINSA directory profile');
+    await thread.setName(post.threadName, 'Reconcile BAINSA people database profile');
   }
   if (!sameIds(thread.appliedTags, tagIds) && typeof thread.setAppliedTags === 'function') {
-    await thread.setAppliedTags(tagIds, 'Reconcile BAINSA directory profile');
+    await thread.setAppliedTags(tagIds, 'Reconcile BAINSA people database profile');
   }
   // A stale stored message ID is deliberately ignored in favour of the
   // starter-message API identity.
@@ -266,10 +266,10 @@ export async function deleteProfileForumPosts({ guild, ownerId, forumThreadId = 
     const matches = await profileThreadCandidates({ forum, ownerId: String(ownerId), botId: resolvedBotUserId });
     for (const { thread } of matches) targets.set(String(thread.id), thread);
   }
-  await Promise.all([...targets.values()].map((thread) => deleteThread(thread, 'Delete hidden BAINSA directory profile')));
+  await Promise.all([...targets.values()].map((thread) => deleteThread(thread, 'Delete hidden BAINSA people database profile')));
   // Without the forum we cannot scan for a duplicate or legacy post. Keep the
   // durable reconciliation row pending even when a stored thread was deleted.
-  if (!forum) throw new Error('The people-directory forum is unavailable.');
+  if (!forum) throw new Error('The people-database forum is unavailable.');
   return { deletedThreadIds: [...targets.keys()] };
 }
 
@@ -277,14 +277,14 @@ export async function deleteProfileForumPosts({ guild, ownerId, forumThreadId = 
 export async function refreshProfileForumThread({ guild, forumThreadId }) {
   const thread = await fetchChannel(guild, forumThreadId);
   if (!thread) return { refreshed: false, missing: true };
-  await unarchive(thread, 'Refresh BAINSA directory profile visibility');
+  await unarchive(thread, 'Refresh BAINSA people database profile visibility');
   return { refreshed: true, missing: false };
 }
 
 export async function unarchiveDirectoryGuideThread({ guild, guideThreadId }) {
   const thread = await fetchChannel(guild, guideThreadId);
   if (!thread) return { refreshed: false, missing: true };
-  await unarchive(thread, 'Refresh BAINSA people-directory guide visibility');
+  await unarchive(thread, 'Refresh BAINSA people-database guide visibility');
   return { refreshed: true, missing: false };
 }
 

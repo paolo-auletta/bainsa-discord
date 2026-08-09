@@ -12,10 +12,14 @@ import {
 import {
   FORUM_GUIDE_THREAD_NAME,
   divisionSeed,
+  divisionTopic,
   globalSeeds,
+  globalTopics,
   seedMarker,
   startHereSeeds,
+  startHereTopics,
   universitySeeds,
+  universityTopics,
 } from '../content/seeds.js';
 import { divisionColorDetails, ROLE_NAMES, universityRoleColor } from '../constants.js';
 import {
@@ -26,6 +30,7 @@ import {
   slugify,
 } from '../naming.js';
 import { PROFILE_CUSTOM_IDS } from '../profiles/custom-ids.js';
+import { ONBOARDING_ACTIONS, onboardingId } from '../onboarding/custom-ids.js';
 import { upsertProvisionedResources } from './db.js';
 import {
   globalForumTags,
@@ -82,13 +87,46 @@ type ChannelProvisionOptions = {
   parent?: { id?: string } | null;
   overwrites?: unknown[];
   aliases?: string[];
+  topic?: string;
+  position?: number;
   tags?: ForumTagInput[];
   exactTags?: boolean;
   defaultForumLayout?: ForumLayoutType;
   defaultAutoArchiveDuration?: number;
 };
 
+const CATEGORY_POSITIONS = Object.freeze({
+  start: 0,
+  global: 1,
+});
+
+const START_CHANNEL_POSITIONS = Object.freeze({ welcome: 0, onboarding: 1 });
+
+const GLOBAL_CHANNEL_POSITIONS = Object.freeze({
+  general: 0,
+  voice: 1,
+  announcements: 2,
+  showcase: 3,
+  resources: 4,
+  peopleDirectory: 5,
+  channelProposals: 6,
+  anonymousFeedback: 7,
+  board: 8,
+});
+
+const UNIVERSITY_CHANNEL_POSITIONS = Object.freeze({
+  general: 0,
+  voice: 1,
+  announcements: 2,
+  showcase: 3,
+  divisions: 4,
+  board: 90,
+  botLog: 91,
+  onboardingReview: 92,
+});
+
 type ForumProvisionOptions = Omit<ChannelProvisionOptions, 'type'>;
+type ChannelProvisionInput = ForumProvisionOptions & { type?: ChannelType };
 
 type SeedMessageOptions = {
   components?: readonly unknown[];
@@ -413,50 +451,69 @@ export class DiscordProvisioner {
 
   async ensureStructure(guild, roleIds) {
     const startSeeds = startHereSeeds();
+    const startTopics = startHereTopics();
     const globalSeedContent = globalSeeds({
       anonymousFeedbackUrl: this.config.anonymousFeedbackUrl,
     });
+    const globalChannelTopics = globalTopics();
     const resources = { universities: [] };
 
     const startCategory = await this.ensureCategory(guild, CATEGORY_NAMES.START, {
       overwrites: startHereOverwrites(roleIds),
+      position: CATEGORY_POSITIONS.start,
     });
     const welcome = await this.ensureTextChannel(guild, START_CHANNELS.WELCOME, {
       parent: startCategory,
       overwrites: startHereOverwrites(roleIds),
+      topic: startTopics.welcome,
+      position: START_CHANNEL_POSITIONS.welcome,
     });
     const onboarding = await this.ensureTextChannel(guild, START_CHANNELS.ONBOARDING, {
       parent: startCategory,
       overwrites: startHereOverwrites(roleIds),
+      topic: startTopics.onboarding,
+      position: START_CHANNEL_POSITIONS.onboarding,
     });
-    await this.seedMessage(welcome, 'start:welcome', startSeeds.welcome);
+    await this.seedMessage(welcome, 'start:welcome', startSeeds.welcome, {
+      components: welcomeButtonRows(),
+      pin: true,
+    });
     await this.seedMessage(onboarding, 'start:onboarding', startSeeds.onboarding, {
       components: onboardingButtonRows(),
+      pin: true,
     });
     await this.retireStartHereChannels(guild, startCategory);
 
     const globalCategory = await this.ensureCategory(guild, CATEGORY_NAMES.GLOBAL, {
       overwrites: privateBaseOverwrites(roleIds),
+      position: CATEGORY_POSITIONS.global,
     });
     const globalGeneral = await this.ensureTextChannel(guild, GLOBAL_CHANNELS.GENERAL, {
       parent: globalCategory,
       aliases: ['general'],
       overwrites: globalGeneralOverwrites(roleIds),
+      topic: globalChannelTopics.general,
+      position: GLOBAL_CHANNEL_POSITIONS.general,
     });
     await this.ensureVoiceChannel(guild, GLOBAL_CHANNELS.VOICE, {
       parent: globalCategory,
       overwrites: globalVoiceOverwrites(roleIds),
+      position: GLOBAL_CHANNEL_POSITIONS.voice,
     });
     const globalAnnouncements = await this.ensureTextChannel(guild, GLOBAL_CHANNELS.ANNOUNCEMENTS, {
       parent: globalCategory,
       type: ChannelType.GuildText,
       aliases: ['announcements'],
       overwrites: globalAnnouncementOverwrites(roleIds),
+      topic: globalChannelTopics.announcements,
+      position: GLOBAL_CHANNEL_POSITIONS.announcements,
     });
     const globalBoard = await this.ensureTextChannel(guild, GLOBAL_CHANNELS.BOARD, {
       parent: globalCategory,
       aliases: ['global-admins', 'all-university-management'],
       overwrites: globalBoardOverwrites(roleIds),
+      topic: globalChannelTopics.board,
+      position: GLOBAL_CHANNEL_POSITIONS.board,
     });
     const globalShowcase = await this.ensureForumChannel(guild, GLOBAL_CHANNELS.SHOWCASE, {
       parent: globalCategory,
@@ -468,33 +525,44 @@ export class DiscordProvisioner {
         ...roleIds.universityPresidents,
       ].filter(Boolean)),
       tags: globalForumTags(),
+      topic: globalChannelTopics.showcase,
+      position: GLOBAL_CHANNEL_POSITIONS.showcase,
     });
     const resourcesForum = await this.ensureForumChannel(guild, GLOBAL_CHANNELS.RESOURCES, {
       parent: globalCategory,
       overwrites: memberForumOverwrites(roleIds),
       tags: globalForumTags(),
+      topic: globalChannelTopics.resources,
+      position: GLOBAL_CHANNEL_POSITIONS.resources,
     });
     const peopleDirectoryForum = await this.ensureForumChannel(guild, GLOBAL_CHANNELS.PEOPLE_DIRECTORY, {
       parent: globalCategory,
+      aliases: ['people-directory'],
       overwrites: peopleDirectoryForumOverwrites(roleIds),
       tags: peopleDirectoryForumTags(),
       exactTags: true,
       defaultForumLayout: ForumLayoutType.ListView,
       defaultAutoArchiveDuration: 10080,
+      topic: globalChannelTopics.peopleDirectory,
+      position: GLOBAL_CHANNEL_POSITIONS.peopleDirectory,
     });
     const channelProposalsForum = await this.ensureForumChannel(guild, GLOBAL_CHANNELS.CHANNEL_PROPOSALS, {
       parent: globalCategory,
       aliases: ['topic-proposals'],
       overwrites: memberForumOverwrites(roleIds),
       tags: globalForumTags(),
+      topic: globalChannelTopics.channelProposals,
+      position: GLOBAL_CHANNEL_POSITIONS.channelProposals,
     });
     const feedback = await this.ensureTextChannel(guild, GLOBAL_CHANNELS.ANONYMOUS_FEEDBACK, {
       parent: globalCategory,
       overwrites: globalReadOnlyOverwrites(roleIds),
+      topic: globalChannelTopics.anonymousFeedback,
+      position: GLOBAL_CHANNEL_POSITIONS.anonymousFeedback,
     });
-    await this.seedMessage(globalGeneral, 'global:general', globalSeedContent.general);
-    await this.seedMessage(globalAnnouncements, 'global:announcements', globalSeedContent.announcements);
-    await this.seedMessage(globalBoard, 'global:board', globalSeedContent.board);
+    await this.seedMessage(globalGeneral, 'global:general', globalSeedContent.general, { pin: true });
+    await this.seedMessage(globalAnnouncements, 'global:announcements', globalSeedContent.announcements, { pin: true });
+    await this.seedMessage(globalBoard, 'global:board', globalSeedContent.board, { pin: true });
     await this.seedForumGuide(globalShowcase, 'global:showcase', globalSeedContent.showcase);
     await this.seedForumGuide(resourcesForum, 'global:resources', globalSeedContent.resources);
     await this.seedForumGuide(
@@ -512,7 +580,7 @@ export class DiscordProvisioner {
         legacyHeadings: ['# Topic Proposals'],
       },
     );
-    await this.seedMessage(feedback, 'global:anonymous-feedback', globalSeedContent.anonymousFeedback);
+    await this.seedMessage(feedback, 'global:anonymous-feedback', globalSeedContent.anonymousFeedback, { pin: true });
 
     for (const university of this.plan.universities) {
       const universityRecord = await this.ensureUniversity(guild, roleIds, university);
@@ -521,10 +589,12 @@ export class DiscordProvisioner {
 
     await this.ensureCategory(guild, CATEGORY_NAMES.ARCHIVE, {
       overwrites: logsOverwrites(roleIds),
+      position: CATEGORY_POSITIONS.global + this.plan.universities.length + 1,
     });
     const logsCategory = await this.ensureCategory(guild, CATEGORY_NAMES.LOGS, {
       aliases: ['ADMIN / LOGS'],
       overwrites: logsOverwrites(roleIds),
+      position: CATEGORY_POSITIONS.global + this.plan.universities.length + 2,
     });
     await this.ensureTextChannel(guild, LOG_CHANNELS.ADMIN, {
       parent: logsCategory,
@@ -533,6 +603,8 @@ export class DiscordProvisioner {
     const globalBotLog = await this.ensureTextChannel(guild, LOG_CHANNELS.BOT, {
       parent: logsCategory,
       overwrites: globalBotLogOverwrites(roleIds),
+      topic: globalChannelTopics.botLog,
+      position: 1,
     });
     await this.seedMessage(globalBotLog, 'global:bot-log', globalSeedContent.botLog, { pin: true });
 
@@ -541,48 +613,63 @@ export class DiscordProvisioner {
 
   async ensureUniversity(guild, roleIds, university) {
     const seeds = universitySeeds(university.name);
+    const topics = universityTopics(university.name);
     const aliases = legacyChannelAliasesForUniversity(university);
     const category = await this.ensureCategory(guild, university.categoryName, {
       overwrites: privateBaseOverwrites(roleIds),
+      position: CATEGORY_POSITIONS.global + this.plan.universities.indexOf(university) + 1,
     });
     const general = await this.ensureTextChannel(guild, UNIVERSITY_CHANNELS.GENERAL, {
       parent: category,
       aliases: aliases.general,
       overwrites: universityGeneralOverwrites(roleIds, university),
+      topic: topics.general,
+      position: UNIVERSITY_CHANNEL_POSITIONS.general,
     });
     const voice = await this.ensureVoiceChannel(guild, UNIVERSITY_CHANNELS.VOICE, {
       parent: category,
       overwrites: universityVoiceOverwrites(roleIds, university),
+      position: UNIVERSITY_CHANNEL_POSITIONS.voice,
     });
     const announcements = await this.ensureTextChannel(guild, UNIVERSITY_CHANNELS.ANNOUNCEMENTS, {
       parent: category,
       type: ChannelType.GuildText,
       aliases: aliases.announcements,
       overwrites: universityAnnouncementOverwrites(roleIds, university),
+      topic: topics.announcements,
+      position: UNIVERSITY_CHANNEL_POSITIONS.announcements,
     });
     const board = await this.ensureTextChannel(guild, UNIVERSITY_CHANNELS.BOARD, {
       parent: category,
       aliases: aliases.board,
       overwrites: universityBoardOverwrites(roleIds, university),
+      topic: topics.board,
+      position: UNIVERSITY_CHANNEL_POSITIONS.board,
     });
     const botLog = await this.ensureTextChannel(guild, UNIVERSITY_CHANNELS.BOT_LOG, {
       parent: category,
       overwrites: universityBotLogOverwrites(roleIds, university),
+      topic: topics.botLog,
+      position: UNIVERSITY_CHANNEL_POSITIONS.botLog,
     });
     const showcase = await this.ensureForumChannel(guild, UNIVERSITY_CHANNELS.SHOWCASE, {
       parent: category,
       overwrites: universityShowcaseOverwrites(roleIds, university),
       tags: universityForumTags(university),
+      topic: topics.showcase,
+      position: UNIVERSITY_CHANNEL_POSITIONS.showcase,
     });
     const onboardingReview = await this.ensureTextChannel(guild, UNIVERSITY_CHANNELS.ONBOARDING_REVIEW, {
       parent: category,
       aliases: aliases.onboardingReview,
       overwrites: universityExecutiveOverwrites(roleIds, university),
+      topic: topics.onboardingReview,
+      position: UNIVERSITY_CHANNEL_POSITIONS.onboardingReview,
     });
 
-    await this.seedMessage(general, `university:${university.name}:general`, seeds.general);
-    await this.seedMessage(announcements, `university:${university.name}:announcements`, seeds.announcements);
-    await this.seedMessage(board, `university:${university.name}:board`, seeds.board);
+    await this.seedMessage(general, `university:${university.name}:general`, seeds.general, { pin: true });
+    await this.seedMessage(announcements, `university:${university.name}:announcements`, seeds.announcements, { pin: true });
+    await this.seedMessage(board, `university:${university.name}:board`, seeds.board, { pin: true });
     await this.seedMessage(
       botLog,
       `university:${university.name}:bot-log`,
@@ -594,24 +681,29 @@ export class DiscordProvisioner {
       onboardingReview,
       `university:${university.name}:onboarding-review`,
       seeds.onboardingReview,
+      { pin: true },
     );
 
     const divisionRecords = [];
-    for (const division of university.divisions) {
+    for (const [divisionIndex, division] of university.divisions.entries()) {
       const textChannel = await this.ensureTextChannel(guild, divisionTextChannelName(division.name, division.color), {
         parent: category,
         aliases: legacyDivisionTextAliases(university, division),
         overwrites: divisionTextOverwrites(roleIds, university, division),
+        topic: divisionTopic(university.name, division.name),
+        position: UNIVERSITY_CHANNEL_POSITIONS.divisions + divisionIndex * 2,
       });
       const voiceChannel = await this.ensureVoiceChannel(guild, divisionVoiceChannelName(division.name, division.color), {
         parent: category,
         aliases: legacyDivisionVoiceAliases(university, division),
         overwrites: divisionVoiceOverwrites(roleIds, university, division),
+        position: UNIVERSITY_CHANNEL_POSITIONS.divisions + divisionIndex * 2 + 1,
       });
       await this.seedMessage(
         textChannel,
         `division:${university.name}:${division.name}`,
         divisionSeed(university.name, division.name, division.icon),
+        { pin: true },
       );
       divisionRecords.push({
         name: division.name,
@@ -641,11 +733,16 @@ export class DiscordProvisioner {
     };
   }
 
-  async ensureCategory(guild, name, { overwrites = [], aliases = [] } = {}) {
+  async ensureCategory(
+    guild,
+    name,
+    { overwrites = [], aliases = [], position }: ChannelProvisionInput = {},
+  ) {
     return this.ensureChannel(guild, name, {
       type: ChannelType.GuildCategory,
       overwrites,
       aliases,
+      position,
     });
   }
 
@@ -654,16 +751,31 @@ export class DiscordProvisioner {
     type = ChannelType.GuildText,
     overwrites = [],
     aliases = [],
-  } = {}) {
-    return this.ensureChannel(guild, name, { parent, type, overwrites, aliases });
+    topic,
+    position,
+  }: ChannelProvisionInput = {}) {
+    return this.ensureChannel(guild, name, {
+      parent,
+      type,
+      overwrites,
+      aliases,
+      topic,
+      position,
+    });
   }
 
-  async ensureVoiceChannel(guild, name, { parent = null, overwrites = [], aliases = [] } = {}) {
+  async ensureVoiceChannel(guild, name, {
+    parent = null,
+    overwrites = [],
+    aliases = [],
+    position,
+  }: ChannelProvisionInput = {}) {
     return this.ensureChannel(guild, name, {
       parent,
       type: ChannelType.GuildVoice,
       overwrites,
       aliases,
+      position,
     });
   }
 
@@ -693,6 +805,8 @@ export class DiscordProvisioner {
       exactTags = false,
       defaultForumLayout,
       defaultAutoArchiveDuration,
+      topic,
+      position,
     } = options;
     return this.ensureChannel(guild, name, {
       parent,
@@ -703,6 +817,8 @@ export class DiscordProvisioner {
       exactTags,
       defaultForumLayout,
       defaultAutoArchiveDuration,
+      topic,
+      position,
     });
   }
 
@@ -716,6 +832,8 @@ export class DiscordProvisioner {
       exactTags = false,
       defaultForumLayout,
       defaultAutoArchiveDuration,
+      topic,
+      position,
     } = options;
     const match = findChannel(guild, { name, type, parent, aliases });
     if (!match.channel) {
@@ -732,6 +850,8 @@ export class DiscordProvisioner {
         name,
         type,
         parent: parent?.id,
+        ...(topic === undefined ? {} : { topic }),
+        ...(position === undefined ? {} : { position }),
         permissionOverwrites: overwrites,
         reason: 'BAINSA v1 provisioning',
         ...extra,
@@ -744,6 +864,10 @@ export class DiscordProvisioner {
     const edits: Record<string, unknown> = {};
     if (channel.name !== name) edits.name = name;
     if (parent?.id && channel.parentId !== parent.id) edits.parent = parent.id;
+    if (topic !== undefined && channel.topic !== topic) edits.topic = topic;
+    if (position !== undefined && typeof channel.position === 'number' && channel.position !== position) {
+      edits.position = position;
+    }
     if (type === ChannelType.GuildForum) {
       const desiredTags = exactTags
         ? exactForumTags(channel.availableTags ?? [], tags)
@@ -1037,6 +1161,18 @@ function onboardingButtonRows() {
       .setEmoji('🔎')
       .setLabel('Check application status')
       .setStyle(ButtonStyle.Secondary),
+    ),
+  ];
+}
+
+function welcomeButtonRows() {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(onboardingId(ONBOARDING_ACTIONS.SPACES))
+        .setEmoji('🧭')
+        .setLabel('Find my spaces')
+        .setStyle(ButtonStyle.Primary),
     ),
   ];
 }

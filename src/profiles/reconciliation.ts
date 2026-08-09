@@ -27,8 +27,8 @@ function safeErrorMessage(error) {
   // The gateway's deterministic configuration errors contain no member data;
   // arbitrary Discord/server messages may, so never copy those into logs or
   // reconciliation metadata.
-  if (message === 'The people-directory forum is unavailable.') return message;
-  if (message.startsWith('People-directory forum is missing the managed tag ')) return message;
+  if (message === 'The people-database forum is unavailable.') return message;
+  if (message.startsWith('People-database forum is missing the managed tag ')) return message;
   return 'Discord operation failed.';
 }
 
@@ -163,7 +163,7 @@ export async function refreshProfileDirectory({ guild, db, limit = REPAIR_LIMIT 
     const guideThreadId = await loadDirectoryGuideThreadId(db, guild?.id);
     if (guideThreadId) await unarchiveDirectoryGuideThread({ guild, guideThreadId });
   } catch (error) {
-    logger.warn('People-directory guide refresh failed', { error: safeErrorMessage(error) });
+    logger.warn('People-database guide refresh failed', { error: safeErrorMessage(error) });
   }
   return refreshed;
 }
