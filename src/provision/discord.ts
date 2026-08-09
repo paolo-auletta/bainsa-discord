@@ -536,6 +536,7 @@ export class DiscordProvisioner {
     });
     const peopleDirectoryForum = await this.ensureForumChannel(guild, GLOBAL_CHANNELS.PEOPLE_DIRECTORY, {
       parent: globalCategory,
+      aliases: ['people-directory'],
       overwrites: peopleDirectoryForumOverwrites(roleIds),
       tags: peopleDirectoryForumTags(),
       exactTags: true,

@@ -57,7 +57,7 @@ GLOBAL BAINSA — visible to approved members
 ├── #bainsa-board — Global Presidents + University Presidents
 ├── forum: projects-showcase — selected cross-network project stories
 ├── forum: resources — shared knowledge base
-├── forum: people-directory — opt-in, bot-managed member profiles
+├── forum: people-database — opt-in, bot-managed member profiles
 ├── forum: channel-proposals — member-led requests for new shared channels
 └── #anonymous-feedback — link to a confidential external form
 
@@ -285,7 +285,7 @@ This is the shared, searchable knowledge base. Suggested resource families inclu
 
 Posts should use clear titles, appropriate tags, a short explanation of why the resource is useful, and any access or expiry information. Personal data and restricted alumni information should remain in an access-controlled external system rather than being posted openly.
 
-### Forum: `people-directory`
+### Forum: `people-database`
 
 This is a global, opt-in directory for approved Researchers and Alumni to discover each other by
 current work, interests, and future goals. It sits beside `resources`, is hidden from applicants and
@@ -334,7 +334,7 @@ temporarily unavailable. It also performs bounded maintenance to return auto-arc
 the guide to the browseable list without sending keep-alive replies. Routine updates edit the
 starter message in place instead of adding duplicates.
 
-V1 adds no people-directory slash commands, LinkedIn imports or scraping, any external sortable
+V1 adds no people-database slash commands, LinkedIn imports or scraping, any external sortable
 table or export, phone and social-contact extras, endorsements, recommendations, direct-message
 automation, or staff editing of another member's profile. This describes the intended directory
 behavior; it is not a claim that the release quality gate has passed.

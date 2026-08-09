@@ -197,24 +197,26 @@ test('member-space guide explains channels without restating application details
       division: { id: 'division' },
       resources: { id: 'resources' },
       projectShowcase: { id: 'showcase' },
-      peopleDirectory: { id: 'directory' },
+      peopleDatabase: { id: 'database' },
     },
   });
   const embed = payload.embeds[0].toJSON();
 
   assert.equal(embed.author.name, 'BAINSA');
-  assert.equal(embed.title, 'Your BAINSA spaces');
-  assert.match(embed.description, /Resources.*<#resources>/s);
-  assert.match(embed.description, /Projects showcase.*<#showcase>/s);
-  assert.match(embed.description, /People directory.*<#directory>/s);
-  assert.match(embed.description, /Create a profile in <#directory>/);
+  assert.equal(embed.title, 'Find your place in BAINSA');
+  assert.deepEqual(embed.fields.map((field) => field.name), [
+    'Global BAINSA', 'Bocconi', 'Your division', 'Resources', 'Projects showcase', 'People database', 'Make yourself findable',
+  ]);
+  assert.match(embed.fields.find((field) => field.name === 'Resources').value, /<#resources>/);
+  assert.match(embed.fields.find((field) => field.name === 'Projects showcase').value, /<#showcase>/);
+  assert.match(embed.fields.find((field) => field.name === 'People database').value, /<#database>/);
+  assert.match(embed.fields.find((field) => field.name === 'Make yourself findable').value, /<#database>/);
   assert.doesNotMatch(embed.description, /application approved|access is active|Applicant|Path/i);
-  assert.equal(embed.fields, undefined);
   assert.equal(payload.components[0].toJSON().components[0].custom_id, PROFILE_CUSTOM_IDS.START);
 
   const published = memberSpacesPayload({ university, profilePublished: true });
   assert.equal(published.components.length, 0);
-  assert.doesNotMatch(published.embeds[0].data.description, /Make yourself discoverable/);
+  assert.equal(published.embeds[0].data.fields.some((field) => field.name === 'Make yourself findable'), false);
 });
 
 test('onboarding embeds omit helper footers and review timestamps', () => {

@@ -60,7 +60,7 @@ const DISCORD_NICKNAME_LIMIT = 32;
 /** Sends the member-facing approval handoff only after approval has committed. */
 export async function notifyApprovedMemberAboutDirectory({ guild, userId, request, university, divisions = [] }) {
   const member = await guild.members.fetch(String(userId));
-  const directory = guild.channels?.cache?.find((channel) => channel?.name === 'people-directory');
+  const directory = guild.channels?.cache?.find((channel) => channel?.name === 'people-database');
   const directoryLink = channelUrl(guild, directory);
   const links = approvedStartLinks(guild, university, divisions);
   const access = accessSummary(request, university, divisions);
@@ -77,7 +77,7 @@ export async function notifyApprovedMemberAboutDirectory({ guild, userId, reques
     '',
     directoryLink
       ? `Create your profile in <#${directory.id}> next. It helps BAINSA members find you for research, projects, and collaboration.`
-      : 'Create your profile in the people directory next. It helps BAINSA members find you for research, projects, and collaboration.',
+      : 'Create your profile in the people database next. It helps BAINSA members find you for research, projects, and collaboration.',
   ].join('\n'));
 }
 
@@ -941,7 +941,7 @@ function memberSpaceChannels(guild, university, divisions) {
       : null,
     resources: channelIn('resources', globalCategory?.id),
     projectShowcase: channelIn('projects-showcase', globalCategory?.id),
-    peopleDirectory: channelIn('people-directory', globalCategory?.id),
+    peopleDatabase: channelIn('people-database', globalCategory?.id),
   };
 }
 

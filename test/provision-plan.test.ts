@@ -221,8 +221,8 @@ test('global channel proposals use clear plural naming in the channel and guide'
   assert.match(seeds.channelProposals, /Suggest a new shared channel/);
 });
 
-test('people directory has exactly the managed profile taxonomy and no legacy availability tags', () => {
-  assert.equal(GLOBAL_CHANNELS.PEOPLE_DIRECTORY, 'people-directory');
+test('people database has exactly the managed profile taxonomy and no legacy availability tags', () => {
+  assert.equal(GLOBAL_CHANNELS.PEOPLE_DIRECTORY, 'people-database');
   assert.deepEqual(
     peopleDirectoryForumTags().map((tag) => tag.name),
     [
@@ -292,6 +292,32 @@ test('legacy topic proposals forum is renamed in place', async () => {
   assert.equal(provisioner.summary.channels.adopted, 1);
   assert.equal(provisioner.summary.channels.updated, 1);
   assert.deepEqual(edits, [{ name: 'channel-proposals', reason: 'BAINSA v1 provisioning' }]);
+});
+
+test('legacy people-directory forum is renamed in place as people-database', async () => {
+  const edits = [];
+  const legacyForum = {
+    id: 'legacy-people-directory',
+    name: 'people-directory',
+    type: ChannelType.GuildForum,
+    parentId: 'global-category',
+    availableTags: [],
+    async edit(payload) {
+      edits.push(payload);
+      if (payload.name) this.name = payload.name;
+      return this;
+    },
+  };
+  const guild = { channels: { cache: { find: (predicate) => [legacyForum].find(predicate) } } };
+  const provisioner = new DiscordProvisioner({ client: {}, config: {}, db: null, dryRun: false, plan: samplePlan, logger: {} });
+
+  const forum = await provisioner.ensureForumChannel(guild, GLOBAL_CHANNELS.PEOPLE_DIRECTORY, {
+    parent: { id: 'global-category' },
+    aliases: ['people-directory'],
+  });
+
+  assert.equal(forum.name, 'people-database');
+  assert.deepEqual(edits, [{ name: 'people-database', reason: 'BAINSA v1 provisioning' }]);
 });
 
 test('text and start permissions match v1 Discord policy', () => {
@@ -438,7 +464,7 @@ test('showcase forums are read-only to humans and postable only by the bot overw
   assert.ok(bot.allow.includes(PermissionFlagsBits.SendMessagesInThreads));
 });
 
-test('people directory grants approved identities read-only forum access and bot forum management', () => {
+test('people database grants approved identities read-only forum access and bot forum management', () => {
   const overwrites = peopleDirectoryForumOverwrites({
     everyone: 'everyone',
     bot: 'bot',
@@ -464,7 +490,7 @@ test('directory-only forum options replace managed tags and configure list layou
   const edits = [];
   const forum = {
     id: 'directory',
-    name: 'people-directory',
+    name: 'people-database',
     type: ChannelType.GuildForum,
     parentId: 'global-category',
     availableTags: [{ id: 'university', name: 'Bocconi' }, { id: 'obsolete', name: 'Obsolete' }],
@@ -479,7 +505,7 @@ test('directory-only forum options replace managed tags and configure list layou
   const guild = { channels: { cache: { find: (predicate) => [forum].find(predicate) } } };
   const provisioner = new DiscordProvisioner({ client: {}, config: {}, db: null, dryRun: false, plan: samplePlan, logger: {} });
 
-  await provisioner.ensureForumChannel(guild, 'people-directory', {
+  await provisioner.ensureForumChannel(guild, 'people-database', {
     parent: { id: 'global-category' },
     tags: peopleDirectoryForumTags(),
     exactTags: true,
@@ -507,7 +533,7 @@ test('new directory forum receives the list layout and one-week archive defaults
   };
   const provisioner = new DiscordProvisioner({ client: {}, config: {}, db: null, dryRun: false, plan: samplePlan, logger: {} });
 
-  await provisioner.ensureForumChannel(guild, 'people-directory', {
+  await provisioner.ensureForumChannel(guild, 'people-database', {
     parent: { id: 'global-category' },
     tags: peopleDirectoryForumTags(),
     exactTags: true,
@@ -670,7 +696,7 @@ test('provisioning creates one global and one university voice room in their sco
     .map(({ label }) => label);
   assert.ok(createdChannels.includes('channel:bainsa-general-room'));
   assert.ok(createdChannels.includes('channel:general-room'));
-  assert.ok(createdChannels.includes('channel:people-directory'));
+  assert.ok(createdChannels.includes('channel:people-database'));
 });
 
 test('legacy name normalization adopts pipe and emoji-prefixed resources', () => {

@@ -174,7 +174,7 @@ export function createProfileService({
   async function requireActiveMember(interaction) {
     assertUser(interaction.guildId, 'Profiles can only be managed inside the BAINSA server.');
     const member = await loadActiveMember(db, interaction.user.id);
-    assertUser(member, 'Only active members can manage a directory profile.');
+    assertUser(member, 'Only active members can manage a people database profile.');
     return member;
   }
 
@@ -216,7 +216,7 @@ export function createProfileService({
     sweepExpiredSessions();
     assertUser(interaction.guildId, 'Profiles can only be managed inside the BAINSA server.');
     const profile = await loadProfile(db, interaction.user.id);
-    assertUser(profile, 'Only active members can create a directory profile.');
+    assertUser(profile, 'Only active members can create a people database profile.');
     const session = createSession({ interaction, profile });
     try {
       await interaction.showModal(profileCurrentModal(session));
@@ -230,7 +230,7 @@ export function createProfileService({
     sweepExpiredSessions();
     assertUser(interaction.guildId, 'Profiles can only be managed inside the BAINSA server.');
     const profile = await loadProfile(db, interaction.user.id);
-    assertUser(profile, 'Only active members can manage a directory profile.');
+    assertUser(profile, 'Only active members can manage a people database profile.');
     const session = createSession({ interaction, profile, mode: 'unpublish' });
     await interaction.reply(profileUnpublishConfirmationPayload(session));
   }
@@ -311,7 +311,7 @@ export function createProfileService({
       acknowledged = true;
       hidden = await runTransaction(async (client) => {
         const active = await loadActiveMember(client, interaction.user.id);
-        assertUser(active, 'Only active members can manage a directory profile.');
+        assertUser(active, 'Only active members can manage a people database profile.');
         const result = await hide(client, interaction.user.id);
         if (result) {
           await audit(client, {

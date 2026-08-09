@@ -15,7 +15,7 @@ const post = Object.freeze({
 function forumWith(threads = {}) {
   const forum = {
     id: 'forum',
-    name: 'people-directory',
+    name: 'people-database',
     type: ChannelType.GuildForum,
     availableTags: [{ id: 'bocconi', name: 'Bocconi' }, { id: 'ai', name: 'AI & Data' }],
     threads,
@@ -249,7 +249,7 @@ test('stored owner-matched posts are deleted but cleanup stays retryable when th
 
   await assert.rejects(
     () => deleteProfileForumPosts({ guild, ownerId: 'owner', forumThreadId: stored.id }),
-    /people-directory forum is unavailable/,
+    /people-database forum is unavailable/,
   );
   assert.equal(deleted, 1);
 });

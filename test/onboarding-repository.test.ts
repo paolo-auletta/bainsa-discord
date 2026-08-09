@@ -198,7 +198,7 @@ test('approval handoff leads with access, native channel links, and a profile ca
     { id: 'bocconi-category', name: 'BAINSA BOCCONI' },
     { id: 'bocconi-general', name: 'general', parentId: 'bocconi-category' },
     { id: 'analysis-channel', name: '🟧-analysis', parentId: 'bocconi-category' },
-    { id: 'directory', name: 'people-directory' },
+    { id: 'database', name: 'people-database' },
   ];
   const cache = {
     find: (predicate) => channels.find(predicate),
@@ -223,7 +223,7 @@ test('approval handoff leads with access, native channel links, and a profile ca
   assert.match(dm, /Global general/);
   assert.match(dm, /Bocconi general/);
   assert.match(dm, /Your division: <#analysis-channel>/);
-  assert.match(dm, /Create your profile in <#directory> next/);
+  assert.match(dm, /Create your profile in <#database> next/);
   assert.ok(dm.indexOf('**Start here**') < dm.indexOf('Create your profile'));
   assert.doesNotMatch(dm, /optional|Check application status/i);
 });
@@ -258,7 +258,7 @@ test('Find my spaces opens a channel guide and only prompts members without a pr
     { id: 'division', name: '🟧-analysis', parentId: 'bocconi' },
     { id: 'resources', name: 'resources', parentId: 'global' },
     { id: 'showcase', name: 'projects-showcase', parentId: 'global' },
-    { id: 'directory', name: 'people-directory', parentId: 'global' },
+    { id: 'database', name: 'people-database', parentId: 'global' },
   ];
   let replyPayload;
 
@@ -269,8 +269,8 @@ test('Find my spaces opens a channel guide and only prompts members without a pr
     reply: async (payload) => { replyPayload = payload; },
   });
 
-  assert.equal(replyPayload.embeds[0].data.title, 'Your BAINSA spaces');
-  assert.match(replyPayload.embeds[0].data.description, /Resources.*<#resources>/s);
+  assert.equal(replyPayload.embeds[0].data.title, 'Find your place in BAINSA');
+  assert.match(replyPayload.embeds[0].data.fields.find((field) => field.name === 'Resources').value, /<#resources>/);
   assert.doesNotMatch(replyPayload.embeds[0].data.description, /Application approved|Applicant|Path/i);
   assert.equal(replyPayload.components[0].toJSON().components[0].custom_id, 'pf:start');
 });

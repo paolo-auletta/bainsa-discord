@@ -366,7 +366,7 @@ export function applicationStatusPayload({ request, university, divisions, links
     description = [
       "Your BAINSA access is active.",
       links.length > 0 ? `**Start here**\n${links.map((line) => `• ${line}`).join("\n")}` : "Open the newly available Global BAINSA and university spaces to get started.",
-      "The people directory is optional and can be set up later from its **Start here** post.",
+      "The people database is optional and can be set up later from its **Start here** post.",
     ].join("\n\n");
   } else if (status === "rejected") {
     title = "Application declined";
@@ -405,38 +405,52 @@ export function memberSpacesPayload({
   const universityName = escapeMarkdown(university?.name ?? "your university");
   const channel = (key, fallback) => channels[key] ? `<#${channels[key].id}>` : fallback;
   const division = divisions[0];
-  const everydaySpaces = [
-    `• **Global BAINSA** · ${channel("globalGeneral", "#bainsa-general")} — meet members and join cross-university conversation.`,
-    `• **${universityName}** · ${channel("universityGeneral", "#general")} — local questions, coordination, and updates.`,
-    division
-      ? `• **Your division** · ${channel("division", "your division room")} — focused work with your team.`
-      : null,
-  ].filter(Boolean);
-  const profilePrompt = profilePublished
-    ? null
-    : [
-      "**Make yourself discoverable**",
-      `Create a profile in ${channel("peopleDirectory", "#people-directory")} so other members can find you for research, projects, and collaboration.`,
-    ].join("\n");
+  const fields = [
+    {
+      name: "Global BAINSA",
+      value: `${channel("globalGeneral", "#bainsa-general")}\nCross-university discussion.`,
+      inline: true,
+    },
+    {
+      name: universityName,
+      value: `${channel("universityGeneral", "#general")}\nLocal coordination and updates.`,
+      inline: true,
+    },
+    ...(division ? [{
+      name: "Your division",
+      value: `${channel("division", "your division room")}\nFocused work with your team.`,
+      inline: true,
+    }] : []),
+    {
+      name: "Resources",
+      value: `${channel("resources", "#resources")}\nPapers, tools, datasets, and templates.`,
+      inline: true,
+    },
+    {
+      name: "Projects showcase",
+      value: `${channel("projectShowcase", "#projects-showcase")}\nBrowse work; active projects stay private.`,
+      inline: true,
+    },
+    {
+      name: "People database",
+      value: `${channel("peopleDatabase", "#people-database")}\nFind collaborators by work and interests.`,
+      inline: true,
+    },
+    ...(!profilePublished ? [{
+      name: "Make yourself findable",
+      value: `Create a profile in ${channel("peopleDatabase", "#people-database")} so members can find you for research, projects, and collaboration.`,
+      inline: false,
+    }] : []),
+  ];
 
   return {
     embeds: [
       new EmbedBuilder()
         .setColor(EMBED_COLORS.BRAND)
         .setAuthor({ name: "BAINSA" })
-        .setTitle("Your BAINSA spaces")
-        .setDescription([
-          "Use the narrowest space that fits the conversation.",
-          "",
-          "**Your everyday spaces**",
-          ...everydaySpaces,
-          "",
-          "**Discover people and work**",
-          `• **Resources** · ${channel("resources", "#resources")} — papers, datasets, tools, and templates shared across BAINSA.`,
-          `• **Projects showcase** · ${channel("projectShowcase", "#projects-showcase")} — browse project work; active work happens in private project channels.`,
-          `• **People directory** · ${channel("peopleDirectory", "#people-directory")} — find members by interests, work, and collaboration goals.`,
-          ...(profilePrompt ? ["", profilePrompt] : []),
-        ].join("\n")),
+        .setTitle("Find your place in BAINSA")
+        .setDescription("Your map to the community. Keep conversations in the narrowest useful space.")
+        .addFields(...fields),
     ],
     components: profilePublished
       ? []

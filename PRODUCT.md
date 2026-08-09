@@ -18,7 +18,7 @@ additional scoped governance access, while Global Presidents coordinate across u
 
 BAINSA is a network of university chapters using one shared Discord community. The bot makes the
 network usable and safe by automating onboarding, member access, divisions, board appointments,
-private projects, people-directory profiles, and the supporting Discord structure. Success means
+private projects, people-database profiles, and the supporting Discord structure. Success means
 members can find the right community and collaborate, while each university can run its own work
 without exposing the whole association to arbitrary or destructive administration.
 
@@ -60,7 +60,7 @@ activity entries backed by a complete PostgreSQL audit record.
   messages.
 - Projects are private, university- and division-scoped in v1. Cross-university projects, broad
   maintenance or deletion commands, and member-requested board roles are outside v1.
-- The people directory is opt-in, Discord-native, and visible to approved members. Discord DM is
+- The people database is opt-in, Discord-native, and visible to approved members. Discord DM is
   the default contact path; external tables, LinkedIn scraping/import, endorsements, and staff
   editing of another member's profile are not v1 capabilities.
 - Discord platform limits shape the model, including role/channel/thread limits and the 1,000
@@ -83,7 +83,7 @@ part of the product language and should not be casually renamed.
 
 ## Evidence on Hand
 
-- `README.md` documents the implemented v1 server model, onboarding, projects, people directory,
+- `README.md` documents the implemented v1 server model, onboarding, projects, people database,
   commands, operations, and deployment requirements.
 - `docs/bainsa-discord-presentation-guide.md` records the intended operating model, information
   architecture, role layers, access boundaries, and the principle of making local autonomy safe,
@@ -95,7 +95,7 @@ part of the product language and should not be casually renamed.
 - `docs/production-roadmap.md` records deployment separation, launch-content, and production
   acceptance expectations.
 - `plans/README.md` and `plans/001-bot-managed-people-directory.md` record the completed v1
-  people-directory direction and deliberate non-goals.
+  people-database direction and deliberate non-goals.
 - No external testimonials, benchmarks, pricing, or other proof claims are established; future
   work must not fabricate them.
 
@@ -107,4 +107,3 @@ part of the product language and should not be casually renamed.
 4. Prefer Discord-native, guided workflows that automate repetitive administration without hiding
    important state.
 5. Keep durable state, privacy boundaries, and audit history explicit and recoverable.
-

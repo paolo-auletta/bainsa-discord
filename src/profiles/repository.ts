@@ -139,7 +139,7 @@ export async function publishProfileAndEnqueue(client, discordUserId, input: Pro
   const ownerId = String(discordUserId);
   const profile = assertPublishableProfile(input);
   const member = await loadCanonicalActiveMemberForUpdate(client, ownerId);
-  assertUser(member, 'Only active members can publish a directory profile.');
+  assertUser(member, 'Only active members can publish a people database profile.');
 
   const result = await client.query(
     `INSERT INTO member_profiles (

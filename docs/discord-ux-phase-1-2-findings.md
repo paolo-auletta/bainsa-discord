@@ -25,7 +25,7 @@ hierarchy itself; it is the handoff between states. Access appears, disappears, 
 but the affected person is often expected to notice the result without a clear arrival, resolution,
 or next step.
 
-The second major weakness is uneven forum maturity. `people-directory` has a complete product model:
+The second major weakness is uneven forum maturity. `people-database` has a complete product model:
 one reliable entry point, explicit ownership, a controlled taxonomy, canonical bot-managed content,
 privacy rules, and a lifecycle. `resources`, `projects-showcase`, and `channel-proposals` are currently
 closer to provisioned containers than fully designed community products.
@@ -37,7 +37,7 @@ The recommended direction is therefore refinement, not structural replacement:
   closure.
 - Give each forum its own purpose, post contract, taxonomy, ownership, and lifecycle.
 - Separate canonical state from activity history so important information stays easy to find.
-- Use the people-directory model as the quality benchmark for every Discord-native workflow.
+- Use the people-database model as the quality benchmark for every Discord-native workflow.
 
 ## Phase 1 — Core member journeys
 
@@ -82,7 +82,7 @@ Join server
 3. **The decision is communicated to the reviewer, not reliably to the applicant.** Approval and
    rejection confirmations are ephemeral responses to the board member. The review card changes in
    a private board channel the applicant cannot see. An approved applicant may receive a best-effort
-   people-directory DM, but there is no dedicated approval or rejection notification contract.
+   people-database DM, but there is no dedicated approval or rejection notification contract.
 
 4. **Rejection has no member-facing recovery path.** A reviewer may record a reason, but the reason
    is shown on the board review message. The applicant is not told whether they can correct the
@@ -212,7 +212,7 @@ Alumni approval
 
 - Alumni are not forced into an artificial division membership.
 - They retain global and university community access.
-- The people directory gives Alumni a meaningful, opt-in presence.
+- The people database gives Alumni a meaningful, opt-in presence.
 - The project model permits active university members, including Alumni, to supervise.
 
 #### Breaks and friction
@@ -356,7 +356,7 @@ GLOBAL BAINSA
 ├── cross-university board
 ├── projects showcase
 ├── resources
-├── people directory
+├── people database
 ├── channel proposals
 └── anonymous feedback
 
@@ -405,7 +405,7 @@ LOGS
 
 ### Forum-by-forum assessment
 
-#### `people-directory` — benchmark
+#### `people-database` — benchmark
 
 This is the most complete forum experience and should become the internal pattern library. It has:
 

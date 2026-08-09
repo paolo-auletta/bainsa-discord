@@ -12,7 +12,7 @@ sidebar.
    university general, and (for Researchers) the division room.
 2. A dedicated **Find my spaces** guide remains available in `#welcome`. It is a channel map, not an
    application status: it gives Alumni and Researchers a deliberate arrival, introduces global
-   resources, project showcases, and the people directory, and provides a recovery route when DMs
+   resources, project showcases, and the people database, and provides a recovery route when DMs
    are unavailable.
 3. Every normal channel gets a Discord channel topic and a pinned, bot-managed purpose message.
    Topics deliver immediate scope; pins retain the fuller posting contract after conversation grows.

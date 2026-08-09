@@ -154,9 +154,9 @@ A Division Head, Vice President, or President from that university—or a Global
 
 Approval also sets the member's server nickname from the recorded onboarding name so Discord-native user selectors can find them by name; names longer than Discord's 32-character nickname limit remain complete in PostgreSQL and are truncated only in the nickname. Board roles cannot be requested through onboarding.
 
-## People directory
+## People database
 
-`people-directory` is a global forum beside `resources`. It is visible only to approved
+`people-database` is a global forum beside `resources`. It is visible only to approved
 Researchers and Alumni, and participation is opt-in: approval grants normal server access, but
 never publishes a profile. After approval, the bot may send a best-effort DM linking to the forum;
 the same entry point is always in its `Start here` post.
@@ -184,7 +184,7 @@ keeps the structured profile hidden for later editing and durably queues removal
 Member removal or departure does the same; reapproval never republishes a profile without the member
 explicitly previewing and publishing it again.
 
-The directory uses Discord's list layout and native forum text and tag search. It is a browseable
+The people database uses Discord's list layout and native forum text and tag search. It is a browseable
 forum, not a sortable external table. Its 15 managed tags are:
 
 | Category | Tags |
@@ -198,12 +198,12 @@ categories are managed governance vocabulary: change them deliberately rather th
 employers, job titles, laboratories, technologies, or narrow topics. Those details belong in the
 searchable profile text.
 
-The directory reconciliation worker retries pending create, update, and removal work after Discord
+The people database reconciliation worker retries pending create, update, and removal work after Discord
 failures, and performs bounded maintenance to return auto-archived profile and guide threads to the
 browseable list without posting keep-alive messages. It never adds update comments or duplicate
 profile posts during routine synchronization.
 
-V1 adds no people-directory slash commands (including `/profile` or people search), LinkedIn import
+V1 adds no people-database slash commands (including `/profile` or people search), LinkedIn import
 or scraping, external table/export, phone or social-contact extras, endorsements, recommendations,
 staff editing of another member's profile, or contact tracking. This section documents the intended
 product behavior; release readiness still depends on the full quality gate.
