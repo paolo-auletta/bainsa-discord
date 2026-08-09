@@ -684,8 +684,8 @@ test('project home keeps project-info data in a scannable plain-message hierarch
   const infoFields = projectInfoMessage(project, people).embeds[0].toJSON().fields;
   const home = projectHomePayload(project, people).content;
   assert.match(home, /^\*\*Signals\*\*/);
-  assert.match(home, /\*\*Status:\*\* Active · \*\*Division:\*\* 🟧 Analysis/);
-  assert.match(home, /\*\*Timeline:\*\* 2026-07-01 → 2026-08-01 · \*\*Workspace:\*\* <#workspace> · \*\*Shareable record:\*\* <#showcase>/);
+  assert.match(home, /\*\*University:\*\* Bocconi\n\*\*Status:\*\* Active\n\*\*Division:\*\* 🟧 Analysis/);
+  assert.match(home, /\*\*Timeline:\*\* 2026-07-01 → 2026-08-01\n\*\*Workspace:\*\* <#workspace>\n\*\*Shareable record:\*\* <#showcase>/);
   assert.match(home, /\*\*Members:\*\* None yet/);
   assert.match(home, /\*\*Supervisors:\*\* <@supervisor>/);
   assert.equal(infoFields.some((field) => field.name === 'Workspace'), true);
