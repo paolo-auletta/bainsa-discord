@@ -75,6 +75,13 @@ export function startHereSeeds() {
   };
 }
 
+export function startHereTopics() {
+  return {
+    welcome: 'START HERE · Learn how BAINSA is organised, then use Find my spaces to reopen your personal arrival card after approval.',
+    onboarding: 'START HERE · Submit or check a BAINSA membership application. Your university board reviews access requests.',
+  };
+}
+
 export function globalSeeds({ anonymousFeedbackUrl }: { anonymousFeedbackUrl?: string | null } = {}) {
   return {
     general: buildSeedContent({
@@ -142,6 +149,20 @@ export function globalSeeds({ anonymousFeedbackUrl }: { anonymousFeedbackUrl?: s
   };
 }
 
+export function globalTopics() {
+  return {
+    general: 'GLOBAL BAINSA · Cross-university questions, discussion, and updates. Keep university-specific work in the relevant university category.',
+    announcements: 'GLOBAL BAINSA · Official network-wide updates from BAINSA leadership.',
+    board: 'GLOBAL BAINSA · Private cross-university governance and coordination.',
+    showcase: 'GLOBAL BAINSA · Read-only overview of BAINSA project work. Active work stays in private project channels.',
+    resources: 'GLOBAL BAINSA · Searchable resources, tools, papers, datasets, and templates for the whole community.',
+    peopleDirectory: 'GLOBAL BAINSA · Opt-in member profiles for research and collaboration discovery.',
+    channelProposals: 'GLOBAL BAINSA · Propose a shared space for a clear cross-university need.',
+    anonymousFeedback: 'GLOBAL BAINSA · Private feedback route for members who prefer not to identify themselves.',
+    botLog: 'GLOBAL BAINSA · Commands and activity that operate across university scope. Global Presidents only.',
+  };
+}
+
 export function universitySeeds(universityName) {
   return {
     general: buildSeedContent({
@@ -191,6 +212,18 @@ export function universitySeeds(universityName) {
   };
 }
 
+export function universityTopics(universityName) {
+  const scope = `BAINSA ${universityName.toUpperCase()}`;
+  return {
+    general: `${scope} · Local member coordination, questions, and lightweight updates. Division-specific work belongs in its division room.`,
+    announcements: `${scope} · Official university announcements and calendar events from the local board.`,
+    board: `${scope} · Private board operations: members, divisions, projects, and escalations.`,
+    botLog: `${scope} · Commands and activity scoped only to ${universityName}.`,
+    showcase: `${scope} · Read-only university project showcase. Active work remains in private project channels.`,
+    onboardingReview: `${scope} · Private review queue for ${universityName} membership applications.`,
+  };
+}
+
 export function divisionSeed(universityName, divisionName, divisionIcon = '') {
   const label = `${divisionIcon ? `${divisionIcon} ` : ''}${divisionName}`;
   return buildSeedContent({
@@ -198,6 +231,10 @@ export function divisionSeed(universityName, divisionName, divisionIcon = '') {
     title: label,
     body: `${label} working room for ${universityName}. Use this for division-specific work, planning, and handoffs.`,
   });
+}
+
+export function divisionTopic(universityName, divisionName) {
+  return `BAINSA ${universityName.toUpperCase()} · ${divisionName} division working room for planning, research, and handoffs. University-wide updates belong in #general.`;
 }
 
 export const FORUM_GUIDE_THREAD_NAME = 'Start here';

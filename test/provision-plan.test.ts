@@ -722,6 +722,91 @@ test('plain division channels are adopted into icon-prefixed names', async () =>
   assert.equal(provisioner.summary.channels.updated, 1);
 });
 
+test('provisioning writes a durable topic and reconciles a text channel position', async () => {
+  const edits = [];
+  const existing = {
+    id: 'bocconi-general',
+    name: 'general',
+    type: ChannelType.GuildText,
+    parentId: 'bocconi-category',
+    position: 7,
+    topic: 'Old guidance',
+    async edit(payload) {
+      edits.push(payload);
+      Object.assign(this, payload);
+      return this;
+    },
+  };
+  const guild = {
+    channels: {
+      cache: {
+        find(predicate) {
+          return [existing].find(predicate);
+        },
+      },
+    },
+  };
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: {},
+    db: null,
+    dryRun: false,
+    plan: samplePlan,
+    logger: {},
+  });
+
+  await provisioner.ensureTextChannel(guild, 'general', {
+    parent: { id: 'bocconi-category' },
+    topic: 'BAINSA BOCCONI · Local coordination.',
+    position: 0,
+  });
+
+  assert.deepEqual(edits, [{
+    topic: 'BAINSA BOCCONI · Local coordination.',
+    position: 0,
+    reason: 'BAINSA v1 provisioning',
+  }]);
+  assert.equal(provisioner.summary.channels.updated, 1);
+});
+
+test('welcome guidance provisions a persistent personal-space action', async () => {
+  const seedCalls = [];
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: {},
+    db: null,
+    dryRun: true,
+    plan: samplePlan,
+    logger: {},
+  });
+  provisioner.seedMessage = async (...args) => seedCalls.push(args);
+  provisioner.seedForumGuide = async () => {};
+  const roleIds = {
+    everyone: 'everyone',
+    bot: 'bot',
+    researcher: 'researcher',
+    alumni: 'alumni',
+    globalPresident: 'global',
+    universityPresidents: ['president'],
+    universityHeadRoleIds: new Map([['Bocconi', ['head']]]),
+    roles: new Map([
+      ['Bocconi', 'university'],
+      ['Bocconi - President', 'president'],
+      ['Bocconi - Vice President', 'vp'],
+      ['Bocconi - Projects', 'projects'],
+      ['Bocconi - Head of Projects', 'head'],
+    ]),
+  };
+
+  await provisioner.ensureStructure({ channels: { cache: { find: () => null, values: () => [] } } }, roleIds);
+
+  const [, , , options] = seedCalls.find(([, key]) => key === 'start:welcome');
+  const component = options.components[0].toJSON().components[0];
+  assert.equal(component.custom_id, 'onboarding:status');
+  assert.equal(component.label, 'Find my spaces');
+  assert.equal(options.pin, true);
+});
+
 test('seed messages adopt an untracked matching bot message instead of sending a duplicate', async () => {
   const seedContent = '# Bocconi General\n\nUse this channel for member coordination.';
   const existingMessage = {
