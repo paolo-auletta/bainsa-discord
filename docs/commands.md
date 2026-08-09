@@ -133,7 +133,7 @@ The bot privately shows the recorded full name, member type, university, divisio
 | `create_text_channel` | Yes | Whether to create the division text channel |
 | `create_voice_channel` | Yes | Whether to create the division voice channel |
 
-The bot creates the division record, color-matched access and Head roles, and the requested channels under the university category. It assigns the selected person `Researcher`, the university role, and only the new Head role. The ordinary division access role is intentionally not assigned to a Head. The new Head is also recorded in the board assignments table.
+The bot creates the division record, color-matched access and Head roles, and the requested channels under the university category. It assigns the selected person `Researcher`, the university role, the ordinary division role, and the new Head role. The new Head is also recorded in the board assignments table.
 
 ### `/division-update`
 
@@ -186,7 +186,7 @@ The bot blocks removal when the person still has active project access in that d
 | `role` | Yes | `Head`, `Vice President`, or `President` |
 | `division` | Head only | Required division when assigning a Head; must be empty for Vice President or President |
 
-The bot verifies the appointment, reconciles the Researcher, university, board, and Head roles, records the board assignment, and writes an audit entry. A Head receives only the scoped Head role in addition to the base Researcher and university roles.
+The bot verifies the appointment, reconciles the Researcher, university, division, board, and Head roles, records the board assignment, and writes an audit entry. Assigning a Head moves the member into the selected division: previous division and Head roles for that university are removed, the selected division and Head roles are added, and the stored division membership is replaced.
 
 ### `/board-remove`
 

@@ -140,7 +140,7 @@ Scoping the role name to the university is important. A Vice President at Boccon
 | Person                    | Implemented role stack                                        | Meaning                                                                                                                                              |
 | ------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Bocconi Projects member   | `Researcher`, `Bocconi`, `Bocconi - Projects`                 | Can use the Bocconi member spaces and Projects division rooms.                                                                                       |
-| Sapienza Head of Analysis | `Researcher`, `Sapienza`, `Sapienza - Head of Analysis`       | The Head role itself opens the Analysis rooms and grants scoped authority; the bot intentionally avoids adding the redundant ordinary division role. |
+| Sapienza Head of Analysis | `Researcher`, `Sapienza`, `Sapienza - Analysis`, `Sapienza - Head of Analysis` | The ordinary division role provides membership and the Head role grants scoped authority. Assigning a new Head division replaces previous division and Head roles for that university. |
 | Polimi Vice President     | `Researcher`, `Polimi`, `Polimi - Vice President`             | Can operate across Polimi but has no authority in other universities.                                                                                |
 | Global President          | `Global President` plus any ordinary identity roles they hold | Can operate across all university scopes and use the global bot log.                                                                                 |
 
@@ -617,7 +617,7 @@ New members enter through onboarding. A board approval creates the member record
 - **Who:** Global Presidents and the selected university’s President.
 - **Inputs:** `university`, `division_name`, `color`, initial `head`, `create_text_channel`, and `create_voice_channel`.
 - **Returns:** private confirmation after the division, access role, Head role, selected channels, and board assignment are created.
-- **Rules:** the initial Head receives Researcher, university, and scoped Head roles. The Head role itself grants division access.
+- **Rules:** the initial Head receives Researcher, university, ordinary division, and scoped Head roles.
 - **Activity:** the new division, Head, colour, and created resources are posted.
 
 #### `/division-update`
