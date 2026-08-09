@@ -14,11 +14,13 @@ import { query, transaction } from '../db.js';
 import { UserFacingError, assertUser } from '../errors.js';
 import { logger } from '../logger.js';
 import { divisionRoleName, divisionTextChannelName, universityCategoryName } from '../naming.js';
+import { hasPublishedProfile } from '../profiles/repository.js';
 import {
   applicationStatusPayload,
   confirmPayload,
   divisionPayload,
   memberTypePayload,
+  memberSpacesPayload,
   noApplicationStatusPayload,
   onboardingSubmissionFailedPayload,
   onboardingSubmittingPayload,
@@ -97,6 +99,7 @@ export function createOnboardingService({
   runTransaction = transaction,
   notifyApprovedMember = notifyApprovedMemberAboutDirectory,
   notifyRejectedMember = notifyRejectedApplicant,
+  hasPublishedDirectoryProfile = hasPublishedProfile,
 } = {}) {
   async function handleButton(interaction) {
     const parsed = parseOnboardingId(interaction.customId);
@@ -121,6 +124,16 @@ export function createOnboardingService({
         return;
       }
       await replyWithApplicationStatus(interaction, request);
+      return;
+    }
+
+    if (parsed.action === ONBOARDING_ACTIONS.SPACES) {
+      const request = await getLatestRequestForUser(db, interaction.user.id);
+      if (!request) {
+        await interaction.reply({ ...noApplicationStatusPayload(), flags: MessageFlags.Ephemeral });
+        return;
+      }
+      await replyWithMemberSpaces(interaction, request);
       return;
     }
 
@@ -601,6 +614,38 @@ export function createOnboardingService({
     });
   }
 
+  async function replyWithMemberSpaces(interaction, request) {
+    const university = await getUniversity(db, request.university_id)
+      ?? { name: request.university_name ?? 'Selected university' };
+    const divisions = await listRequestDivisionsByIds(db, request.university_id, request.division_ids);
+    if (request.status !== ONBOARDING_STATUSES.APPROVED) {
+      await interaction.reply({
+        ...applicationStatusPayload({ request, university, divisions }),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    let profilePublished = false;
+    try {
+      profilePublished = await hasPublishedDirectoryProfile(db, interaction.user.id);
+    } catch (error) {
+      logger.warn('Could not check member directory profile before showing space guide', {
+        userId: String(interaction.user.id),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    await interaction.reply({
+      ...memberSpacesPayload({
+        university,
+        divisions,
+        channels: memberSpaceChannels(interaction.guild, university, divisions),
+        profilePublished,
+      }),
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
   async function recoverSubmission(interaction, requestId, error) {
     const current = await getRequestForUser(db, requestId, interaction.user.id);
     if (!current) {
@@ -873,6 +918,31 @@ function approvedStartLinks(guild, university, divisions) {
     universityGeneral ? `${escapeMarkdown(university.name)} general: ${channelMention(universityGeneral)} — university questions and updates` : null,
     divisionChannel ? `Your division: ${channelMention(divisionChannel)} — start working with your team` : null,
   ].filter(Boolean);
+}
+
+function memberSpaceChannels(guild, university, divisions) {
+  const cache = guild?.channels?.cache;
+  if (!cache?.find) return {};
+
+  const globalCategory = cache.find((channel) => channel?.name === 'GLOBAL BAINSA');
+  const universityCategory = cache.find(
+    (channel) => channel?.name === universityCategoryName(university.name),
+  );
+  const channelIn = (name, parentId = null) => cache.find((channel) =>
+    channel?.name === name && (!parentId || channel?.parentId === parentId));
+  const division = divisions[0];
+
+  return {
+    globalGeneral: channelIn('bainsa-general', globalCategory?.id),
+    universityGeneral: channelIn('general', universityCategory?.id),
+    division: division
+      ? cache.get?.(String(division.text_channel_id))
+        ?? channelIn(divisionTextChannelName(division.name, division.color), universityCategory?.id)
+      : null,
+    resources: channelIn('resources', globalCategory?.id),
+    projectShowcase: channelIn('projects-showcase', globalCategory?.id),
+    peopleDirectory: channelIn('people-directory', globalCategory?.id),
+  };
 }
 
 function channelUrl(guild, channel) {

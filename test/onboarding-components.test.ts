@@ -6,6 +6,7 @@ import {
   applicationStatusPayload,
   confirmPayload,
   divisionPayload,
+  memberSpacesPayload,
   memberTypePayload,
   onboardingStartPayload,
   onboardingSubmittingPayload,
@@ -13,6 +14,7 @@ import {
   reviewedPayload,
   universityPayload,
 } from '../src/onboarding/components.js';
+import { PROFILE_CUSTOM_IDS } from '../src/profiles/custom-ids.js';
 
 const university = { id: '1', name: 'Bocconi' };
 const reapplication = {
@@ -183,6 +185,36 @@ test('waiting and decided application states clearly explain what happens next',
   });
   assert.match(rejected.embeds[0].data.description, /Please clarify your university/);
   assert.equal(rejected.components[0].toJSON().components[0].label, 'Start a new application');
+});
+
+test('member-space guide explains channels without restating application details', () => {
+  const payload = memberSpacesPayload({
+    university,
+    divisions: [{ id: '2', name: 'Analysis', color: 'orange', text_channel_id: 'division' }],
+    channels: {
+      globalGeneral: { id: 'global-general' },
+      universityGeneral: { id: 'university-general' },
+      division: { id: 'division' },
+      resources: { id: 'resources' },
+      projectShowcase: { id: 'showcase' },
+      peopleDirectory: { id: 'directory' },
+    },
+  });
+  const embed = payload.embeds[0].toJSON();
+
+  assert.equal(embed.author.name, 'BAINSA');
+  assert.equal(embed.title, 'Your BAINSA spaces');
+  assert.match(embed.description, /Resources.*<#resources>/s);
+  assert.match(embed.description, /Projects showcase.*<#showcase>/s);
+  assert.match(embed.description, /People directory.*<#directory>/s);
+  assert.match(embed.description, /Create a profile in <#directory>/);
+  assert.doesNotMatch(embed.description, /application approved|access is active|Applicant|Path/i);
+  assert.equal(embed.fields, undefined);
+  assert.equal(payload.components[0].toJSON().components[0].custom_id, PROFILE_CUSTOM_IDS.START);
+
+  const published = memberSpacesPayload({ university, profilePublished: true });
+  assert.equal(published.components.length, 0);
+  assert.doesNotMatch(published.embeds[0].data.description, /Make yourself discoverable/);
 });
 
 test('onboarding embeds omit helper footers and review timestamps', () => {

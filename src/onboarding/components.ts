@@ -9,6 +9,7 @@ import {
 } from "discord.js";
 
 import { divisionLabel, MEMBER_TYPES } from "../constants.js";
+import { PROFILE_CUSTOM_IDS } from "../profiles/custom-ids.js";
 import { onboardingId, ONBOARDING_ACTIONS } from "./custom-ids.js";
 import { pageItems } from "./state.js";
 
@@ -390,6 +391,63 @@ export function applicationStatusPayload({ request, university, divisions, links
         .addFields(...details),
     ],
     components,
+    allowedMentions: { parse: [] },
+  };
+}
+
+/** A persistent, role-aware guide reached from the shared #welcome message. */
+export function memberSpacesPayload({
+  university,
+  divisions = [],
+  channels = {},
+  profilePublished = false,
+}) {
+  const universityName = escapeMarkdown(university?.name ?? "your university");
+  const channel = (key, fallback) => channels[key] ? `<#${channels[key].id}>` : fallback;
+  const division = divisions[0];
+  const everydaySpaces = [
+    `• **Global BAINSA** · ${channel("globalGeneral", "#bainsa-general")} — meet members and join cross-university conversation.`,
+    `• **${universityName}** · ${channel("universityGeneral", "#general")} — local questions, coordination, and updates.`,
+    division
+      ? `• **Your division** · ${channel("division", "your division room")} — focused work with your team.`
+      : null,
+  ].filter(Boolean);
+  const profilePrompt = profilePublished
+    ? null
+    : [
+      "**Make yourself discoverable**",
+      `Create a profile in ${channel("peopleDirectory", "#people-directory")} so other members can find you for research, projects, and collaboration.`,
+    ].join("\n");
+
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(EMBED_COLORS.BRAND)
+        .setAuthor({ name: "BAINSA" })
+        .setTitle("Your BAINSA spaces")
+        .setDescription([
+          "Use the narrowest space that fits the conversation.",
+          "",
+          "**Your everyday spaces**",
+          ...everydaySpaces,
+          "",
+          "**Discover people and work**",
+          `• **Resources** · ${channel("resources", "#resources")} — papers, datasets, tools, and templates shared across BAINSA.`,
+          `• **Projects showcase** · ${channel("projectShowcase", "#projects-showcase")} — browse project work; active work happens in private project channels.`,
+          `• **People directory** · ${channel("peopleDirectory", "#people-directory")} — find members by interests, work, and collaboration goals.`,
+          ...(profilePrompt ? ["", profilePrompt] : []),
+        ].join("\n")),
+    ],
+    components: profilePublished
+      ? []
+      : [
+        new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(PROFILE_CUSTOM_IDS.START)
+            .setLabel("Create my profile")
+            .setStyle(ButtonStyle.Primary),
+        ),
+      ],
     allowedMentions: { parse: [] },
   };
 }

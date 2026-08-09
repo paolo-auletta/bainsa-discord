@@ -30,6 +30,7 @@ import {
   slugify,
 } from '../naming.js';
 import { PROFILE_CUSTOM_IDS } from '../profiles/custom-ids.js';
+import { ONBOARDING_ACTIONS, onboardingId } from '../onboarding/custom-ids.js';
 import { upsertProvisionedResources } from './db.js';
 import {
   globalForumTags,
@@ -1157,7 +1158,7 @@ function welcomeButtonRows() {
   return [
     new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId('onboarding:status')
+        .setCustomId(onboardingId(ONBOARDING_ACTIONS.SPACES))
         .setEmoji('🧭')
         .setLabel('Find my spaces')
         .setStyle(ButtonStyle.Primary),

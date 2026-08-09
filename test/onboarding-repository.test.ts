@@ -228,6 +228,53 @@ test('approval handoff leads with access, native channel links, and a profile ca
   assert.doesNotMatch(dm, /optional|Check application status/i);
 });
 
+test('Find my spaces opens a channel guide and only prompts members without a profile', async () => {
+  process.env.DISCORD_TOKEN ??= 'test-token';
+  process.env.DISCORD_CLIENT_ID ??= 'test-client';
+  process.env.DISCORD_GUILD_ID ??= 'test-guild';
+  process.env.DATABASE_URL ??= 'postgres://localhost/test';
+  const { createOnboardingService } = await import('../src/onboarding/service.js');
+  const db = fakeDb([
+    { rows: [{
+      id: '10',
+      status: 'approved',
+      discord_user_id: '100',
+      member_type: 'researcher',
+      university_id: '1',
+      division_ids: ['2'],
+    }] },
+    { rows: [{ id: '1', name: 'Bocconi' }] },
+    { rows: [{ id: '2', name: 'Analysis', color: 'orange', text_channel_id: 'division' }] },
+  ]);
+  const service = createOnboardingService({
+    db,
+    hasPublishedDirectoryProfile: async () => false,
+  });
+  const channels = [
+    { id: 'global', name: 'GLOBAL BAINSA' },
+    { id: 'bocconi', name: 'BAINSA BOCCONI' },
+    { id: 'global-general', name: 'bainsa-general', parentId: 'global' },
+    { id: 'university-general', name: 'general', parentId: 'bocconi' },
+    { id: 'division', name: '🟧-analysis', parentId: 'bocconi' },
+    { id: 'resources', name: 'resources', parentId: 'global' },
+    { id: 'showcase', name: 'projects-showcase', parentId: 'global' },
+    { id: 'directory', name: 'people-directory', parentId: 'global' },
+  ];
+  let replyPayload;
+
+  await service.handleButton({
+    customId: onboardingId(ONBOARDING_ACTIONS.SPACES),
+    user: { id: '100' },
+    guild: { channels: { cache: { find: (predicate) => channels.find(predicate), get: (id) => channels.find((channel) => channel.id === id) } } },
+    reply: async (payload) => { replyPayload = payload; },
+  });
+
+  assert.equal(replyPayload.embeds[0].data.title, 'Your BAINSA spaces');
+  assert.match(replyPayload.embeds[0].data.description, /Resources.*<#resources>/s);
+  assert.doesNotMatch(replyPayload.embeds[0].data.description, /Application approved|Applicant|Path/i);
+  assert.equal(replyPayload.components[0].toJSON().components[0].custom_id, 'pf:start');
+});
+
 test('START on an existing pending request replies with status and no editable controls', async () => {
   process.env.DISCORD_TOKEN ??= 'test-token';
   process.env.DISCORD_CLIENT_ID ??= 'test-client';

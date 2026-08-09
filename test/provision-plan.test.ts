@@ -802,7 +802,7 @@ test('welcome guidance provisions a persistent personal-space action', async () 
 
   const [, , , options] = seedCalls.find(([, key]) => key === 'start:welcome');
   const component = options.components[0].toJSON().components[0];
-  assert.equal(component.custom_id, 'onboarding:status');
+  assert.equal(component.custom_id, 'ob:spc');
   assert.equal(component.label, 'Find my spaces');
   assert.equal(options.pin, true);
 });
