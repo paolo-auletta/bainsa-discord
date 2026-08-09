@@ -182,11 +182,11 @@ test('rejection controls require a reason explicitly shared with the applicant',
     divisions: [],
   });
   assert.match(dm, /Please clarify your university connection/);
-  assert.match(dm, /start a new application/i);
+  assert.doesNotMatch(dm, /start a new application|reapply/i);
   assert.match(dm, /onboarding-channel/);
 });
 
-test('approval handoff leads with access and starting spaces before the optional directory', async () => {
+test('approval handoff leads with access, native channel links, and a profile call to action', async () => {
   process.env.DISCORD_TOKEN ??= 'test-token';
   process.env.DISCORD_CLIENT_ID ??= 'test-client';
   process.env.DISCORD_GUILD_ID ??= 'test-guild';
@@ -218,11 +218,14 @@ test('approval handoff leads with access and starting spaces before the optional
   });
 
   assert.match(dm, /application was approved/i);
+  assert.match(dm, /approved\.\n\n\*\*Your access\*\*/);
   assert.match(dm, /Your access.*Researcher.*Bocconi.*Analysis/s);
   assert.match(dm, /Global general/);
   assert.match(dm, /Bocconi general/);
-  assert.match(dm, /analysis-channel/);
-  assert.ok(dm.indexOf('**Start here**') < dm.indexOf('people directory is optional'));
+  assert.match(dm, /Your division: <#analysis-channel>/);
+  assert.match(dm, /Create your profile in <#directory> next/);
+  assert.ok(dm.indexOf('**Start here**') < dm.indexOf('Create your profile'));
+  assert.doesNotMatch(dm, /optional|Check application status/i);
 });
 
 test('START on an existing pending request replies with status and no editable controls', async () => {
@@ -287,6 +290,37 @@ test('START modal omits blank full name value so Discord accepts the text input'
   assert.equal(input.custom_id, 'full_name');
   assert.equal(input.min_length, 2);
   assert.equal(input.value, undefined);
+});
+
+test('member path selection uses the native select value and updates the same private message', async () => {
+  process.env.DISCORD_TOKEN ??= 'test-token';
+  process.env.DISCORD_CLIENT_ID ??= 'test-client';
+  process.env.DISCORD_GUILD_ID ??= 'test-guild';
+  process.env.DATABASE_URL ??= 'postgres://localhost/test';
+  const { createOnboardingService } = await import('../src/onboarding/service.js');
+  const selected = {
+    id: '10',
+    status: 'draft',
+    discord_user_id: '100',
+    member_type: 'alumni',
+    university_id: '1',
+    division_ids: [],
+  };
+  const db = fakeDb([{ rows: [selected] }]);
+  const service = createOnboardingService({ db });
+  let updated;
+
+  await service.handleStringSelect({
+    customId: onboardingId(ONBOARDING_ACTIONS.MEMBER_TYPE, '10'),
+    user: { id: '100' },
+    values: ['alumni'],
+    update: async (payload) => { updated = payload; },
+  });
+
+  assert.match(db.calls[0].sql, /UPDATE onboarding_requests/);
+  assert.equal(db.calls[0].values[0], 'alumni');
+  const menu = updated.components[0].toJSON().components[0];
+  assert.equal(menu.options[1].default, true);
 });
 
 test('submit sends review message before marking request pending', async () => {
@@ -568,20 +602,19 @@ test('a Division Head can approve, and Discord roles roll back when a later DB w
     runTransaction: async (work) => work(db),
   });
 
-  await assert.rejects(
-    () => service.handleButton({
-      customId: onboardingId(ONBOARDING_ACTIONS.APPROVE, '10'),
-      user: { id: 'reviewer' },
-      guild,
-      deferReply: async () => undefined,
-      editReply: async () => undefined,
-    }),
-    /db write failed/,
-  );
+  const replies = [];
+  await service.handleButton({
+    customId: onboardingId(ONBOARDING_ACTIONS.APPROVE, '10'),
+    user: { id: 'reviewer' },
+    guild,
+    update: async () => undefined,
+    editReply: async (payload) => { replies.push(payload); },
+  });
 
   assert.deepEqual([...targetRoleIds].sort(), ['alumni-role', 'guild', 'sapienza-projects-role', 'sapienza-role']);
   assert.equal(target.nickname, 'Previous nickname');
   assert.deepEqual(target.nicknameHistory, ['Ada Lovelace', 'Previous nickname']);
+  assert.equal(replies.at(-1).embeds[0].data.title, 'Approval could not be completed');
 });
 
 test('onboarding approval survives a directory DM failure without creating a profile', async () => {
@@ -638,8 +671,8 @@ test('onboarding approval survives a directory DM failure without creating a pro
     roles: { cache: roles },
     members: { fetch: async (userId) => (userId === 'reviewer' ? reviewer : target) },
   };
-  let reviewEdited = false;
-  let reply;
+  const updates = [];
+  const replies = [];
   let directoryNotificationAttempts = 0;
   const service = createOnboardingService({
     db,
@@ -656,17 +689,13 @@ test('onboarding approval survives a directory DM failure without creating a pro
     customId: onboardingId(ONBOARDING_ACTIONS.APPROVE, '10'),
     user: { id: 'reviewer' },
     guild,
-    message: { editable: true, edit: async () => { reviewEdited = true; } },
-    deferReply: async () => undefined,
-    editReply: async (content) => { reply = content; },
+    update: async (payload) => { updates.push(payload); },
+    editReply: async (payload) => { replies.push(payload); },
   });
 
   assert.deepEqual([...targetRoleIds].sort(), ['bocconi-projects-role', 'bocconi-role', 'guild', 'researcher-role']);
-  assert.equal(reviewEdited, true);
-  assert.equal(
-    reply,
-    'Onboarding request approved. The DM could not be delivered; the applicant can confirm the decision from #onboarding.',
-  );
+  assert.equal(updates[0].embeds[0].data.title, 'Approving access');
+  assert.equal(replies[0].embeds[0].data.title, 'Access request approved');
   assert.equal(directoryNotificationAttempts, 1);
   assert.equal(db.calls.some(({ sql }) => /member_profiles/i.test(sql)), false);
 });

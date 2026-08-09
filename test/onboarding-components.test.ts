@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ButtonStyle } from 'discord.js';
+import { ButtonStyle, ComponentType } from 'discord.js';
 
 import {
   applicationStatusPayload,
   confirmPayload,
   divisionPayload,
   memberTypePayload,
+  onboardingStartPayload,
   onboardingSubmittingPayload,
   reviewPayload,
   reviewedPayload,
@@ -118,6 +119,47 @@ test('every editable onboarding screen provides next, back, and cancel actions',
     assert.equal(buttons[2].label, 'Cancel');
     assert.equal(buttons[2].style, ButtonStyle.Danger);
   }
+});
+
+test('member path uses one native select with concise role descriptions instead of color-coded buttons', () => {
+  const payload = memberTypePayload('10', 'researcher');
+  const embed = payload.embeds[0].toJSON();
+  const menu = payload.components[0].toJSON().components[0];
+
+  assert.doesNotMatch(embed.description, /Selected:/);
+  assert.match(embed.description, /Researcher.*active BAINSA member/i);
+  assert.match(embed.description, /Alumni.*former BAINSA member/i);
+  assert.equal(embed.fields, undefined);
+  assert.equal(menu.type, ComponentType.StringSelect);
+  assert.equal(menu.placeholder, 'Choose your path');
+  assert.deepEqual(
+    menu.options.map((option) => option.label),
+    [
+      'Researcher',
+      'Alumni',
+    ],
+  );
+  assert.equal(menu.options[0].default, true);
+  assert.equal(menu.options[1].default, false);
+});
+
+test('university choice keeps its instruction stable after a selection', () => {
+  const payload = universityPayload('10', [university], 0, '1', 'researcher');
+
+  assert.equal(
+    payload.embeds[0].data.description,
+    'Select the university you currently belong to, or the one you were part of as an Alumni.',
+  );
+  assert.doesNotMatch(payload.embeds[0].data.description, /Selected:/);
+});
+
+test('onboarding start makes application recovery visible below the primary action', () => {
+  const payload = onboardingStartPayload();
+
+  assert.equal(payload.components.length, 2);
+  assert.equal(payload.components[0].toJSON().components[0].label, 'Begin onboarding');
+  assert.equal(payload.components[1].toJSON().components[0].label, 'Check application status');
+  assert.match(payload.content, /Already applied/i);
 });
 
 test('waiting and decided application states clearly explain what happens next', () => {

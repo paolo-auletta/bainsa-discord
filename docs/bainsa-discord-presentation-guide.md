@@ -211,7 +211,7 @@ Every private screen keeps the applicant's choices and ends with a destination-n
 
 Any authorised board member for that university—a Division Head, Vice President, President, or Global President—can approve or reject it. Approval creates or updates the member record, assigns the correct Discord roles, and sets the member's server nickname from the onboarding name automatically. Rejection requires a reason that is shared with the applicant and gives them a path to reapply.
 
-The bot attempts a direct decision DM, but delivery does not depend on DMs: **Check application status** in `#onboarding` always shows the latest recorded result and rejection reason. Approval first explains the member's new access and useful starting spaces; only then does it introduce the optional people directory. The applicant cannot request a board position through onboarding.
+The bot attempts a direct decision DM, but delivery does not depend on DMs: **Check application status** in `#onboarding` always shows the latest recorded result and rejection reason. Approval first explains the member's new access and useful starting spaces, then asks them to create a profile so other members can find them for research, projects, and collaboration. The applicant cannot request a board position through onboarding.
 
 The benefit is consistency: new members do not need an administrator to manually understand and reproduce the permission model every time.
 

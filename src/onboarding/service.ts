@@ -23,6 +23,7 @@ import {
   onboardingSubmissionFailedPayload,
   onboardingSubmittingPayload,
   reviewPayload,
+  reviewDecisionFailedPayload,
   reviewDecisionProgressPayload,
   reviewedPayload,
   universityPayload,
@@ -66,15 +67,15 @@ export async function notifyApprovedMemberAboutDirectory({ guild, userId, reques
     : ['• Open the newly available Global BAINSA and university spaces to get started.'];
   await member.send([
     '✅ Your BAINSA application was approved.',
+    '',
     `**Your access** · ${access}`,
     '',
     '**Start here**',
     ...startLines,
     '',
-    'The people directory is optional. Publish a profile only if you want approved members to discover your work and interests.',
-    directoryLink ? `People directory: ${directoryLink}` : 'You can find the people directory in the GLOBAL BAINSA category.',
-    '',
-    'You can confirm this decision at any time with **Check application status** in #onboarding.',
+    directoryLink
+      ? `Create your profile in <#${directory.id}> next. It helps BAINSA members find you for research, projects, and collaboration.`
+      : 'Create your profile in the people directory next. It helps BAINSA members find you for research, projects, and collaboration.',
   ].join('\n'));
 }
 
@@ -87,9 +88,7 @@ export async function notifyRejectedApplicant({ guild, userId, request, universi
     `**Application** · ${accessSummary(request, university, divisions)}`,
     `**Reason shared by the reviewer** · ${escapeMarkdown(request.review_reason || 'No reason was provided.')}`,
     '',
-    'Correct the relevant details, then start a new application when you are ready.',
-    onboardingLink ? `Return to onboarding: ${onboardingLink}` : 'Return to #onboarding in the BAINSA server.',
-    'You can also use **Check application status** there to confirm this decision.',
+    onboardingLink ? `You can review this decision again in onboarding: ${onboardingLink}` : 'You can review this decision again in #onboarding in the BAINSA server.',
   ].join('\n'));
 }
 
@@ -262,6 +261,18 @@ export function createOnboardingService({
     if (!parsed) return;
     const [requestId, pageValue] = parsed.parts;
 
+    if (parsed.action === ONBOARDING_ACTIONS.MEMBER_TYPE) {
+      assertUser(interaction.values.length === 1, 'Choose Researcher or Alumni.');
+      const memberType = interaction.values[0];
+      assertMemberType(memberType);
+      const request = await updateOwnedDraft(db, requestId, interaction.user.id, {
+        member_type: memberType,
+        division_ids: memberType === MEMBER_TYPES.ALUMNI ? [] : undefined,
+      });
+      await interaction.update(memberTypePayload(request.id, request.member_type));
+      return;
+    }
+
     if (parsed.action === ONBOARDING_ACTIONS.UNIVERSITY) {
       const universityId = interaction.values[0];
       const universities = await listUniversities(db);
@@ -359,17 +370,18 @@ export function createOnboardingService({
   }
 
   async function approveRequest(interaction, requestId) {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    await interaction.editReply(reviewDecisionProgressPayload('approve'));
+    await beginReviewDecision(interaction, 'approve');
     let reviewed;
+    let pendingRequest;
     let university;
-    let divisions;
+    let divisions = [];
     let rollbackDiscordState = null;
 
     try {
       await runTransaction(async (client) => {
         const request = await lockRequest(client, requestId);
         assertPendingRequest(request);
+        pendingRequest = request;
         university = await getUniversity(client, request.university_id);
         assertUser(university, 'That university is not available.');
         divisions = await listDivisionsByIds(client, request.university_id, request.division_ids);
@@ -409,18 +421,23 @@ export function createOnboardingService({
           });
         });
       }
-      throw error;
+      await finishReviewDecisionWithFailure(
+        interaction,
+        pendingRequest,
+        university,
+        divisions,
+        'approve',
+        error,
+      );
+      return;
     }
 
-    let reviewMessageUpdated = true;
-    await editReviewMessage(interaction, reviewed, university, divisions).catch((error) => {
-      reviewMessageUpdated = false;
-      logger.error('Approved onboarding review message could not be updated', {
+    await interaction.editReply(reviewedPayload(reviewed, university, divisions, interaction.user.id)).catch((error) => {
+      logger.error('Approved onboarding review card could not be updated', {
         requestId: String(requestId),
         error: error instanceof Error ? error.message : String(error),
       });
     });
-    let notified = true;
     await notifyApprovedMember({
       guild: interaction.guild,
       userId: reviewed.discord_user_id,
@@ -428,56 +445,57 @@ export function createOnboardingService({
       university,
       divisions,
     }).catch(() => {
-      notified = false;
       logger.warn('Could not send approved member onboarding decision', {
         requestId: String(requestId),
         userId: String(reviewed.discord_user_id),
       });
     });
-    const acknowledgement = notified
-      ? 'Onboarding request approved. The applicant was notified by DM.'
-      : 'Onboarding request approved. The DM could not be delivered; the applicant can confirm the decision from #onboarding.';
-    await interaction.editReply(
-      reviewMessageUpdated
-        ? acknowledgement
-        : `${acknowledgement} The review card could not be updated, but the recorded decision is unchanged.`,
-    );
   }
 
   async function rejectRequest(interaction, requestId, reason) {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    await interaction.editReply(reviewDecisionProgressPayload('reject'));
+    await beginReviewDecision(interaction, 'reject');
     let reviewed;
+    let pendingRequest;
     let university;
-    let divisions;
+    let divisions = [];
 
-    await runTransaction(async (client) => {
-      const request = await lockRequest(client, requestId);
-      assertPendingRequest(request);
-      university = await getUniversity(client, request.university_id);
-      assertUser(university, 'That university is not available.');
-      divisions = await listDivisionsByIds(client, request.university_id, request.division_ids);
-      await assertReviewer(interaction, university.name);
-      reviewed = await markReviewed(client, request.id, ONBOARDING_STATUSES.REJECTED, interaction.user.id, reason);
-      await writeAudit(client, {
-        actorId: interaction.user.id,
-        action: 'onboarding.reject',
-        targetType: 'onboarding_request',
-        targetId: request.id,
-        universityId: request.university_id,
-        reason,
+    try {
+      await runTransaction(async (client) => {
+        const request = await lockRequest(client, requestId);
+        assertPendingRequest(request);
+        pendingRequest = request;
+        university = await getUniversity(client, request.university_id);
+        assertUser(university, 'That university is not available.');
+        divisions = await listDivisionsByIds(client, request.university_id, request.division_ids);
+        await assertReviewer(interaction, university.name);
+        reviewed = await markReviewed(client, request.id, ONBOARDING_STATUSES.REJECTED, interaction.user.id, reason);
+        await writeAudit(client, {
+          actorId: interaction.user.id,
+          action: 'onboarding.reject',
+          targetType: 'onboarding_request',
+          targetId: request.id,
+          universityId: request.university_id,
+          reason,
+        });
       });
-    });
+    } catch (error) {
+      await finishReviewDecisionWithFailure(
+        interaction,
+        pendingRequest,
+        university,
+        divisions,
+        'reject',
+        error,
+      );
+      return;
+    }
 
-    let reviewMessageUpdated = true;
-    await editReviewMessage(interaction, reviewed, university, divisions, reason).catch((error) => {
-      reviewMessageUpdated = false;
-      logger.error('Declined onboarding review message could not be updated', {
+    await interaction.editReply(reviewedPayload(reviewed, university, divisions, interaction.user.id, reason)).catch((error) => {
+      logger.error('Declined onboarding review card could not be updated', {
         requestId: String(requestId),
         error: error instanceof Error ? error.message : String(error),
       });
     });
-    let notified = true;
     await notifyRejectedMember({
       guild: interaction.guild,
       userId: reviewed.discord_user_id,
@@ -485,20 +503,11 @@ export function createOnboardingService({
       university,
       divisions,
     }).catch(() => {
-      notified = false;
       logger.warn('Could not send rejected member onboarding decision', {
         requestId: String(requestId),
         userId: String(reviewed.discord_user_id),
       });
     });
-    const acknowledgement = notified
-      ? 'Onboarding request declined. The applicant received the reason by DM.'
-      : 'Onboarding request declined. The DM could not be delivered; the applicant can read the reason from #onboarding.';
-    await interaction.editReply(
-      reviewMessageUpdated
-        ? acknowledgement
-        : `${acknowledgement} The review card could not be updated, but the recorded decision is unchanged.`,
-    );
   }
 
   async function showConfirmation(interaction, request) {
@@ -665,19 +674,41 @@ async function resolveReviewChannel(guild, university) {
   return channel;
 }
 
-async function editReviewMessage(interaction, request, university, divisions, reason = null) {
-  const payload = reviewedPayload(request, university, divisions, interaction.user.id, reason);
-  if (interaction.message?.editable) {
-    await interaction.message.edit(payload);
+async function beginReviewDecision(interaction, decision) {
+  const payload = reviewDecisionProgressPayload(decision);
+  if (typeof interaction.update === 'function') {
+    await interaction.update(payload);
     return;
   }
+  await interaction.deferUpdate();
+  await interaction.editReply(payload);
+}
 
-  const channel = await resolveReviewChannel(interaction.guild, university);
-  const message = request.review_message_id
-    ? await channel.messages.fetch(request.review_message_id).catch(() => null)
-    : null;
-
-  await message?.edit(payload);
+async function finishReviewDecisionWithFailure(
+  interaction,
+  request,
+  university,
+  divisions,
+  decision,
+  error,
+) {
+  const message = error instanceof UserFacingError
+    ? error.message
+    : 'BAINSA could not complete this decision. Please try again.';
+  logger[error instanceof UserFacingError ? 'warn' : 'error']('Onboarding review decision failed', {
+    requestId: request?.id,
+    decision,
+    error: error instanceof Error ? error.message : String(error),
+  });
+  await interaction.editReply(
+    reviewDecisionFailedPayload(request, university, divisions, decision, message),
+  ).catch((replyError) => {
+    logger.error('Onboarding review failure card could not be updated', {
+      requestId: request?.id,
+      decision,
+      error: replyError instanceof Error ? replyError.message : String(replyError),
+    });
+  });
 }
 
 async function assignApprovedDiscordState(guild, request, university, divisions, allDivisions, allUniversities) {
@@ -807,11 +838,6 @@ function pageContaining(items, selectedId, pageSize = 25) {
   return index < 0 ? 0 : Math.floor(index / pageSize);
 }
 
-function channelUrl(guild, channel) {
-  if (!guild?.id || !channel?.id) return null;
-  return `https://discord.com/channels/${guild.id}/${channel.id}`;
-}
-
 function accessSummary(request, university, divisions) {
   const path = request.member_type === MEMBER_TYPES.ALUMNI ? 'Alumni' : 'Researcher';
   const universityName = escapeMarkdown(university?.name ?? 'Selected university');
@@ -843,8 +869,17 @@ function approvedStartLinks(guild, university, divisions) {
     : null;
 
   return [
-    globalGeneral ? `[Global general](${channelUrl(guild, globalGeneral)}) — meet the wider BAINSA community` : null,
-    universityGeneral ? `[${escapeMarkdown(university.name)} general](${channelUrl(guild, universityGeneral)}) — university questions and updates` : null,
-    divisionChannel ? `[${escapeMarkdown(divisionLabel(division.name, division.color))}](${channelUrl(guild, divisionChannel)}) — your working division` : null,
+    globalGeneral ? `Global general: ${channelMention(globalGeneral)} — meet the wider BAINSA community` : null,
+    universityGeneral ? `${escapeMarkdown(university.name)} general: ${channelMention(universityGeneral)} — university questions and updates` : null,
+    divisionChannel ? `Your division: ${channelMention(divisionChannel)} — start working with your team` : null,
   ].filter(Boolean);
+}
+
+function channelUrl(guild, channel) {
+  if (!guild?.id || !channel?.id) return null;
+  return `https://discord.com/channels/${guild.id}/${channel.id}`;
+}
+
+function channelMention(channel) {
+  return `<#${channel.id}>`;
 }

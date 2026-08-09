@@ -361,11 +361,11 @@ test('onboarding approval rolls back its PostgreSQL transaction and Discord role
     user: { id: reviewer.id },
     guild,
     member: reviewer,
-    async deferReply() {},
+    async update() {},
     async editReply() {},
   };
 
-  await assert.rejects(service.handleButton(interaction), /Controlled integration transaction failure/);
+  await service.handleButton(interaction);
   assert.equal(target.roles.cache.has('researcher-role'), false);
   assert.equal(target.roles.cache.has('bocconi-role'), false);
   assert.equal(target.roles.cache.has('analysis-role'), false);

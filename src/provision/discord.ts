@@ -430,7 +430,7 @@ export class DiscordProvisioner {
     });
     await this.seedMessage(welcome, 'start:welcome', startSeeds.welcome);
     await this.seedMessage(onboarding, 'start:onboarding', startSeeds.onboarding, {
-      components: [onboardingButtonRow()],
+      components: onboardingButtonRows(),
     });
     await this.retireStartHereChannels(guild, startCategory);
 
@@ -1012,19 +1012,23 @@ export class DiscordProvisioner {
   }
 }
 
-function onboardingButtonRow() {
-  return new ActionRowBuilder().addComponents(
+function onboardingButtonRows() {
+  return [
+    new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('onboarding:start')
       .setEmoji('🚀')
       .setLabel('Begin onboarding')
       .setStyle(ButtonStyle.Primary),
+    ),
+    new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('onboarding:status')
       .setEmoji('🔎')
       .setLabel('Check application status')
       .setStyle(ButtonStyle.Secondary),
-  );
+    ),
+  ];
 }
 
 function peopleDirectoryButtonRow() {

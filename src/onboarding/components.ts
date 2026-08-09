@@ -22,7 +22,7 @@ const EMBED_COLORS = Object.freeze({
 export function onboardingStartPayload() {
   return {
     content:
-      "Welcome to BAINSA. Begin your membership application here; the relevant university board will review your request.",
+      "Welcome to BAINSA. Begin your membership application here; the relevant university board will review your request. Already applied? Check your application status below.",
     components: [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -30,6 +30,8 @@ export function onboardingStartPayload() {
           .setEmoji("🚀")
           .setLabel("Begin onboarding")
           .setStyle(ButtonStyle.Primary),
+      ),
+      new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId("onboarding:status")
           .setEmoji("🔎")
@@ -41,53 +43,35 @@ export function onboardingStartPayload() {
 }
 
 export function memberTypePayload(requestId, selectedMemberType = null) {
-  const selectedLabel = selectedMemberType ? memberTypeLabel(selectedMemberType) : null;
+  const pathMenu = new StringSelectMenuBuilder()
+    .setCustomId(onboardingId(ONBOARDING_ACTIONS.MEMBER_TYPE, requestId))
+    .setPlaceholder("Choose your path")
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Researcher")
+        .setValue(MEMBER_TYPES.RESEARCHER)
+        .setEmoji("🔬")
+        .setDefault(selectedMemberType === MEMBER_TYPES.RESEARCHER),
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Alumni")
+        .setValue(MEMBER_TYPES.ALUMNI)
+        .setEmoji("🎓")
+        .setDefault(selectedMemberType === MEMBER_TYPES.ALUMNI),
+    );
   return {
     embeds: [
       onboardingEmbed("Step 2 of 4 · Choose your path")
-        .setDescription(
-          [
-            "Select the description that best reflects how you will participate in BAINSA.",
-            selectedLabel ? `\n**Selected:** ${selectedLabel}` : null,
-          ].filter(Boolean).join("\n"),
-        )
-        .addFields(
-          {
-            name: "🔬 Researcher",
-            value:
-              "An active BAINSA member currently enrolled at one university.",
-          },
-          {
-            name: "🎓 Alumni",
-            value: "A former BAINSA member who remains part of the community.",
-          },
-        ),
+        .setDescription([
+          "Choose the path that best reflects how you will participate in BAINSA.",
+          "",
+          "🔬 **Researcher** — An active BAINSA member currently enrolled at one university.",
+          "🎓 **Alumni** — A former BAINSA member who remains part of the community.",
+        ].join("\n")),
     ],
     components: [
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(
-            onboardingId(
-              ONBOARDING_ACTIONS.MEMBER_TYPE,
-              requestId,
-              MEMBER_TYPES.RESEARCHER,
-            ),
-          )
-          .setEmoji("🔬")
-          .setLabel("Researcher")
-          .setStyle(selectedMemberType === MEMBER_TYPES.RESEARCHER ? ButtonStyle.Success : ButtonStyle.Primary),
-        new ButtonBuilder()
-          .setCustomId(
-            onboardingId(
-              ONBOARDING_ACTIONS.MEMBER_TYPE,
-              requestId,
-              MEMBER_TYPES.ALUMNI,
-            ),
-          )
-          .setEmoji("🎓")
-          .setLabel("Alumni")
-          .setStyle(selectedMemberType === MEMBER_TYPES.ALUMNI ? ButtonStyle.Success : ButtonStyle.Primary),
-      ),
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(pathMenu),
       footerRow(
         requestId,
         {
@@ -130,11 +114,7 @@ export function universityPayload(
   return {
     embeds: [
       onboardingEmbed("Step 3 of 4 · Choose your university")
-        .setDescription(
-          selectedUniversity
-            ? `**Selected:** ${selectedUniversity.name}\n\nConfirm this choice to continue.`
-            : "Select the university you currently belong to, or the one you were part of as an Alumni.",
-        ),
+        .setDescription("Select the university you currently belong to, or the one you were part of as an Alumni."),
     ],
     components: [
       new ActionRowBuilder().addComponents(menu),
@@ -312,6 +292,40 @@ export function reviewDecisionProgressPayload(decision) {
             : "Please wait while the decision is recorded and the applicant notification is prepared.",
         ),
     ],
+    components: [],
+    allowedMentions: { parse: [] },
+  };
+}
+
+export function reviewDecisionFailedPayload(request, university, divisions, decision, message) {
+  const approving = decision === "approve";
+  const base = request && university ? reviewPayload(request, university, divisions) : null;
+  const embed = base
+    ? EmbedBuilder.from(base.embeds[0])
+    : new EmbedBuilder().setAuthor({ name: "BAINSA · Onboarding review" });
+
+  embed
+    .setColor(EMBED_COLORS.DANGER)
+    .setTitle(approving ? "Approval could not be completed" : "Decline could not be completed")
+    .setDescription([
+      approving
+        ? "No approval was recorded and the applicant's access was not changed."
+        : "No decline was recorded and the application is still awaiting review.",
+      escapeMarkdown(message),
+      base ? "You can try the decision again." : null,
+    ].filter(Boolean).join("\n\n"));
+
+  if (base) {
+    embed.setFields(
+      ...base.embeds[0].data.fields.filter((field) => field.name !== "Review status"),
+      { name: "Review status", value: "⚠️ Decision not completed", inline: true },
+    );
+  }
+
+  return {
+    embeds: [embed],
+    components: base?.components ?? [],
+    allowedMentions: { parse: [] },
   };
 }
 
