@@ -13,7 +13,7 @@ spacing, field order, component limits, provenance, and no-ping defaults.
 
 | Primitive | Use when | Discord form | Required structure |
 | --- | --- | --- | --- |
-| Event card | A shared-state event belongs in chronological activity | Embed | Semantic marker/color, past-tense title, subject, scope, details/result, Discord state, actor |
+| Event card | A shared-state event belongs in chronological activity, or a transient lookup needs a compact read-only summary | Embed | Semantic marker/color, title, subject, ordered details, and event-only state/actor fields when applicable |
 | Workspace document | People will return to a canonical record or guide | Plain text | Title, metadata, sections, quiet provenance footer |
 | Interaction panel | The actor must choose, confirm, wait, recover, or see a private outcome | Components V2 | Accent, title/context, optional facts/progress, controls/actions, status |
 | Handoff message | A change affects a person who needs context and a next action | Plain DM | Direct title, changed access/context, private details when allowed, up to three next actions, links |
@@ -56,7 +56,7 @@ hex color or choose an arbitrary emoji.
 
 ### Event card
 
-Use one card for one event. The renderer always orders visible fields as:
+Use one card for one event or one compact transient lookup. The renderer always orders visible fields as:
 
 1. Subject.
 2. Scope.
@@ -66,13 +66,16 @@ Use one card for one event. The renderer always orders visible fields as:
 6. Performed by.
 
 Do not put instructions, long explanations, internal notes, or private removal reasons in an event
-card. Omit an inapplicable field instead of writing `none`.
+card. Event cards omit inapplicable event fields. Compact lookup cards may use an explicit empty
+value for a requested collection so the result is unambiguous; `/member-info` uses `None` for empty
+board-role and project lists.
 
 ### Workspace document
 
-Use a document for canonical project records, showcase starters, private record lookups, and durable
-workspace instructions. Canonical records are edited in place; chronological transitions remain
-separate event cards. End every document with provenance such as:
+Use a document for canonical project records, showcase starters, guides, and durable workspace
+instructions. A transient private lookup is not a workspace document. Canonical records are edited
+in place; chronological transitions remain separate event cards. End every document with provenance
+such as:
 
 ```text
 -# Project #42 · Pinned project record · Updates automatically

@@ -1318,9 +1318,8 @@ test('governance autocomplete cache loads only active universities and divisions
   assert.deepEqual(snapshot.divisions, [{ university_name: 'Bocconi', name: 'Robotics', color: 'green' }]);
 });
 
-test('member-info follows the workspace-document design system', () => {
-  const target = { user: { tag: 'Global#0001' } };
-  Object.defineProperty(target, 'id', { enumerable: false, get: () => '100' });
+test('member-info renders a compact informational card from a direct Discord user', () => {
+  const target = { id: '100', globalName: 'Ada on Discord', username: 'ada' };
   const payload = formatMemberInfo({
     target,
     member: { full_name: 'Ada Lovelace', member_type: MEMBER_TYPES.RESEARCHER, university_name: 'Bocconi' },
@@ -1330,14 +1329,18 @@ test('member-info follows the workspace-document design system', () => {
   });
 
   assert.deepEqual(payload.allowedMentions, { parse: [] });
-  assert.equal(payload.embeds, undefined);
-  assert.match(payload.content, /^## Member information/);
-  assert.match(payload.content, /\*\*Member:\*\* Ada Lovelace \(<@100>\)/);
-  assert.match(payload.content, /\*\*Type:\*\* Researcher/);
-  assert.match(payload.content, /\*\*Affiliation:\*\* Bocconi › 🟨 Robotics/);
-  assert.match(payload.content, /\*\*Board roles\*\*\nGlobal President/);
-  assert.match(payload.content, /\*\*Projects\*\*\nResearch sprint — Member, Active/);
-  assert.match(payload.content, /Member record · Current database state$/);
+  assert.equal(payload.content, undefined);
+  const embed = payload.embeds[0].toJSON();
+  assert.equal(embed.title, '🔵 Member information');
+  assert.equal(embed.color, 0x5865f2);
+  assert.deepEqual(embed.fields, [
+    { name: 'Member', value: 'Ada Lovelace (<@100>)', inline: false },
+    { name: 'Type', value: 'Researcher', inline: false },
+    { name: 'Affiliation', value: 'Bocconi › 🟨 Robotics', inline: false },
+    { name: 'Board roles', value: 'Global President', inline: false },
+    { name: 'Projects', value: 'Research sprint — Member, Active', inline: false },
+  ]);
+  assert.equal(embed.footer.text, 'Member record · Current database state');
 });
 
 test('member-info keeps empty assignments compact and readable', () => {
@@ -1348,14 +1351,28 @@ test('member-info keeps empty assignments compact and readable', () => {
     boardRoles: [],
     projects: [],
   });
-  assert.match(payload.content, /\*\*Member:\*\* Not recorded \(<@100>\)/);
-  assert.match(payload.content, /\*\*Type:\*\* Alumni/);
-  assert.match(payload.content, /\*\*Affiliation:\*\* Not assigned/);
-  assert.match(payload.content, /\*\*Board roles\*\*\nNone/);
-  assert.match(payload.content, /\*\*Projects\*\*\nNone/);
+  const fields = payload.embeds[0].toJSON().fields;
+  assert.equal(fields.find((field) => field.name === 'Member').value, 'Greek (<@100>)');
+  assert.equal(fields.find((field) => field.name === 'Type').value, 'Alumni');
+  assert.equal(fields.find((field) => field.name === 'Affiliation').value, 'Not assigned');
+  assert.equal(fields.find((field) => field.name === 'Board roles').value, 'None');
+  assert.equal(fields.find((field) => field.name === 'Projects').value, 'None');
 });
 
-test('member-info keeps the complete workspace document within Discord limits', () => {
+test('member-info uses a readable fallback when the Discord user cannot be resolved', () => {
+  const payload = formatMemberInfo({
+    target: { displayName: 'Grace Hopper' },
+    member: { full_name: null, member_type: MEMBER_TYPES.ALUMNI, university_name: 'Bocconi' },
+    divisions: [],
+    boardRoles: [],
+    projects: [],
+  });
+  const member = payload.embeds[0].toJSON().fields.find((field) => field.name === 'Member').value;
+  assert.equal(member, 'Grace Hopper');
+  assert.doesNotMatch(JSON.stringify(payload), /\[object Object\]/);
+});
+
+test('member-info keeps the complete compact card within Discord limits', () => {
   const payload = formatMemberInfo({
     target: { id: '100', user: { tag: 'Greek#0001' } },
     member: { full_name: 'Greek', member_type: MEMBER_TYPES.RESEARCHER, university_name: 'Bocconi' },
@@ -1370,9 +1387,13 @@ test('member-info keeps the complete workspace document within Discord limits', 
       status: 'active',
     })),
   });
-  assert.ok(payload.content.length <= 2_000);
-  assert.match(payload.content, /more/);
-  assert.match(payload.content, /Member record · Current database state$/);
+  const embed = payload.embeds[0].toJSON();
+  const characterCount = embed.title.length
+    + embed.footer.text.length
+    + embed.fields.reduce((total, field) => total + field.name.length + field.value.length, 0);
+  assert.ok(characterCount <= 6_000);
+  assert.ok(embed.fields.every((field) => field.value.length <= 1_024));
+  assert.match(JSON.stringify(embed.fields), /more/);
 });
 
 test('member removal cleanup targets project channel overwrites once', () => {

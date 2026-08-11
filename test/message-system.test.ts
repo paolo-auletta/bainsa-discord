@@ -5,11 +5,13 @@ import { ComponentType, MessageFlags } from 'discord.js';
 
 import {
   MESSAGE_COLORS,
+  normalizeUserReference,
   renderBotMessage,
   renderEventCard,
   renderHandoffMessage,
   renderInteractionPanel,
   renderWorkspaceDocument,
+  userReference,
 } from '../src/messages/index.js';
 
 function componentJson(payload) {
@@ -76,6 +78,24 @@ test('event cards enforce semantic color, title marker, field order, and embed l
     + embed.footer.text.length
     + embed.fields.reduce((total, field) => total + field.name.length + field.value.length, 0);
   assert.ok(characterCount <= 6_000);
+});
+
+test('user references normalize direct users and fall back without stringifying unresolved objects', () => {
+  const directUser = { id: '100', globalName: 'Ada Lovelace', username: 'ada' };
+  assert.deepEqual(normalizeUserReference(directUser), {
+    id: '100',
+    displayName: 'Ada Lovelace',
+  });
+  assert.equal(userReference(directUser), 'Ada Lovelace (<@100>)');
+
+  const unresolvedUser = { displayName: 'Grace Hopper' };
+  assert.deepEqual(normalizeUserReference(unresolvedUser), {
+    id: null,
+    displayName: 'Grace Hopper',
+  });
+  assert.equal(userReference(unresolvedUser), 'Grace Hopper');
+  assert.equal(userReference({ id: {} }, 'Readable fallback'), 'Readable fallback');
+  assert.doesNotMatch(userReference({}), /\[object Object\]/);
 });
 
 test('workspace documents render one bounded durable record with provenance', () => {

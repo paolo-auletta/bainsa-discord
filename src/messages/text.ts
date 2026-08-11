@@ -19,21 +19,57 @@ export function truncateText(value: unknown, limit: number, fallback: string = E
   return `${characters.slice(0, Math.max(0, limit - 1)).join('').trimEnd()}…`;
 }
 
-export function userReference(userOrId: unknown, fallbackName?: string): string {
+type UserReferenceInput = {
+  id?: unknown;
+  displayName?: unknown;
+  globalName?: unknown;
+  username?: unknown;
+  user?: {
+    id?: unknown;
+    globalName?: unknown;
+    username?: unknown;
+  };
+};
+
+function normalizedUserId(value: unknown): string | null {
+  if (!['string', 'number', 'bigint'].includes(typeof value)) return null;
+  const id = String(value).trim();
+  if (!id || id === '[object Object]' || id === 'undefined' || id === 'null') return null;
+  return id;
+}
+
+function normalizedDisplayName(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const name = value.trim();
+    if (name) return name;
+  }
+  return null;
+}
+
+export function normalizeUserReference(userOrId: unknown, fallbackName?: string) {
   const candidate = userOrId && typeof userOrId === 'object'
-    ? userOrId as {
-        id?: unknown;
-        displayName?: unknown;
-        username?: unknown;
-        user?: { globalName?: unknown; username?: unknown };
-      }
-    : undefined;
-  const id = candidate?.id ?? userOrId;
-  const displayName = typeof userOrId === 'object'
-    ? candidate?.displayName ?? candidate?.user?.globalName ?? candidate?.user?.username ?? candidate?.username ?? fallbackName
-    : fallbackName;
+    ? userOrId as UserReferenceInput
+    : null;
+  return {
+    id: candidate
+      ? normalizedUserId(candidate.id) ?? normalizedUserId(candidate.user?.id)
+      : normalizedUserId(userOrId),
+    displayName: normalizedDisplayName(
+      candidate?.displayName,
+      candidate?.globalName,
+      candidate?.user?.globalName,
+      candidate?.user?.username,
+      candidate?.username,
+      fallbackName,
+    ),
+  };
+}
+
+export function userReference(userOrId: unknown, fallbackName?: string): string {
+  const { id, displayName } = normalizeUserReference(userOrId, fallbackName);
   if (!id) return escapeUserText(displayName, 'Unknown member');
-  const reference = userMention(String(id));
+  const reference = userMention(id);
   return displayName ? `${escapeUserText(displayName)} (${reference})` : reference;
 }
 

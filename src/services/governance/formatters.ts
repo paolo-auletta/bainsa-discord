@@ -1,7 +1,13 @@
 import { escapeMarkdown } from 'discord.js';
 
 import { BOARD_ROLES, divisionLabel, MEMBER_TYPES } from '../../constants.js';
-import { renderHandoffMessage, renderWorkspaceDocument, userReference } from '../../messages/index.js';
+import {
+  normalizeUserReference,
+  renderEventCard,
+  renderHandoffMessage,
+  renderWorkspaceDocument,
+  userReference,
+} from '../../messages/index.js';
 import { divisionHeadRoleName, divisionRoleName, normalizeDisplayName } from '../../naming.js';
 import { boardRoleLabel, memberTypeLabel } from './policy.js';
 
@@ -104,8 +110,10 @@ function formatProjectList(projects) {
 }
 
 function memberDisplay(info) {
-  const name = safeText(info.member.full_name, 'Not recorded');
-  return info.target.id ? userReference(info.target.id, name) : name;
+  const target = normalizeUserReference(info.target);
+  const recordedName = typeof info.member.full_name === 'string' ? info.member.full_name.trim() : '';
+  const name = recordedName || target.displayName || 'Not recorded';
+  return userReference(target.id, name);
 }
 
 function affiliationDisplay(info, divisions) {
@@ -115,6 +123,10 @@ function affiliationDisplay(info, divisions) {
 
 function infoField(label, value) {
   return { label, value: truncateText(value), inline: false };
+}
+
+function summaryBody(body) {
+  return Array.isArray(body) ? body.join('\n') : String(body ?? '');
 }
 
 export function memberRecordSummary(info) {
@@ -138,10 +150,17 @@ export function memberRecordSummary(info) {
 }
 
 export function formatMemberInfo(info) {
-  return renderWorkspaceDocument({
-    kind: 'workspace-document',
-    ...memberRecordSummary(info),
-    provenance: 'Member record · Current database state',
+  const summary = memberRecordSummary(info);
+  return renderEventCard({
+    kind: 'event-card',
+    tone: 'brand',
+    title: summary.title,
+    subject: summary.metadata[0],
+    details: [
+      ...summary.metadata.slice(1),
+      ...summary.sections.map((section) => infoField(section.heading, summaryBody(section.body))),
+    ],
+    footer: 'Member record · Current database state',
     audience: 'actor',
   });
 }
