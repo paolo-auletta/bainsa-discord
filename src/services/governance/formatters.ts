@@ -233,6 +233,24 @@ export function formatBoardRemovalHandoff(result, reason = null) {
   });
 }
 
+export function formatBoardUpdateHandoff(result, change) {
+  const before = change.before?.length ? change.before.join(', ') : 'No board role';
+  const after = change.after?.length ? change.after.join(', ') : 'No board role';
+  return renderHandoffMessage({
+    kind: 'handoff-message',
+    tone: 'changed',
+    title: 'Your BAINSA board access changed',
+    context: `The ${result.university.name} board roster was updated.`,
+    sections: [
+      { heading: 'Board roles', body: before === after ? after : `${before} → ${after}` },
+      { heading: 'University', body: result.university.name },
+    ],
+    nextActions: ['Run `/guide` in the university board space to see the commands available to your current role.'],
+    provenance: 'BAINSA governance · Board update',
+    audience: 'member',
+  });
+}
+
 export function formatDivisionMemberHandoff(result, { removed = false, reason = null } = {}) {
   return renderHandoffMessage({
     kind: 'handoff-message',

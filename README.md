@@ -115,8 +115,7 @@ Divisions and board:
 - `/division-update`
 - `/division-add-member`
 - `/division-remove-member`
-- `/board-add-member`
-- `/board-remove-member`
+- `/board-update`
 - `/board-info`
 
 Projects:

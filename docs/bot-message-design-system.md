@@ -127,8 +127,7 @@ navigation instead of building one-off Components V2 containers.
 
 | Membership command | UI contract | Database-derived context |
 |---|---|---|
-| `/board-add-member` | Migrated member-first panel | University, current roles, eligible appointments, and available Head divisions |
-| `/board-remove-member` | Migrated member-first panel | University, every board role, hierarchy, and removable assignments |
+| `/board-update` | Paginated roster editor | University, every active division, current-to-new position holders, and hierarchy-safe controls |
 | `/division-add-member` | Migrated member-first panel | University, member type, current memberships, and actor-manageable divisions |
 | `/division-remove-member` | Migrated member-first panel | University, every membership, scope, Head/project requirements, and remaining-division invariant |
 | `/member-remove` | Pending panel migration | Existing inline target and reason remain until its dedicated slice |

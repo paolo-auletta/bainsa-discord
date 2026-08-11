@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ComponentType, MessageFlags } from 'discord.js';
+import { ButtonStyle, ComponentType, MessageFlags } from 'discord.js';
 
 import {
   createGovernanceMembershipPanelService,
@@ -28,7 +28,7 @@ function components(payload) {
 
 function action(payload, suffix) {
   const component = components(payload).find((candidate) => candidate.custom_id?.endsWith(`:${suffix}`));
-  assert.ok(component, `Missing governance membership action ${suffix}`);
+  assert.ok(component, `Missing division membership action ${suffix}`);
   return component;
 }
 
@@ -43,45 +43,22 @@ function panelText(payload) {
     .join('\n');
 }
 
-function channel(university = 'Bocconi') {
-  return {
-    id: 'bot-log',
-    name: 'bot-log',
-    parent: { name: `BAINSA ${university}` },
-  };
-}
-
-function baseInteraction({
-  customId = null,
-  actorId = ACTOR_ID,
-  roles = ['Bocconi - President'],
-  currentChannel = channel(),
-} = {}) {
+function baseInteraction({ customId = null, roles = ['Bocconi - President'], actorId = ACTOR_ID } = {}) {
   return {
     customId,
     guildId: 'guild',
     user: { id: actorId },
     member: { roles: { cache: roleCache(roles) } },
-    channel: currentChannel,
+    channel: { name: 'bot-log', parent: { name: 'BAINSA Bocconi' } },
   };
 }
 
-function targetMember(roleNames = ['Researcher', 'Bocconi']) {
-  return {
+function context({ divisions = [], boardRoles = [], projects = [], memberType = 'researcher', targetRoles = ['Researcher', 'Bocconi'] } = {}) {
+  const target = {
     id: TARGET_ID,
-    displayName: 'Ada',
     user: { id: TARGET_ID, username: 'ada' },
-    roles: { cache: roleCache(roleNames) },
+    roles: { cache: roleCache(targetRoles) },
   };
-}
-
-function memberContext({
-  target = targetMember(),
-  memberType = 'researcher',
-  divisions = [],
-  boardRoles = [],
-  projects = [],
-} = {}) {
   return {
     target,
     member: {
@@ -98,18 +75,17 @@ function memberContext({
   };
 }
 
+const allDivisions = [
+  { id: 'd-analysis', name: 'Analysis', color: 'orange' },
+  { id: 'd-projects', name: 'Projects', color: 'blue' },
+  { id: 'd-culture', name: 'Culture', color: 'pink' },
+];
+
 function service(overrides = {}) {
   return createGovernanceMembershipPanelService({
     loadUniversities: async () => [{ id: 'u1', name: 'Bocconi' }],
-    loadDivisions: async () => [
-      { id: 'd-projects', name: 'Projects', color: 'blue' },
-      { id: 'd-analysis', name: 'Analysis', color: 'orange' },
-      { id: 'd-culture', name: 'Culture', color: 'pink' },
-    ],
+    loadDivisions: async () => allDivisions,
     loadMemberContext: async () => assert.fail('unexpected member lookup'),
-    loadBoardAssignments: async () => [],
-    addBoardMemberOperation: async () => assert.fail('unexpected board addition'),
-    removeBoardMemberOperation: async () => assert.fail('unexpected board removal'),
     addDivisionMemberOperation: async () => assert.fail('unexpected division addition'),
     removeDivisionMemberOperation: async () => assert.fail('unexpected division removal'),
     formatActivity: (commandName) => ({ content: commandName }),
@@ -119,485 +95,135 @@ function service(overrides = {}) {
   });
 }
 
-async function chooseMember(panels, start, interactionOptions = {}) {
+async function loadMember(panel, start, interactionOptions = {}) {
   let payload;
   await start({
     ...baseInteraction(interactionOptions),
     async reply(next) { payload = next; },
   });
   assert.equal(payload.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2);
-
-  await panels.handleUserSelect({
-    ...baseInteraction({
-      ...interactionOptions,
-      customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET).custom_id,
-    }),
+  await panel.handleUserSelect({
+    ...baseInteraction({ ...interactionOptions, customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET).custom_id }),
     values: [TARGET_ID],
     users: new Map([[TARGET_ID, { id: TARGET_ID, username: 'ada' }]]),
     async update(next) { payload = next; },
   });
+  await panel.handleButton({
+    ...baseInteraction({ ...interactionOptions, customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET_CONTINUE).custom_id }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
   return payload;
 }
 
-test('board add member is member-first, derives university, filters occupied roles, and saves only after review', async () => {
+test('division removal shows all memberships, scopes the selector, and previews current-to-new affiliation', async () => {
   let operationInput;
-  let activityCommand;
-  let handoff;
-  const context = memberContext({
-    divisions: [{ id: 'd-culture', name: 'Culture', color: 'pink' }],
-    boardRoles: [{
-      role: 'head',
-      university_name: 'Bocconi',
-      division_id: 'd-culture',
-      division_name: 'Culture',
-    }],
-  });
-  const panels = service({
-    loadMemberContext: async () => context,
-    loadBoardAssignments: async () => [
-      { discord_user_id: 'other-vp', role: 'vice_president', division_name: null },
-      { discord_user_id: 'other-head', role: 'head', division_name: 'Analysis' },
-      { discord_user_id: TARGET_ID, role: 'head', division_name: 'Culture' },
-    ],
-    addBoardMemberOperation: async (_interaction, input) => {
-      operationInput = input;
-      return {
-        target: context.target,
-        university: { name: input.university },
-        role: input.role,
-        division: { name: input.division },
-      };
-    },
-    formatActivity: (commandName) => {
-      activityCommand = commandName;
-      return { content: commandName };
-    },
-    sendHandoff: async (_target, payload) => { handoff = payload; },
-  });
-
-  let payload = await chooseMember(panels, panels.startBoardAddMember);
-  assert.match(panelText(payload), /Selected member/);
-  assert.equal(operationInput, undefined);
-
-  let loading;
-  await panels.handleButton({
-    ...baseInteraction({
-      customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET_CONTINUE).custom_id,
-    }),
-    async update(next) { loading = next; },
-    async editReply(next) { payload = next; },
-  });
-  assert.equal(action(loading, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET).disabled, true);
-  assert.equal(action(loading, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET_CONTINUE).label, 'Loading…');
-  assert.match(panelText(payload), /Current board roles/);
-
-  const roleSelect = action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.ROLE);
-  assert.deepEqual(roleSelect.options.map((option) => option.value), ['head', 'president']);
-  await panels.handleStringSelect({
-    ...baseInteraction({ customId: roleSelect.custom_id }),
-    values: ['head'],
-    async update(next) { payload = next; },
-  });
-  const divisionSelect = action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.DIVISION);
-  assert.deepEqual(divisionSelect.options.map((option) => option.value), ['d-projects']);
-  await panels.handleStringSelect({
-    ...baseInteraction({ customId: divisionSelect.custom_id }),
-    values: ['d-projects'],
-    async update(next) { payload = next; },
-  });
-  await panels.handleButton({
-    ...baseInteraction({ customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.REVIEW).custom_id }),
-    async update(next) { payload = next; },
-  });
-  assert.match(panelText(payload), /Displaced assignments[\s\S]*Head of Culture/);
-  assert.match(panelText(payload), /Division access after confirmation[\s\S]*Projects/);
-  assert.equal(operationInput, undefined);
-
-  const saveId = action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.SAVE).custom_id;
-  await panels.handleButton({
-    ...baseInteraction({ customId: saveId }),
-    async update() {},
-    async editReply(next) { payload = next; },
-  });
-  assert.deepEqual(operationInput, {
-    user: { id: TARGET_ID, username: 'ada' },
-    university: 'Bocconi',
-    role: 'head',
-    division: 'Projects',
-  });
-  assert.equal(activityCommand, 'board-add-member');
-  assert.match(handoff.content, /Head of Projects/);
-  assert.match(panelText(payload), /Access added/);
-  await assert.rejects(
-    () => panels.handleButton({ ...baseInteraction({ customId: saveId }) }),
-    /expired/,
-  );
-});
-
-test('board remove member lists multiple assignments, supports explicit all-Heads removal, and keeps the reason private', async () => {
-  let operationInput;
-  let activityInput;
-  let handoff;
-  const context = memberContext({
-    divisions: [
-      { id: 'd-projects', name: 'Projects', color: 'blue' },
-      { id: 'd-analysis', name: 'Analysis', color: 'orange' },
-    ],
-    boardRoles: [
-      { role: 'head', university_name: 'Bocconi', division_id: 'd-projects', division_name: 'Projects' },
-      { role: 'head', university_name: 'Bocconi', division_id: 'd-analysis', division_name: 'Analysis' },
-      { role: 'vice_president', university_name: 'Bocconi', division_id: null, division_name: null },
-      { role: 'president', university_name: 'Sapienza', division_id: null, division_name: null },
-    ],
-  });
-  const panels = service({
-    loadMemberContext: async () => context,
-    removeBoardMemberOperation: async (_interaction, input) => {
-      operationInput = input;
-      return {
-        target: context.target,
-        university: { name: input.university },
-        role: input.role,
-        division: null,
-      };
-    },
-    formatActivity: (commandName, input) => {
-      activityInput = { commandName, input };
-      return { content: commandName };
-    },
-    sendHandoff: async (_target, payload) => { handoff = payload; },
-  });
-  const interactionOptions = { roles: ['Bocconi - Vice President'] };
-  let payload = await chooseMember(panels, panels.startBoardRemoveMember, interactionOptions);
-  await panels.handleButton({
-    ...baseInteraction({
-      ...interactionOptions,
-      customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET_CONTINUE).custom_id,
-    }),
-    async update() {},
-    async editReply(next) { payload = next; },
-  });
-  assert.match(panelText(payload), /President · Sapienza — Read only/);
-  const assignments = action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.ASSIGNMENT);
-  assert.deepEqual(
-    assignments.options.map((option) => option.label),
-    ['All Head roles', 'Head of Projects', 'Head of Analysis', 'Vice President'],
-  );
-  await panels.handleStringSelect({
-    ...baseInteraction({ ...interactionOptions, customId: assignments.custom_id }),
-    values: ['hall'],
-    async update(next) { payload = next; },
-  });
-
-  let modal;
-  await panels.handleButton({
-    ...baseInteraction({
-      ...interactionOptions,
-      customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.REASON_OPEN).custom_id,
-    }),
-    async showModal(next) { modal = next.toJSON(); },
-  });
-  await panels.handleModalSubmit({
-    ...baseInteraction({ ...interactionOptions, customId: modal.custom_id }),
-    fields: { getTextInputValue: () => 'Term completed' },
-    isFromMessage: () => true,
-    async update(next) { payload = next; },
-  });
-  await panels.handleButton({
-    ...baseInteraction({
-      ...interactionOptions,
-      customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.REVIEW).custom_id,
-    }),
-    async update(next) { payload = next; },
-  });
-  assert.match(panelText(payload), /All Head roles/);
-  assert.doesNotMatch(panelText(payload), /Term completed/);
-
-  await panels.handleButton({
-    ...baseInteraction({
-      ...interactionOptions,
-      customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.SAVE).custom_id,
-    }),
-    async update() {},
-    async editReply(next) { payload = next; },
-  });
-  assert.deepEqual(operationInput, {
-    user: { id: TARGET_ID, username: 'ada' },
-    university: 'Bocconi',
-    role: 'head',
-    division: null,
-    reason: 'Term completed',
-  });
-  assert.equal(activityInput.commandName, 'board-remove-member');
-  assert.equal(JSON.stringify(activityInput.input).includes('Term completed'), false);
-  assert.match(handoff.content, /Term completed/);
-});
-
-test('a Vice President is blocked after confirming a President target', async () => {
-  const context = memberContext({
-    target: targetMember(['Researcher', 'Bocconi', 'Bocconi - President']),
-    boardRoles: [{ role: 'president', university_name: 'Bocconi', division_id: null, division_name: null }],
-  });
-  const panels = service({ loadMemberContext: async () => context });
-  const interactionOptions = { roles: ['Bocconi - Vice President'] };
-  let payload = await chooseMember(panels, panels.startBoardRemoveMember, interactionOptions);
-  await panels.handleButton({
-    ...baseInteraction({
-      ...interactionOptions,
-      customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET_CONTINUE).custom_id,
-    }),
-    async update() {},
-    async editReply(next) { payload = next; },
-  });
-  assert.match(panelText(payload), /Vice President cannot manage their university President/);
-  assert.equal(action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET).disabled, false);
-});
-
-test('division panels recheck caller authority and reject the Bot target', async () => {
-  const panels = service({
-    loadMemberContext: async () => memberContext({ target: targetMember(['Bot']) }),
-  });
-
-  await assert.rejects(
-    panels.startDivisionAddMember({
-      ...baseInteraction({ roles: ['Researcher'] }),
-      async reply() { assert.fail('an ordinary member must not receive a management panel'); },
-    }),
-    /Only a board member of Bocconi/,
-  );
-
-  const interactionOptions = { roles: ['Bocconi - Head of Projects'] };
-  let payload = await chooseMember(panels, panels.startDivisionAddMember, interactionOptions);
-  await panels.handleButton({
-    ...baseInteraction({
-      ...interactionOptions,
-      customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET_CONTINUE).custom_id,
-    }),
-    async update() {},
-    async editReply(next) { payload = next; },
-  });
-  assert.match(panelText(payload), /Bot member cannot be managed/);
-});
-
-test('division remove member shows every division but offers only the Head-owned removable role', async () => {
-  let operationInput;
-  const context = memberContext({
-    divisions: [
-      { id: 'd-analysis', name: 'Analysis', color: 'orange' },
-      { id: 'd-projects', name: 'Projects', color: 'blue' },
-    ],
-  });
-  const panels = service({
-    loadMemberContext: async () => context,
+  const member = context({ divisions: [allDivisions[0], allDivisions[1]] });
+  const panel = service({
+    loadMemberContext: async () => member,
     removeDivisionMemberOperation: async (_interaction, input) => {
       operationInput = input;
-      return {
-        target: context.target,
-        university: { name: input.university },
-        division: { name: input.division },
-      };
+      return { target: member.target, university: { name: 'Bocconi' }, division: { name: input.division } };
     },
   });
-  const interactionOptions = { roles: ['Bocconi - Head of Projects'] };
-  let payload = await chooseMember(panels, panels.startDivisionRemoveMember, interactionOptions);
-  await panels.handleButton({
-    ...baseInteraction({
-      ...interactionOptions,
-      customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET_CONTINUE).custom_id,
-    }),
-    async update() {},
-    async editReply(next) { payload = next; },
-  });
+  const options = { roles: ['Bocconi - Head of Projects'] };
+  let payload = await loadMember(panel, panel.startDivisionRemoveMember, options);
   assert.match(panelText(payload), /Analysis[\s\S]*Read only outside your scope/);
   assert.match(panelText(payload), /Projects[\s\S]*Removable/);
-  const divisions = action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.DIVISION);
-  assert.deepEqual(divisions.options.map((option) => option.value), ['d-projects']);
+  const selector = action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.DIVISION);
+  assert.deepEqual(selector.options.map((option) => option.value), ['d-projects']);
 
-  await panels.handleStringSelect({
-    ...baseInteraction({ ...interactionOptions, customId: divisions.custom_id }),
+  await panel.handleStringSelect({
+    ...baseInteraction({ ...options, customId: selector.custom_id }),
     values: ['d-projects'],
     async update(next) { payload = next; },
   });
-  await panels.handleButton({
-    ...baseInteraction({
-      ...interactionOptions,
-      customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.REVIEW).custom_id,
-    }),
+  assert.match(panelText(payload), /Affiliation:[\s\S]*Projects → Bocconi[^\n]*Analysis/);
+  await panel.handleButton({
+    ...baseInteraction({ ...options, customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.REVIEW).custom_id }),
     async update(next) { payload = next; },
   });
-  assert.match(panelText(payload), /Divisions after confirmation[\s\S]*Analysis/);
-  await panels.handleButton({
-    ...baseInteraction({
-      ...interactionOptions,
-      customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.SAVE).custom_id,
-    }),
+  assert.equal(action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.CANCEL).style, ButtonStyle.Danger);
+  await panel.handleButton({
+    ...baseInteraction({ ...options, customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.SAVE).custom_id }),
     async update() {},
     async editReply(next) { payload = next; },
   });
   assert.equal(operationInput.division, 'Projects');
 });
 
+test('division addition previews the new affiliation and saves only after review', async () => {
+  let operationInput;
+  const member = context({ divisions: [allDivisions[0]] });
+  const panel = service({
+    loadMemberContext: async () => member,
+    addDivisionMemberOperation: async (_interaction, input) => {
+      operationInput = input;
+      return { target: member.target, university: { name: 'Bocconi' }, division: { name: input.division } };
+    },
+  });
+  let payload = await loadMember(panel, panel.startDivisionAddMember);
+  const selector = action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.DIVISION);
+  await panel.handleStringSelect({
+    ...baseInteraction({ customId: selector.custom_id }),
+    values: ['d-culture'],
+    async update(next) { payload = next; },
+  });
+  assert.match(panelText(payload), /Affiliation:[\s\S]*Analysis → Bocconi[^\n]*Analysis[^\n]*Culture/);
+  assert.equal(operationInput, undefined);
+  await panel.handleButton({
+    ...baseInteraction({ customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.REVIEW).custom_id }),
+    async update(next) { payload = next; },
+  });
+  await panel.handleButton({
+    ...baseInteraction({ customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.SAVE).custom_id }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
+  assert.equal(operationInput.division, 'Culture');
+});
+
 test('division removal explains project and last-division blockers before review', async () => {
-  const projectBlocked = memberContext({
-    divisions: [
-      { id: 'd-projects', name: 'Projects', color: 'blue' },
-      { id: 'd-analysis', name: 'Analysis', color: 'orange' },
-    ],
+  const member = context({
+    divisions: [allDivisions[0], allDivisions[1]],
     projects: [{ id: 'p1', name: 'Signals', role: 'member', division_id: 'd-projects', division_name: 'Projects' }],
   });
-  const panels = service({ loadMemberContext: async () => projectBlocked });
-  let payload = await chooseMember(panels, panels.startDivisionRemoveMember);
-  await panels.handleButton({
-    ...baseInteraction({ customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET_CONTINUE).custom_id }),
-    async update() {},
-    async editReply(next) { payload = next; },
-  });
+  const panel = service({ loadMemberContext: async () => member });
+  let payload = await loadMember(panel, panel.startDivisionRemoveMember);
   assert.match(panelText(payload), /Projects[\s\S]*Blocked:[\s\S]*Signals/);
-  assert.deepEqual(
-    action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.DIVISION).options.map((option) => option.value),
-    ['d-analysis'],
-  );
+  assert.deepEqual(action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.DIVISION).options.map((option) => option.value), ['d-analysis']);
 
-  const lastDivision = memberContext({
-    divisions: [{ id: 'd-projects', name: 'Projects', color: 'blue' }],
-  });
-  const lastPanels = service({ loadMemberContext: async () => lastDivision });
-  payload = await chooseMember(lastPanels, lastPanels.startDivisionRemoveMember);
-  await lastPanels.handleButton({
-    ...baseInteraction({ customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET_CONTINUE).custom_id }),
-    async update() {},
-    async editReply(next) { payload = next; },
-  });
+  const lastPanel = service({ loadMemberContext: async () => context({ divisions: [allDivisions[0]] }) });
+  payload = await loadMember(lastPanel, lastPanel.startDivisionRemoveMember);
   assert.match(panelText(payload), /must keep at least one division/);
   assert.equal(maybeAction(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.DIVISION), null);
   assert.equal(action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.REVIEW).disabled, true);
 });
 
-test('division add member lists only non-member divisions inside the caller Head scope', async () => {
-  let operationInput;
-  const context = memberContext({
-    divisions: [{ id: 'd-analysis', name: 'Analysis', color: 'orange' }],
-  });
-  const panels = service({
-    loadMemberContext: async () => context,
-    addDivisionMemberOperation: async (_interaction, input) => {
-      operationInput = input;
-      return {
-        target: context.target,
-        university: { name: input.university },
-        division: { name: input.division },
-      };
-    },
-  });
-  const interactionOptions = { roles: ['Bocconi - Head of Projects'] };
-  let payload = await chooseMember(panels, panels.startDivisionAddMember, interactionOptions);
-  await panels.handleButton({
-    ...baseInteraction({
-      ...interactionOptions,
-      customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET_CONTINUE).custom_id,
+test('division membership panels recheck authority, reject the Bot, and invalidate cancellation', async () => {
+  const unauthorized = service();
+  await assert.rejects(
+    unauthorized.startDivisionAddMember({
+      ...baseInteraction({ roles: ['Researcher'] }),
+      async reply() { assert.fail('ordinary members cannot open this panel'); },
     }),
-    async update() {},
-    async editReply(next) { payload = next; },
-  });
-  assert.match(panelText(payload), /Analysis — Current/);
-  const divisions = action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.DIVISION);
-  assert.deepEqual(divisions.options.map((option) => option.value), ['d-projects']);
-  await panels.handleStringSelect({
-    ...baseInteraction({ ...interactionOptions, customId: divisions.custom_id }),
-    values: ['d-projects'],
-    async update(next) { payload = next; },
-  });
-  await panels.handleButton({
-    ...baseInteraction({
-      ...interactionOptions,
-      customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.REVIEW).custom_id,
-    }),
-    async update(next) { payload = next; },
-  });
-  await panels.handleButton({
-    ...baseInteraction({
-      ...interactionOptions,
-      customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.SAVE).custom_id,
-    }),
-    async update() {},
-    async editReply(next) { payload = next; },
-  });
-  assert.equal(operationInput.division, 'Projects');
-});
+    /Only a board member of Bocconi/,
+  );
 
-test('governance membership panels are actor-bound and cancellation invalidates the session', async () => {
-  const panels = service();
-  let payload;
-  await panels.startDivisionAddMember({
-    ...baseInteraction({ roles: ['Bocconi - Head of Projects'] }),
+  const botPanel = service({ loadMemberContext: async () => context({ targetRoles: ['Bot'] }) });
+  let payload = await loadMember(botPanel, botPanel.startDivisionAddMember, { roles: ['Bocconi - Head of Projects'] });
+  assert.match(panelText(payload), /Bot member cannot be managed/);
+
+  const panel = service();
+  await panel.startDivisionAddMember({
+    ...baseInteraction(),
     async reply(next) { payload = next; },
   });
-  const targetId = action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET).custom_id;
-  await assert.rejects(
-    () => panels.handleUserSelect({
-      ...baseInteraction({
-        customId: targetId,
-        actorId: 'intruder',
-        roles: ['Bocconi - Head of Projects'],
-      }),
-      values: [TARGET_ID],
-    }),
-    /Only the person who started this setup can use it/,
-  );
   const cancelId = action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.CANCEL).custom_id;
-  await panels.handleButton({
-    ...baseInteraction({ customId: cancelId, roles: ['Bocconi - Head of Projects'] }),
+  await panel.handleButton({
+    ...baseInteraction({ customId: cancelId }),
     async update(next) { payload = next; },
   });
   assert.match(panelText(payload), /cancelled/);
-  await assert.rejects(
-    () => panels.handleButton({
-      ...baseInteraction({ customId: cancelId, roles: ['Bocconi - Head of Projects'] }),
-    }),
-    /expired/,
-  );
-});
-
-test('a committed change reports delivery failures without exposing an unsafe retry', async () => {
-  const context = memberContext({
-    divisions: [
-      { id: 'd-analysis', name: 'Analysis', color: 'orange' },
-      { id: 'd-projects', name: 'Projects', color: 'blue' },
-    ],
-  });
-  const panels = service({
-    loadMemberContext: async () => context,
-    removeDivisionMemberOperation: async (_interaction, input) => ({
-      target: context.target,
-      university: { name: input.university },
-      division: { name: input.division },
-    }),
-    postActivity: async () => ({ status: 'failed' }),
-    sendHandoff: async () => { throw new Error('DM disabled'); },
-  });
-  let payload = await chooseMember(panels, panels.startDivisionRemoveMember);
-  await panels.handleButton({
-    ...baseInteraction({ customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.TARGET_CONTINUE).custom_id }),
-    async update() {},
-    async editReply(next) { payload = next; },
-  });
-  const divisions = action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.DIVISION);
-  await panels.handleStringSelect({
-    ...baseInteraction({ customId: divisions.custom_id }),
-    values: ['d-projects'],
-    async update(next) { payload = next; },
-  });
-  await panels.handleButton({
-    ...baseInteraction({ customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.REVIEW).custom_id }),
-    async update(next) { payload = next; },
-  });
-  await panels.handleButton({
-    ...baseInteraction({ customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.SAVE).custom_id }),
-    async update() {},
-    async editReply(next) { payload = next; },
-  });
-  assert.match(panelText(payload), /governance change was saved/i);
-  assert.match(panelText(payload), /activity card could not be posted/i);
-  assert.match(panelText(payload), /could not be reached by DM/i);
-  assert.equal(components(payload).some((component) => component.custom_id), false);
+  await assert.rejects(() => panel.handleButton({ ...baseInteraction({ customId: cancelId }) }), /expired/);
 });

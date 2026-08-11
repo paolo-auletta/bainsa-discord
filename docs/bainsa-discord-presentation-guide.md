@@ -648,23 +648,14 @@ New members enter through onboarding. A board approval creates the member record
 
 ### Board commands
 
-#### `/board-add-member`
+#### `/board-update`
 
-- **Why:** appoint board members through the same auditable role hierarchy used for every other operation.
-- **Who:** a University President or Vice President inside their university. Global support follows in issue #70.
-- **Inputs:** none inline; the panel infers the university, selects the member first, offers an eligible board role, and asks for a division only for Head.
-- **Returns:** a final review and private confirmation after the member, board assignment, and roles are reconciled.
-- **Rules:** a University President or Global President can appoint a University President. Multiple co-Presidents can be active in one university; Vice Presidents cannot appoint a President.
-- **Activity:** appointee, university, position, and division where relevant are posted.
-
-#### `/board-remove-member`
-
-- **Why:** remove authority while preserving the person’s ordinary membership.
-- **Who:** a University President or Vice President inside their university. Global support follows in issue #70.
-- **Inputs:** none inline; the member-first panel lists every current board role, offers only hierarchy-safe local removals, and accepts an optional private reason.
-- **Returns:** private confirmation after the board assignment and managed board role are removed.
-- **Rules:** a University President can remove a co-President. Vice Presidents cannot manage a President. Multiple Head roles are separate choices, with an explicit all-Heads action when applicable.
-- **Activity:** the removed position is posted without the reason.
+- **Why:** manage the whole university board from one accurate roster instead of separate add and remove mutations.
+- **Who:** a University President or Vice President inside their university. Vice Presidents cannot edit Presidents. Global support follows in issue #70.
+- **Inputs:** none inline; every President, Vice President, and active-division Head position has a multi-member selector with current holders preselected.
+- **Returns:** current-to-new edit and review summaries, followed by one reconciled roster update and private handoffs to affected members.
+- **Rules:** multiple members can share every position. One member can lead only one division at a time and cannot be both an executive and Head. Removing only a Head title preserves ordinary division membership.
+- **Activity:** all changed positions are posted together.
 
 #### `/board-info`
 

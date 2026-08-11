@@ -21,8 +21,7 @@ const division = { name: 'Culture' };
 
 test('activity policy contains every state-changing command and no lookup command', () => {
   assert.deepEqual([...BOARD_ACTIVITY_COMMANDS].sort(), [
-    'board-add-member',
-    'board-remove-member',
+    'board-update',
     'division-add-member',
     'division-create',
     'division-remove-member',
@@ -73,7 +72,7 @@ test('notes-only member updates do not create board activity', () => {
   );
 });
 
-test('division and board activity use consistent action, scope, and role fields', () => {
+test('division and board activity use consistent action and scope fields', () => {
   const divisionPayload = formatBoardActivity('division-create', {
     actorId,
     result: {
@@ -90,36 +89,33 @@ test('division and board activity use consistent action, scope, and role fields'
   assert.match(fieldValue(divisionEmbed, 'Channels created'), /<#200>/);
   assert.match(fieldValue(divisionEmbed, 'Channels created'), /Voice: No/);
 
-  const boardPayload = formatBoardActivity('board-add-member', {
+  const boardPayload = formatBoardActivity('board-update', {
     actorId,
-    result: { target, university, division, role: 'head' },
+    result: {
+      university,
+      positionChanges: [{
+        label: 'Head of Culture',
+        currentUserIds: ['100'],
+        nextUserIds: ['101'],
+      }],
+    },
   });
   const boardEmbed = embedJson(boardPayload);
-  assert.equal(boardEmbed.title, '🟢 Board role assigned');
-  assert.equal(fieldValue(boardEmbed, 'Member'), '<@100>');
-  assert.equal(fieldValue(boardEmbed, 'Scope'), 'Bocconi › Culture');
-  assert.equal(fieldValue(boardEmbed, 'Role'), 'Head of Culture');
+  assert.equal(boardEmbed.title, '🟠 Board updated');
+  assert.equal(fieldValue(boardEmbed, 'University'), 'Bocconi');
+  assert.equal(fieldValue(boardEmbed, 'Scope'), 'Bocconi');
+  assert.match(fieldValue(boardEmbed, 'Position changes'), /Head of Culture: <@100> → <@101>/);
 });
 
-test('activity keeps a member display name when Discord cannot resolve their bot-log mention', () => {
-  const nonBoardMember = {
-    id: '100',
-    displayName: 'Sellaceo',
-    user: { username: 'sellaceo' },
-  };
-
-  for (const command of ['board-add-member', 'board-remove-member']) {
-    const payload = formatBoardActivity(command, {
-      actorId,
-      result: { target: nonBoardMember, university, division, role: 'head' },
-    });
-
-    assert.equal(
-      fieldValue(embedJson(payload), 'Member'),
-      'Sellaceo (<@100>)',
-      `${command} should retain both the display name and native mention`,
-    );
-  }
+test('board update activity presents vacant seats and member mentions clearly', () => {
+  const payload = formatBoardActivity('board-update', {
+    actorId,
+    result: {
+      university,
+      positionChanges: [{ label: 'Vice President', currentUserIds: [], nextUserIds: ['100'] }],
+    },
+  });
+  assert.match(fieldValue(embedJson(payload), 'Position changes'), /Vice President: Vacant → <@100>/);
 });
 
 test('division update activity reports a color-only change without inventing a name change', () => {

@@ -67,6 +67,11 @@ const projectHomePlainMessageMigrationUrl = projectPath(
   'migrations',
   '020_render_project_home_as_plain_message.sql',
 );
+const coUniversityBoardSeatsMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '021_allow_co_vice_presidents_and_heads.sql',
+);
 
 async function migrationSql() {
   return readFile(migrationUrl, 'utf8');
@@ -90,6 +95,10 @@ async function reconciliationMigrationSql() {
 
 async function coPresidentsMigrationSql() {
   return readFile(coPresidentsMigrationUrl, 'utf8');
+}
+
+async function coUniversityBoardSeatsMigrationSql() {
+  return readFile(coUniversityBoardSeatsMigrationUrl, 'utf8');
 }
 
 async function executivePromotionMigrationSql() {
@@ -168,6 +177,7 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '018_project_canonical_messages.sql',
     '019_project_workspace_guide.sql',
     '020_render_project_home_as_plain_message.sql',
+    '021_allow_co_vice_presidents_and_heads.sql',
   ]);
 });
 
@@ -275,6 +285,13 @@ test('allows multiple active university Presidents', async () => {
   const sql = await coPresidentsMigrationSql();
 
   assertIncludes(sql, 'DROP INDEX IF EXISTS board_assignments_active_president_per_university_unique');
+});
+
+test('allows multiple active Vice Presidents and division Heads per position', async () => {
+  const sql = await coUniversityBoardSeatsMigrationSql();
+
+  assertIncludes(sql, 'DROP INDEX IF EXISTS board_assignments_active_vp_per_university_unique');
+  assertIncludes(sql, 'DROP INDEX IF EXISTS board_assignments_active_head_per_division_unique');
 });
 
 test('defers and serializes executive division cleanup across all relevant writes', async () => {

@@ -221,7 +221,7 @@ test('interaction panels keep field guidance directly above reusable body contro
   assert.match(componentText(payload), /\*\*Current name:\*\* rsi → RSI\n\*\*Current color:\*\* Red/);
   assert.match(componentText(payload), /Visible only in authorized governance workflows/);
   assert.ok(rowFor('notes') < rowFor('continue'));
-  assert.ok(children.length <= 10);
+  assert.ok(allComponents(payload).length <= 40);
 });
 
 test('handoff messages stay direct, no-ping, bounded, and limited to three next actions', () => {

@@ -2078,20 +2078,12 @@
         label: 'Board authority',
         commands: [
           {
-            name: '/board-add-member',
-            purpose: 'Use a member-first panel to assign eligible Head, Vice President, or President authority.',
-            success: 'Success event card names member, role, university, and division when relevant; affected member receives an authority handoff.',
-            private: 'No private appointment note is copied into activity or the handoff.',
-            alternate: 'Head moves the member into exactly one selected division; executive roles have university scope; co-Presidents are supported.',
-            recovery: 'Head missing division, executive with division, Vice President attempting President assignment, incompatible member type, or wrong scope → private error.',
-          },
-          {
-            name: '/board-remove-member',
-            purpose: 'Review every current board role and remove scoped authority while retaining base membership.',
-            success: 'Danger event card names the removed role and scope; affected member receives what changed and what remains.',
-            private: 'Optional reason is shared only where policy permits and never appears in board activity.',
-            alternate: 'One Head division, every Head role in a university, or an executive role. Researcher/university access remains.',
-            recovery: 'Vice President attempting President removal, invalid role/division shape, protected scope, or missing assignment → private explanation.',
+            name: '/board-update',
+            purpose: 'Edit the complete university board through multi-member position selectors.',
+            success: 'One changed event card lists every current-to-new seat update; affected members receive private handoffs.',
+            private: 'The editor and review remain actor-only until the saved activity summary is posted.',
+            alternate: 'Every active division is paginated into the roster; executive access is university-wide and Head-only removal preserves ordinary division membership.',
+            recovery: 'Vice President attempting a President change, invalid member, stale roster, or incompatible cross-position selection → private explanation.',
           },
           {
             name: '/board-info',

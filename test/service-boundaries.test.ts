@@ -31,6 +31,7 @@ const GOVERNANCE_PUBLIC_API = [
   'removeMember',
   'resolveDivisionTextForMemberUpdate',
   'roleNamesForDivisionHead',
+  'updateBoardRoster',
   'updateDivision',
   'updateMember',
   'warmGovernanceAutocompleteCache',

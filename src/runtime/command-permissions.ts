@@ -27,8 +27,7 @@ export const COMMAND_VISIBILITY = Object.freeze({
   'division-update': 'president',
   'division-add-member': 'board',
   'division-remove-member': 'board',
-  'board-add-member': 'executive',
-  'board-remove-member': 'executive',
+  'board-update': 'executive',
   'board-info': 'board',
   'project-create': 'board',
   'project-update': 'project',
@@ -42,8 +41,7 @@ export const COMMAND_VISIBILITY = Object.freeze({
 export const UNIVERSITY_ONLY_MEMBERSHIP_COMMANDS = Object.freeze(new Set([
   'division-add-member',
   'division-remove-member',
-  'board-add-member',
-  'board-remove-member',
+  'board-update',
 ]));
 
 function memberRoleNames(member) {

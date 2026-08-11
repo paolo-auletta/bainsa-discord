@@ -19,6 +19,7 @@ import {
   removeMember,
 } from '../../services/governance/service.js';
 import { governanceMembershipPanels } from '../../services/governance/membership-panels.js';
+import { boardUpdatePanel } from '../../services/governance/board-update-panel.js';
 import { governanceCommandPanels } from '../../services/governance/panels.js';
 
 function universityOption(option) {
@@ -204,19 +205,11 @@ const divisionRemoveMember = {
   ),
 };
 
-const boardAddMember = {
-  data: command('board-add-member', 'Open the private guided board-appointment panel.'),
+const boardUpdate = {
+  data: command('board-update', 'Open the private university board roster editor.'),
   execute: (interaction) => openPanel(
     interaction,
-    () => governanceMembershipPanels.startBoardAddMember(interaction),
-  ),
-};
-
-const boardRemoveMember = {
-  data: command('board-remove-member', 'Open the private guided board-role removal panel.'),
-  execute: (interaction) => openPanel(
-    interaction,
-    () => governanceMembershipPanels.startBoardRemoveMember(interaction),
+    () => boardUpdatePanel.start(interaction),
   ),
 };
 
@@ -241,8 +234,7 @@ export const governanceCommands = [
   divisionUpdate,
   divisionAddMember,
   divisionRemoveMember,
-  boardAddMember,
-  boardRemoveMember,
+  boardUpdate,
   boardInfo,
 ];
 

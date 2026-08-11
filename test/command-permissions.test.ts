@@ -22,9 +22,8 @@ const roles = [
 
 test('every registered command has a deliberate board-visibility policy', () => {
   assert.deepEqual(Object.keys(COMMAND_VISIBILITY).sort(), [
-    'board-add-member',
     'board-info',
-    'board-remove-member',
+    'board-update',
     'division-add-member',
     'division-create',
     'division-remove-member',
@@ -50,12 +49,11 @@ test('role visibility tiers expose only the intended board levels', () => {
   );
 });
 
-test('board role commands are visible to university Vice Presidents', () => {
+test('board update is visible to university Vice Presidents', () => {
   const scope = { kind: 'university', universityName: 'Bocconi' };
   const vicePresident = memberWithRoles(['Bocconi - Vice President']);
 
-  assert.equal(canDiscoverCommand({ commandName: 'board-add-member', member: vicePresident, channelScope: scope }), true);
-  assert.equal(canDiscoverCommand({ commandName: 'board-remove-member', member: vicePresident, channelScope: scope }), true);
+  assert.equal(canDiscoverCommand({ commandName: 'board-update', member: vicePresident, channelScope: scope }), true);
 });
 
 test('local membership panels stay out of global scope until the #70 workflow exists', () => {
@@ -63,8 +61,7 @@ test('local membership panels stay out of global scope until the #70 workflow ex
   const scope = { kind: 'global' };
 
   for (const commandName of [
-    'board-add-member',
-    'board-remove-member',
+    'board-update',
     'division-add-member',
     'division-remove-member',
   ]) {
@@ -72,7 +69,7 @@ test('local membership panels stay out of global scope until the #70 workflow ex
   }
 
   const boardPermissions = buildCommandPermissionOverwrites({
-    commandName: 'board-add-member',
+    commandName: 'board-update',
     guildId: 'guild',
     roles,
   });

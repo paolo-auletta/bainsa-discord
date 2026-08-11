@@ -81,10 +81,14 @@ function controlRow(control: InteractionControlSpec) {
   return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
 }
 
-function sectionText(section: WorkspaceSectionSpec, compact = false) {
+function sectionText(
+  section: WorkspaceSectionSpec,
+  density: InteractionPanelSpec['detailsDensity'],
+) {
   const body = Array.isArray(section.body) ? section.body.join('\n') : section.body;
   if (!section.heading) return String(body ?? '');
-  if (!compact) return `**${section.heading}**\n${body}`;
+  if (density === 'compact-groups') return `**${section.heading}:**\n${body}`;
+  if (density !== 'compact') return `**${section.heading}**\n${body}`;
   return String(body ?? '').includes('\n')
     ? `**${section.heading}:**\n${body}`
     : `**${section.heading}:** ${body}`;
@@ -101,6 +105,14 @@ function controlLabel(control: InteractionControlSpec) {
   const label = control.kind === 'button' ? control.fieldLabel : control.label;
   if (!label) return null;
   return fieldGuidance(label, control.description);
+}
+
+function totalComponentCount(component: unknown): number {
+  if (!component || typeof component !== 'object') return 0;
+  const children = Array.isArray((component as { components?: unknown[] }).components)
+    ? (component as { components: unknown[] }).components
+    : [];
+  return 1 + children.reduce<number>((total, child) => total + totalComponentCount(child), 0);
 }
 
 export function renderInteractionPanel(spec: InteractionPanelSpec): BotMessagePayload {
@@ -120,11 +132,14 @@ export function renderInteractionPanel(spec: InteractionPanelSpec): BotMessagePa
     ...(facts.length ? [facts.map((fact) => compact
       ? `**${fact.label}:** ${fact.value}`
       : `**${fact.label}**\n${fact.value}`).join(factSeparator)] : []),
-    ...sections.map((section) => sectionText(section, compact)),
+    ...sections.map((section) => sectionText(section, spec.detailsDensity)),
     ...(spec.status ? [cleanText(spec.status)] : []),
   ].filter(Boolean);
 
-  const controls = (spec.controls ?? []).slice(0, DISCORD_LIMITS.controlRows);
+  const controls = spec.controls ?? [];
+  if (controls.length > DISCORD_LIMITS.controlRows) {
+    throw new Error(`Interaction panel has ${controls.length} controls; paginate after ${DISCORD_LIMITS.controlRows}.`);
+  }
   const footerActions = spec.actions?.slice(
     0,
     DISCORD_LIMITS.actionRows * DISCORD_LIMITS.actionRowButtons,
@@ -136,6 +151,7 @@ export function renderInteractionPanel(spec: InteractionPanelSpec): BotMessagePa
       ? 1
         + controls.length
         + controls.filter((control) => controlLabel(control)).length
+        + controls.filter((control) => control.groupLabel).length
         + (spec.contentActions?.length && spec.contentActionsLabel ? 1 : 0)
         + (spec.contentActions?.length ? 1 : 0)
       : 0)
@@ -157,6 +173,9 @@ export function renderInteractionPanel(spec: InteractionPanelSpec): BotMessagePa
   if (controls.length || spec.contentActions?.length) {
     container.addSeparatorComponents(separator());
     for (const control of controls) {
+      if (control.groupLabel) {
+        container.addTextDisplayComponents(text(`**${cleanText(control.groupLabel)}**`));
+      }
       const label = controlLabel(control);
       if (label) container.addTextDisplayComponents(text(label));
       if (control.kind === 'button') {
@@ -194,9 +213,9 @@ export function renderInteractionPanel(spec: InteractionPanelSpec): BotMessagePa
     }
   }
 
-  const componentCount = container.toJSON().components.length;
-  if (componentCount > DISCORD_LIMITS.containerComponents) {
-    throw new Error(`Interaction panel has ${componentCount} components; Discord allows ${DISCORD_LIMITS.containerComponents}.`);
+  const componentCount = totalComponentCount(container.toJSON());
+  if (componentCount > DISCORD_LIMITS.messageComponents) {
+    throw new Error(`Interaction panel has ${componentCount} components; Discord allows ${DISCORD_LIMITS.messageComponents}.`);
   }
 
   return {

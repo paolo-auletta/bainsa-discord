@@ -612,7 +612,7 @@ function projectCloseReviewPayload(session: ProjectCloseSession) {
     actions: [
       { id: id(session, ACTIONS.CLOSE_SAVE), label: 'Close project', style: 'danger' },
       { id: id(session, ACTIONS.CLOSE_BACK_DETAILS), label: 'Edit conclusion', style: 'secondary' },
-      { id: id(session, ACTIONS.CLOSE_CANCEL), label: 'Cancel closure', style: 'secondary' },
+      { id: id(session, ACTIONS.CLOSE_CANCEL), label: 'Cancel closure', style: 'danger' },
     ],
     audience: 'actor',
   });
@@ -664,7 +664,7 @@ function failurePayload(session: ProjectPanelSession, message: string) {
       : [
           { id: id(session, ACTIONS.CLOSE_SAVE), label: 'Try closing again', style: 'danger' },
           { id: id(session, ACTIONS.CLOSE_BACK_DETAILS), label: 'Edit conclusion', style: 'secondary' },
-          { id: id(session, ACTIONS.CLOSE_CANCEL), label: 'Cancel closure', style: 'secondary' },
+          { id: id(session, ACTIONS.CLOSE_CANCEL), label: 'Cancel closure', style: 'danger' },
         ],
     audience: 'actor',
   });

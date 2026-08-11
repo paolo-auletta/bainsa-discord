@@ -14,8 +14,7 @@ const EXPECTED_COMMANDS = {
   'division-update': [],
   'division-add-member': [],
   'division-remove-member': [],
-  'board-add-member': [],
-  'board-remove-member': [],
+  'board-update': [],
   'board-info': ['university'],
   'project-create': [],
   'project-update': [],
@@ -26,8 +25,7 @@ const EXPECTED_COMMANDS = {
 const PANEL_GOVERNANCE_COMMANDS = [
   'division-add-member',
   'division-remove-member',
-  'board-add-member',
-  'board-remove-member',
+  'board-update',
 ];
 
 test('every v1 command is registered with a complete slash-command contract', () => {
@@ -51,7 +49,7 @@ test('member admission is handled by onboarding, not a slash command', () => {
   assert.equal(commands.some((command) => command.data.name === 'member-add'), false);
 });
 
-test('member-first governance panels expose no obsolete inline scope options', () => {
+test('governance panels expose no obsolete inline scope options', () => {
   const serialized = new Map(serializeCommands(commands).map((command) => [command.name, command]));
   for (const commandName of PANEL_GOVERNANCE_COMMANDS) {
     assert.deepEqual(serialized.get(commandName).options, [], commandName);

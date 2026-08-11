@@ -13,6 +13,7 @@ import { config } from './config.js';
 import { createProfileService } from './profiles/index.js';
 import { createProfileReconciliationWorker } from './profiles/reconciliation.js';
 import { governanceMembershipPanels } from './services/governance/membership-panels.js';
+import { boardUpdatePanel } from './services/governance/board-update-panel.js';
 import { governanceCommandPanels } from './services/governance/panels.js';
 import { hideDepartedMemberProfile, warmGovernanceAutocompleteCache } from './services/governance/service.js';
 import { projectCreateSetup, warmProjectAutocompleteCache } from './services/projects/index.js';
@@ -24,7 +25,7 @@ const onboarding = createOnboardingService();
 const profiles = createProfileService();
 const dispatchInteraction = createInteractionDispatcher({
   commands,
-  componentHandlers: [governanceCommandPanels, governanceMembershipPanels, projectManagementPanels],
+  componentHandlers: [governanceCommandPanels, governanceMembershipPanels, boardUpdatePanel, projectManagementPanels],
   onboarding,
   guide: guideInteractions,
   projectSetup: projectCreateSetup,

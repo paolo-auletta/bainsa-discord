@@ -33,6 +33,7 @@ import {
   roleNamesForDivisionHead,
   resolveDivisionTextForMemberUpdate,
   updateDivision,
+  updateBoardRoster,
   warmGovernanceAutocompleteCache,
 } from '../src/services/governance/service.js';
 import { createDivisionChannel, renameChannelById } from '../src/services/governance/gateway.js';
@@ -129,9 +130,8 @@ test('parseDivisionList normalizes, deduplicates, and ignores empty parts', () =
 test('governanceCommands exposes only the approved v1 governance commands', () => {
   const names = governanceCommands.map((entry) => entry.data.name).sort();
   assert.deepEqual(names, [
-    'board-add-member',
     'board-info',
-    'board-remove-member',
+    'board-update',
     'division-add-member',
     'division-create',
     'division-remove-member',
@@ -331,14 +331,92 @@ test('division-update restores an already-renamed channel when a later channel r
   assert.equal(voiceChannel.name, '🟦-projects-room');
 });
 
-test('board membership commands open zero-argument private panel flows', () => {
-  const boardAdd = governanceCommands.find((entry) => entry.data.name === 'board-add-member').data.toJSON();
-  const boardRemove = governanceCommands.find((entry) => entry.data.name === 'board-remove-member').data.toJSON();
+test('board update opens a zero-argument private roster editor', () => {
+  const boardUpdate = governanceCommands.find((entry) => entry.data.name === 'board-update').data.toJSON();
 
-  assert.deepEqual(boardAdd.options, []);
-  assert.deepEqual(boardRemove.options, []);
-  assert.match(boardAdd.description, /private guided board-appointment panel/i);
-  assert.match(boardRemove.description, /private guided board-role removal panel/i);
+  assert.deepEqual(boardUpdate.options, []);
+  assert.match(boardUpdate.description, /private university board roster editor/i);
+});
+
+test('board roster update removes only a Head title and preserves ordinary division membership', async () => {
+  const researcherRole = testRole('researcher-role', ROLE_NAMES.RESEARCHER);
+  const universityRole = testRole('bocconi-role', 'Bocconi');
+  const projectsRole = testRole('projects-role', 'Bocconi - Projects');
+  const projectsHeadRole = testRole('projects-head-role', 'Bocconi - Head of Projects');
+  const roles = cacheFrom([researcherRole, universityRole, projectsRole, projectsHeadRole]);
+  const target = memberWithRoles([researcherRole, universityRole, projectsRole, projectsHeadRole]);
+  target.id = 'target-user';
+  target.user.id = 'target-user';
+  const currentAssignments = [
+    { discord_user_id: 'president-user', university_id: 2, role: BOARD_ROLES.PRESIDENT, division_id: null, division_name: null },
+    { discord_user_id: 'target-user', university_id: 2, role: BOARD_ROLES.HEAD, division_id: 7, division_name: 'Projects' },
+  ];
+  const transactionQueries = [];
+  const memberRecord = {
+    discord_user_id: 'target-user',
+    university_id: 2,
+    university_name: 'Bocconi',
+    member_type: MEMBER_TYPES.RESEARCHER,
+    status: 'active',
+  };
+  const memberDivisions = [{ id: 7, university_id: 2, university_name: 'Bocconi', name: 'Projects' }];
+  const queryResult = async (text) => {
+    if (text.includes('FROM universities')) return { rows: [{ id: 2, name: 'Bocconi' }], rowCount: 1 };
+    if (text.includes("role IN ('president', 'vice_president')")) {
+      return { rows: [{ role: BOARD_ROLES.PRESIDENT }], rowCount: 1 };
+    }
+    if (text.includes('SELECT id, university_id, name, color, member_role_id')) {
+      return { rows: [{ id: 7, university_id: 2, name: 'Projects', member_role_id: projectsRole.id, head_role_id: projectsHeadRole.id }], rowCount: 1 };
+    }
+    if (text.includes('SELECT br.discord_user_id')) return { rows: currentAssignments, rowCount: currentAssignments.length };
+    if (text.includes('SELECT id, member_role_id, head_role_id')) {
+      return { rows: [{ id: 7, member_role_id: projectsRole.id, head_role_id: projectsHeadRole.id }], rowCount: 1 };
+    }
+    if (text.includes('FROM members m')) return { rows: [memberRecord], rowCount: 1 };
+    if (text.includes('FROM member_divisions')) return { rows: memberDivisions, rowCount: 1 };
+    if (text.includes('FROM project_people pp')) return { rows: [], rowCount: 0 };
+    return { rows: [], rowCount: 0 };
+  };
+  const db = {
+    query: queryResult,
+    async transaction(callback) {
+      return callback({
+        async query(text, values) {
+          transactionQueries.push({ text, values });
+          return queryResult(text);
+        },
+      });
+    },
+  };
+
+  const result = await updateBoardRoster(
+    {
+      guild: {
+        roles: { cache: roles },
+        members: { async fetch() { return target; } },
+      },
+      user: { id: 'actor-user' },
+      member: fakeMember([]),
+    },
+    {
+      university: 'Bocconi',
+      expectedAssignments: currentAssignments.map((assignment) => ({
+        userId: assignment.discord_user_id,
+        role: assignment.role,
+        divisionId: assignment.division_id,
+      })),
+      assignments: [{ userId: 'president-user', role: BOARD_ROLES.PRESIDENT, divisionId: null }],
+    },
+    { db },
+  );
+
+  assert.deepEqual(
+    [...target.roles.cache.values()].map((role) => role.name).sort(),
+    [ROLE_NAMES.RESEARCHER, 'Bocconi', 'Bocconi - Projects'].sort(),
+  );
+  assert.equal(transactionQueries.some((query) => query.text.includes('DELETE FROM member_divisions')), false);
+  assert.deepEqual(result.memberChanges[0].before, ['Head of Projects']);
+  assert.deepEqual(result.memberChanges[0].after, []);
 });
 
 test('member-remove policy protects President and Bot roles', () => {

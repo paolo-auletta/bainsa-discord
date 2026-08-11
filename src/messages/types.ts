@@ -71,6 +71,7 @@ export type InteractionControlSpec =
       kind: 'button';
       id: string;
       label: string;
+      groupLabel?: string;
       fieldLabel?: string;
       description?: string;
       style?: Exclude<InteractionActionStyle, 'link'>;
@@ -82,6 +83,7 @@ export type InteractionControlSpec =
       id: string;
       placeholder: string;
       label?: string;
+      groupLabel?: string;
       description?: string;
       options: readonly StringSelectOptionSpec[];
       min?: number;
@@ -93,6 +95,7 @@ export type InteractionControlSpec =
       id: string;
       placeholder: string;
       label?: string;
+      groupLabel?: string;
       description?: string;
       selectedUserIds?: readonly string[];
       min?: number;

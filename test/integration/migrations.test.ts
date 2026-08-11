@@ -48,10 +48,10 @@ test.after(async () => {
 test('runs every migration against a fresh database and keeps the final contract idempotent', async () => {
   const first = await resetAndMigrate();
   assert.equal(first.pending, 0);
-  assert.equal(first.appliedNow.length, 18);
+  assert.equal(first.appliedNow.length, 19);
   assert.deepEqual(first.status.map((row) => row.status), [
     'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
-    'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
+    'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
   ]);
 
   const tables = await database.query(`
@@ -90,7 +90,8 @@ test('runs every migration against a fresh database and keeps the final contract
          'board_assignments_active_head_per_division_unique'
        )
   `);
-  assert.equal(indexes.rowCount, 4);
+  assert.equal(indexes.rowCount, 3);
+  assert.equal(indexes.rows.some((row) => row.indexname === 'board_assignments_active_head_per_division_unique'), false);
 
   const reapplicationColumn = await database.query(`
     SELECT data_type, is_nullable, column_default
@@ -169,11 +170,11 @@ test('runs every migration against a fresh database and keeps the final contract
 
   const second = await migrate();
   assert.deepEqual(second.appliedNow, []);
-  assert.equal(second.applied, 16);
+  assert.equal(second.applied, 19);
   assert.equal(second.pending, 0);
 
   const status = await migrate({ statusOnly: true });
-  assert.equal(status.applied, 16);
+  assert.equal(status.applied, 19);
   assert.equal(status.pending, 0);
 });
 
@@ -608,7 +609,7 @@ test('upgrades the tracked legacy university and division shape in place', async
   );
 
   const result = await migrate();
-  assert.equal(result.applied, 15);
+  assert.equal(result.applied, 19);
   assert.equal(result.recordedNotLocal, 1);
 
   const university = await database.query(

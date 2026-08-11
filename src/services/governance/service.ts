@@ -385,6 +385,7 @@ function assertExclusiveBoardAssignmentAvailable(assignment, targetId, role, uni
 
 function boardAssignmentKey(assignment) {
   return [
+    String(assignment.discord_user_id ?? ''),
     assignment.role,
     String(assignment.university_id ?? assignment.university_name ?? '').toLowerCase(),
     String(assignment.division_id ?? assignment.division_name ?? '').toLowerCase(),
@@ -396,6 +397,54 @@ function sameBoardAssignments(left, right) {
   const rightKeys = right.map(boardAssignmentKey).sort();
   return leftKeys.length === rightKeys.length
     && leftKeys.every((key, index) => key === rightKeys[index]);
+}
+
+function boardAssignmentsForUser(assignments, userId) {
+  return assignments.filter((assignment) => String(assignment.discord_user_id) === String(userId));
+}
+
+function localBoardAssignmentLabel(assignment) {
+  return assignment.role === BOARD_ROLES.HEAD
+    ? `Head of ${assignment.division_name ?? 'unknown division'}`
+    : boardRoleLabel(assignment.role);
+}
+
+function boardPositionChanges(before, after, divisions) {
+  const positions = [
+    { role: BOARD_ROLES.PRESIDENT, division: null, label: 'President' },
+    { role: BOARD_ROLES.VICE_PRESIDENT, division: null, label: 'Vice President' },
+    ...divisions.map((division) => ({
+      role: BOARD_ROLES.HEAD,
+      division,
+      label: `Head of ${division.name}`,
+    })),
+  ];
+  return positions.flatMap((position) => {
+    const matches = (assignments) => assignments
+      .filter((assignment) =>
+        assignment.role === position.role
+        && (
+          position.role !== BOARD_ROLES.HEAD
+          || String(assignment.division_id) === String(position.division.id)
+        ),
+      )
+      .map((assignment) => String(assignment.discord_user_id))
+      .sort();
+    const currentUserIds = matches(before);
+    const nextUserIds = matches(after);
+    return sameBoardAssignments(
+      currentUserIds.map((discord_user_id) => ({ discord_user_id, role: position.role })),
+      nextUserIds.map((discord_user_id) => ({ discord_user_id, role: position.role })),
+    )
+      ? []
+      : [{
+          role: position.role,
+          division: position.division,
+          label: position.label,
+          currentUserIds,
+          nextUserIds,
+        }];
+  });
 }
 
 function hasUniversityExecutiveAssignment(boardRoles, universityName) {
@@ -1507,6 +1556,294 @@ export async function removeBoardRole(interaction, options, deps: GovernanceDepe
   return { target, university, role, division };
 }
 
+export async function updateBoardRoster(interaction, options, deps: GovernanceDependencies = {}) {
+  const db = dbFrom(deps);
+  actorMember(interaction);
+  const university = await getUniversityByName(db, options.university);
+  const authorityResult = await db.query(
+    `SELECT role
+       FROM board_assignments
+      WHERE discord_user_id = $1
+        AND university_id = $2
+        AND role IN ('president', 'vice_president')
+        AND active = true`,
+    [String(interaction.user.id), university.id],
+  );
+  const actorRoles = new Set(authorityResult.rows.map((assignment) => String(assignment.role)));
+  const actorPresident = actorRoles.has(BOARD_ROLES.PRESIDENT);
+  const actorVicePresident = actorRoles.has(BOARD_ROLES.VICE_PRESIDENT);
+  assertUser(
+    actorPresident || actorVicePresident,
+    `Only the President or Vice President of ${university.name} can update its board.`,
+  );
+
+  const divisionResult = await db.query(
+    `SELECT id, university_id, name, color, member_role_id, head_role_id
+       FROM divisions
+      WHERE university_id = $1
+        AND active = true
+      ORDER BY name`,
+    [university.id],
+  );
+  const divisions = divisionResult.rows;
+  const divisionsById = new Map(divisions.map((division) => [String(division.id), division]));
+  const normalizeAssignments = (assignments) => assignments.map((assignment) => {
+    const role = String(assignment.role);
+    assertUser(
+      ([BOARD_ROLES.HEAD, BOARD_ROLES.VICE_PRESIDENT, BOARD_ROLES.PRESIDENT] as string[]).includes(role),
+      'The board update contains an unknown role.',
+    );
+    const division = role === BOARD_ROLES.HEAD
+      ? divisionsById.get(String(assignment.divisionId ?? assignment.division_id ?? ''))
+      : null;
+    assertUser(role !== BOARD_ROLES.HEAD || division, 'The board update contains an unavailable division.');
+    assertUser(
+      role === BOARD_ROLES.HEAD || (assignment.divisionId == null && assignment.division_id == null),
+      'Only Head roles can include a division.',
+    );
+    return {
+      discord_user_id: String(assignment.userId ?? assignment.discord_user_id ?? ''),
+      university_id: university.id,
+      role,
+      division_id: division?.id ?? null,
+      division_name: division?.name ?? null,
+    };
+  });
+  const expectedAssignments = normalizeAssignments(options.expectedAssignments ?? []);
+  const desiredAssignments = normalizeAssignments(options.assignments ?? []);
+  assertUser(
+    desiredAssignments.every((assignment) => assignment.discord_user_id),
+    'Every occupied board position must identify a member.',
+  );
+
+  const exactKeys = desiredAssignments.map((assignment) => boardAssignmentKey(assignment));
+  assertUser(new Set(exactKeys).size === exactKeys.length, 'The board update contains a duplicate assignment.');
+  assertUser(
+    desiredAssignments.filter((assignment) => assignment.role === BOARD_ROLES.PRESIDENT).length > 0,
+    `${university.name} must keep at least one President.`,
+  );
+  const headAssignments = desiredAssignments.filter((assignment) => assignment.role === BOARD_ROLES.HEAD);
+  assertUser(
+    new Set(headAssignments.map((assignment) => assignment.discord_user_id)).size === headAssignments.length,
+    'A member can lead only one division at a time.',
+  );
+  const executiveUserIds = new Set(desiredAssignments
+    .filter((assignment) => assignment.role !== BOARD_ROLES.HEAD)
+    .map((assignment) => assignment.discord_user_id));
+  assertUser(
+    headAssignments.every((assignment) => !executiveUserIds.has(assignment.discord_user_id)),
+    'Presidents and Vice Presidents cannot simultaneously hold a division Head position.',
+  );
+
+  const currentResult = await db.query(
+    `SELECT br.discord_user_id, br.university_id, br.role, br.division_id, d.name AS division_name
+       FROM board_assignments br
+       LEFT JOIN divisions d ON d.id = br.division_id
+      WHERE br.university_id = $1
+        AND br.active = true
+      ORDER BY br.role, br.division_id NULLS FIRST, br.discord_user_id`,
+    [university.id],
+  );
+  const currentAssignments = currentResult.rows;
+  assertUser(
+    sameBoardAssignments(currentAssignments, expectedAssignments),
+    'The board changed while this panel was open. Run `/board-update` again to load the current roster.',
+  );
+  assertUser(
+    !sameBoardAssignments(currentAssignments, desiredAssignments),
+    'Choose at least one board change before saving.',
+  );
+
+  const currentKeys = new Set(currentAssignments.map(boardAssignmentKey));
+  const desiredKeys = new Set(desiredAssignments.map(boardAssignmentKey));
+  const removals = currentAssignments.filter((assignment) => !desiredKeys.has(boardAssignmentKey(assignment)));
+  const additions = desiredAssignments.filter((assignment) => !currentKeys.has(boardAssignmentKey(assignment)));
+  for (const assignment of [...removals, ...additions]) {
+    assertUser(
+      assignment.role !== BOARD_ROLES.PRESIDENT || actorPresident,
+      `Only the President of ${university.name} can change its President position.`,
+    );
+  }
+
+  const affectedUserIds = [...new Set([...removals, ...additions].map((assignment) => assignment.discord_user_id))].sort();
+  const universityDivisionRoleIds = await getUniversityDivisionDiscordRoleIds(db, university.id);
+  const people = [];
+  for (const userId of affectedUserIds) {
+    const [target, member, memberDivisions, boardRoles] = await Promise.all([
+      targetGuildMember(interaction, { id: userId }),
+      getMemberRecord(db, userId),
+      getMemberDivisions(db, userId),
+      getBoardRoles(db, userId),
+    ]);
+    assertUser(!hasRole(target, ROLE_NAMES.BOT), 'The Bot member cannot be managed.');
+    assertUser(
+      !hasRole(target, ROLE_NAMES.GLOBAL_PRESIDENT)
+        && !boardRoles.some((assignment) => assignment.role === BOARD_ROLES.GLOBAL_PRESIDENT),
+      'You cannot manage Global President members.',
+    );
+    assertUser(
+      member?.status === 'active' && String(member.university_id) === String(university.id),
+      `<@${userId}> is no longer an active member of ${university.name}.`,
+    );
+    const currentRoles = boardAssignmentsForUser(currentAssignments, userId)
+      .map((assignment) => ({ ...assignment, university_name: university.name }));
+    assertUser(
+      actorPresident || !currentRoles.some((assignment) => assignment.role === BOARD_ROLES.PRESIDENT),
+      'A Vice President cannot manage their university President.',
+    );
+    const nextRoles = boardAssignmentsForUser(desiredAssignments, userId);
+    people.push({ target, member, memberDivisions, currentRoles, nextRoles });
+  }
+
+  const roleChanges = [];
+  const discordReason = `BAINSA governance: board.update ${university.name}`;
+  try {
+    for (const person of people) {
+      const executiveRoles = person.nextRoles.filter((assignment) => assignment.role !== BOARD_ROLES.HEAD);
+      const headRole = person.nextRoles.find((assignment) => assignment.role === BOARD_ROLES.HEAD) ?? null;
+      const finalDivisions = executiveRoles.length > 0
+        ? []
+        : headRole
+          ? [divisionsById.get(String(headRole.division_id))]
+          : person.memberDivisions;
+      const desiredRoleNames = [
+        universityAccessRoleName(university.name),
+        ...finalDivisions.map((division) => divisionRoleName(university.name, division.name)),
+        ...executiveRoles.map((assignment) =>
+          universityBoardRoleName(university.name, boardRoleLabel(assignment.role)),
+        ),
+        ...(headRole ? [divisionHeadRoleName(university.name, headRole.division_name)] : []),
+      ];
+      const change = await enforceResearcherRoles(
+        person.target,
+        interaction.guild,
+        desiredRoleNames,
+        discordReason,
+        {
+          removableRoleNames: [
+            universityBoardRoleName(university.name, 'President'),
+            universityBoardRoleName(university.name, 'Vice President'),
+          ],
+          removableRoles: discordDivisionRolesForUniversity(
+            person.target,
+            interaction.guild,
+            universityDivisionRoleIds,
+          ),
+        },
+      );
+      roleChanges.push({ person, ...change });
+    }
+  } catch (error) {
+    await Promise.all(roleChanges.map(({ person, addedRoles, removedRoles }) =>
+      compensateRoles(person.target, addedRoles, removedRoles, 'Compensating failed board roster update'),
+    ));
+    throw error;
+  }
+
+  try {
+    await db.transaction(async (q) => {
+      await q.query('SELECT id FROM universities WHERE id = $1 FOR UPDATE', [university.id]);
+      await lockDivisionHeadEligibilityRows(q, divisions.map((division) => division.id));
+      await lockMemberEligibilityRows(q, affectedUserIds);
+      const locked = await q.query(
+        `SELECT br.discord_user_id, br.university_id, br.role, br.division_id, d.name AS division_name
+           FROM board_assignments br
+           LEFT JOIN divisions d ON d.id = br.division_id
+          WHERE br.university_id = $1
+            AND br.active = true
+          ORDER BY br.role, br.division_id NULLS FIRST, br.discord_user_id
+          FOR UPDATE OF br`,
+        [university.id],
+      );
+      assertUser(
+        sameBoardAssignments(locked.rows, expectedAssignments),
+        'The board changed while this update was being saved. Run `/board-update` again.',
+      );
+
+      for (const person of people) {
+        const lockedMember = await getMemberRecord(q, person.target.id);
+        assertUser(
+          lockedMember?.status === 'active' && String(lockedMember.university_id) === String(university.id),
+          `<@${person.target.id}> is no longer an active member of ${university.name}.`,
+        );
+        const nextRoles = boardAssignmentsForUser(desiredAssignments, person.target.id);
+        const executiveRoles = nextRoles.filter((assignment) => assignment.role !== BOARD_ROLES.HEAD);
+        const headRole = nextRoles.find((assignment) => assignment.role === BOARD_ROLES.HEAD) ?? null;
+        const lockedDivisions = await getMemberDivisions(q, person.target.id);
+        const finalDivisions = executiveRoles.length > 0
+          ? []
+          : headRole
+            ? [divisionsById.get(String(headRole.division_id))]
+            : lockedDivisions;
+        await assertMemberProjectAssignmentEligibility(q, {
+          userId: person.target.id,
+          memberType: MEMBER_TYPES.RESEARCHER,
+          universityId: university.id,
+          divisionIds: finalDivisions.map((division) => division.id),
+          additionalBoardUniversityIds: nextRoles.length > 0 ? [university.id] : [],
+        });
+        await upsertMemberRecord(q, person.target.id, MEMBER_TYPES.RESEARCHER, university.id, null);
+        if (executiveRoles.length > 0 || headRole) {
+          await replaceMemberDivisionRows(q, person.target.id, finalDivisions);
+        }
+      }
+
+      for (const assignment of removals) {
+        await q.query(
+          `UPDATE board_assignments
+              SET active = false,
+                  updated_at = now()
+            WHERE discord_user_id = $1
+              AND university_id = $2
+              AND role = $3
+              AND division_id IS NOT DISTINCT FROM $4
+              AND active = true`,
+          [assignment.discord_user_id, university.id, assignment.role, assignment.division_id],
+        );
+      }
+      for (const assignment of additions) {
+        const inserted = await q.query(
+          `INSERT INTO board_assignments (discord_user_id, university_id, role, division_id, active)
+           VALUES ($1, $2, $3, $4, true)
+           ON CONFLICT DO NOTHING
+           RETURNING id`,
+          [assignment.discord_user_id, university.id, assignment.role, assignment.division_id],
+        );
+        assertUser(inserted.rowCount === 1, 'A selected board position was assigned concurrently. Reload the board.');
+      }
+      await writeAudit(q, {
+        actorId: interaction.user.id,
+        action: 'board.update',
+        targetType: 'university',
+        targetId: university.id,
+        universityId: university.id,
+        before: { assignments: currentAssignments },
+        after: { assignments: desiredAssignments },
+      });
+    });
+  } catch (error) {
+    await Promise.all(roleChanges.map(({ person, addedRoles, removedRoles }) =>
+      compensateRoles(person.target, addedRoles, removedRoles, 'Compensating failed board roster update'),
+    ));
+    throw new UserFacingError(
+      `Discord roles were restored because the board update could not be saved: ${error.message}`,
+      { cause: error },
+    );
+  }
+
+  return {
+    university,
+    assignments: desiredAssignments,
+    previousAssignments: currentAssignments,
+    positionChanges: boardPositionChanges(currentAssignments, desiredAssignments, divisions),
+    memberChanges: people.map((person) => ({
+      target: person.target,
+      before: person.currentRoles.map(localBoardAssignmentLabel),
+      after: person.nextRoles.map(localBoardAssignmentLabel),
+    })),
+  };
+}
+
 export async function getBoardInfo(interaction, options, deps: GovernanceDependencies = {}) {
   const db = dbFrom(deps);
   const actor = actorMember(interaction);
@@ -1531,7 +1868,7 @@ export async function getBoardInfo(interaction, options, deps: GovernanceDepende
   );
 
   const result = await db.query(
-    `SELECT br.discord_user_id, br.role, d.name AS division_name, d.color AS division_color
+    `SELECT br.discord_user_id, br.role, br.division_id, d.name AS division_name, d.color AS division_color
        FROM board_assignments br
        LEFT JOIN divisions d ON d.id = br.division_id AND d.active = true
       WHERE br.university_id = $1

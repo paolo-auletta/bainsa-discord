@@ -1,11 +1,11 @@
-import { BOARD_ROLES, divisionColorDetails, PROJECT_PERSON_ROLES } from '../constants.js';
+import { divisionColorDetails, PROJECT_PERSON_ROLES } from '../constants.js';
 import {
   channelReference,
   renderEventCard,
   truncateText,
   userReference,
 } from '../messages/index.js';
-import { boardRoleLabel, memberTypeLabel } from '../services/governance/policy.js';
+import { memberTypeLabel } from '../services/governance/policy.js';
 import { formatPeopleLine, projectStatusLabel } from '../services/projects/formatters.js';
 
 const ACTIVITY_TONES = Object.freeze({
@@ -61,13 +61,6 @@ function projectRoleLabel(role) {
     .split('_')
     .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
     .join(' ');
-}
-
-function boardRoleDescription(role, division = null) {
-  if (role === BOARD_ROLES.HEAD) {
-    return division ? `Head of ${division.name ?? division}` : 'All Head roles';
-  }
-  return boardRoleLabel(role);
 }
 
 function field(name, value, inline = false) {
@@ -202,15 +195,24 @@ function divisionMember({ actorId, result }, kind) {
   });
 }
 
-function boardRole({ actorId, result }, kind) {
+function boardUpdate({ actorId, result }) {
+  const changes = (result.positionChanges ?? []).map((change) => {
+    const current = change.currentUserIds?.length
+      ? change.currentUserIds.map((userId) => mention(userId)).join(', ')
+      : 'Vacant';
+    const next = change.nextUserIds?.length
+      ? change.nextUserIds.map((userId) => mention(userId)).join(', ')
+      : 'Vacant';
+    return `• ${change.label}: ${current} → ${next}`;
+  });
+  if (changes.length === 0) return null;
   return activity({
-    kind,
-    title: kind === 'add' ? 'Board role assigned' : 'Board role removed',
-    subjectLabel: 'Member',
-    subject: mention(result.target),
+    kind: 'update',
+    title: 'Board updated',
+    subjectLabel: 'University',
+    subject: result.university.name,
     universityName: result.university.name,
-    divisionName: result.division?.name ?? null,
-    fields: [field('Role', boardRoleDescription(result.role, result.division))],
+    fields: [field('Position changes', changes.join('\n'))],
     actorId,
   });
 }
@@ -308,8 +310,7 @@ const FORMATTERS = Object.freeze({
   'division-update': divisionUpdate,
   'division-add-member': (input) => divisionMember(input, 'add'),
   'division-remove-member': (input) => divisionMember(input, 'remove'),
-  'board-add-member': (input) => boardRole(input, 'add'),
-  'board-remove-member': (input) => boardRole(input, 'remove'),
+  'board-update': boardUpdate,
   'project-create': projectCreate,
   'project-update': projectUpdate,
   'project-close': projectClose,
