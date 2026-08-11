@@ -7,6 +7,11 @@ import { assertNoBotUserIds } from '../../authorization.js';
 import { UserFacingError, assertUser } from '../../errors.js';
 import { logger } from '../../logger.js';
 import {
+  ephemeralReplyPayload,
+  interactionOutcome,
+  renderInteractionPanel,
+} from '../../messages/index.js';
+import {
   cancelledPayload,
   creatingPayload,
   creationFailedPayload,
@@ -345,10 +350,12 @@ export function createProjectSetupService({
       });
       if (typeof interaction.followUp === 'function') {
         try {
-          await interaction.followUp({
-            content: `Created **${result.name}** (#${result.id}), but the initial confirmation could not be delivered.`,
-            flags: MessageFlags.Ephemeral,
-          });
+          await interaction.followUp(ephemeralReplyPayload(renderInteractionPanel(interactionOutcome({
+            outcome: 'delivery-failed',
+            title: 'Project created; confirmation delivery failed',
+            description: `Created **${result.name}** (#${result.id}), but the initial confirmation could not be delivered.`,
+            status: 'The project was saved. Do not submit the setup again.',
+          }))));
         } catch (followUpError) {
           logger.error('Project creation follow-up acknowledgement could not be delivered', {
             command: 'project-create',

@@ -16,7 +16,9 @@ interface ComponentHandler {
 
 interface InteractionDispatcherOptions {
   commands?: readonly CommandDefinition[];
+  componentHandlers?: readonly ComponentHandler[];
   onboarding?: ComponentHandler;
+  governance?: ComponentHandler;
   guide?: ComponentHandler;
   projectSetup?: ComponentHandler;
   profiles?: ComponentHandler;
@@ -40,7 +42,9 @@ function requireComponentHandler(handler: ((interaction: unknown) => unknown) | 
 
 export function createInteractionDispatcher({
   commands,
+  componentHandlers = [],
   onboarding,
+  governance,
   guide,
   projectSetup,
   profiles,
@@ -82,8 +86,28 @@ export function createInteractionDispatcher({
         return;
       }
 
+      if (['button', 'stringSelect', 'userSelect', 'modalSubmit'].includes(route)) {
+        const handler = componentHandlers.find((candidate) => candidate.canHandle?.(interaction.customId));
+        if (handler) {
+          const method = route === 'button'
+            ? handler.handleButton
+            : route === 'stringSelect'
+              ? handler.handleStringSelect
+              : route === 'userSelect'
+                ? handler.handleUserSelect
+                : handler.handleModalSubmit;
+          await requireComponentHandler(method)(interaction);
+          return;
+        }
+      }
+
       if (route === 'button' && onboarding?.canHandle?.(interaction.customId)) {
         await requireComponentHandler(onboarding.handleButton)(interaction);
+        return;
+      }
+
+      if (route === 'button' && governance?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(governance.handleButton)(interaction);
         return;
       }
 

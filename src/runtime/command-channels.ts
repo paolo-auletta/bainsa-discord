@@ -6,8 +6,6 @@ const UNIVERSITY_CATEGORY_PREFIX = 'BAINSA ';
 const PROJECT_TOPIC_PATTERN = /(?:^|\s)project\s+(\d+)$/i;
 
 export const PROJECT_CHANNEL_COMMANDS = Object.freeze(new Set([
-  'project-add-member',
-  'project-remove-member',
   'project-update',
   'project-close',
   'project-info',

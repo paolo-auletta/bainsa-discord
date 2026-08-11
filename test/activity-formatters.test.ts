@@ -29,10 +29,8 @@ test('activity policy contains every state-changing command and no lookup comman
     'division-update',
     'member-remove',
     'member-update',
-    'project-add-member',
     'project-close',
     'project-create',
-    'project-remove-member',
     'project-update',
   ]);
   for (const command of ['guide', 'member-info', 'board-info', 'project-info']) {
@@ -166,23 +164,7 @@ test('project creation lists the team and reports pending Discord reconciliation
   assert.doesNotMatch(JSON.stringify(embed), /PRIVATE PROJECT NOTE/);
 });
 
-test('project participant role changes and project field changes use old-to-new values', () => {
-  const participant = formatBoardActivity('project-add-member', {
-    actorId,
-    result: {
-      project: {
-        name: 'Spring Festival',
-        university_name: 'Bocconi',
-        division_name: 'Culture',
-        reconciliation_pending: false,
-      },
-      participant: { userId: '100', user: { username: 'Sellaceo' }, role: 'supervisor', previousRole: 'member' },
-    },
-  });
-  assert.equal(embedJson(participant).title, '🟠 Project participant updated');
-  assert.match(fieldValue(embedJson(participant), 'Participant'), /Sellaceo \(<@100>\)/);
-  assert.match(fieldValue(embedJson(participant), 'Participant'), /Member → Supervisor/);
-
+test('project and team changes are summarized together with old-to-new values', () => {
   const updated = formatBoardActivity('project-update', {
     actorId,
     result: {
@@ -201,29 +183,21 @@ test('project participant role changes and project field changes use old-to-new 
         status: 'paused',
         reconciliation_pending: false,
       },
+      participantChanges: {
+        added: [{ userId: '101', role: 'member' }],
+        roleChanged: [{ userId: '100', previousRole: 'member', role: 'supervisor' }],
+        removed: [{ userId: '102', role: 'member' }],
+      },
     },
   });
-  const changes = fieldValue(embedJson(updated), 'Changes');
+  const changes = fieldValue(embedJson(updated), 'Project changes');
   assert.match(changes, /2026-12-15 → 2026-12-22/);
   assert.match(changes, /Active → Paused/);
   assert.match(changes, /Public summary updated/);
-});
-
-test('reapplying the same project role does not create a board activity entry', () => {
-  assert.equal(
-    formatBoardActivity('project-add-member', {
-      actorId,
-      result: {
-        project: {
-          name: 'Spring Festival',
-          university_name: 'Bocconi',
-          division_name: 'Culture',
-        },
-        participant: { userId: '100', role: 'member', previousRole: 'member' },
-      },
-    }),
-    null,
-  );
+  const team = fieldValue(embedJson(updated), 'Team changes');
+  assert.match(team, /Added <@101> · Member/);
+  assert.match(team, /<@100>: Member → Supervisor/);
+  assert.match(team, /Removed <@102> · Member/);
 });
 
 test('notes-only project updates do not create activity and close messages omit final notes', () => {

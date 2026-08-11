@@ -84,6 +84,26 @@ export function assertNoDivisionRolesForAlumni(memberType, divisions) {
   );
 }
 
+export function memberRequiresDivision(memberType, boardRoles, universityName) {
+  if (memberType !== MEMBER_TYPES.RESEARCHER) return false;
+  const normalizedUniversity = String(universityName ?? '').toLowerCase();
+  const hasExecutiveExemption = boardRoles.some((boardRole) => {
+    if (boardRole.role === BOARD_ROLES.GLOBAL_PRESIDENT) return true;
+    return (
+      [BOARD_ROLES.PRESIDENT, BOARD_ROLES.VICE_PRESIDENT].includes(boardRole.role)
+      && String(boardRole.university_name ?? '').toLowerCase() === normalizedUniversity
+    );
+  });
+  return !hasExecutiveExemption;
+}
+
+export function assertMemberDivisionRequirement(memberType, divisions, boardRoles, universityName) {
+  assertUser(
+    !memberRequiresDivision(memberType, boardRoles, universityName) || divisions.length > 0,
+    'Researchers must belong to at least one division. Only Global Presidents, Presidents, and Vice Presidents can have no division.',
+  );
+}
+
 export function assertCanManageMember(actorMember, targetUniversityName, targetMember) {
   assertUser(!hasRole(targetMember, ROLE_NAMES.BOT), 'The Bot member cannot be managed.');
   if (isGlobalPresident(actorMember)) return;

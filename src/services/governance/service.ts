@@ -32,6 +32,7 @@ import {
   assertCanManageMember,
   assertCanRemoveBoardRole,
   assertCanRemoveMember,
+  assertMemberDivisionRequirement,
   assertMemberType,
   assertNoDivisionRolesForAlumni,
   assertBoardAssignDivisionShape,
@@ -49,6 +50,8 @@ import {
   findDivisions,
   findUniversities,
   invalidateGovernanceAutocompleteCache,
+  listDivisions,
+  listUniversities,
   warmGovernanceAutocompleteCache,
 } from './autocomplete.js';
 import {
@@ -421,6 +424,7 @@ async function applyMemberMembership(interaction, options, deps: GovernanceDepen
   }
 
   const divisions = await getDivisionRecords(db, university, divisionNames);
+  assertMemberDivisionRequirement(memberType, divisions, boardRoles, university.name);
   const universityBoardMember = boardRoles.some((boardRole) =>
     boardRole.university_name === university.name &&
     [BOARD_ROLES.HEAD, BOARD_ROLES.VICE_PRESIDENT, BOARD_ROLES.PRESIDENT].includes(boardRole.role),
@@ -518,6 +522,25 @@ export async function updateMember(interaction, options, deps: GovernanceDepende
     },
     deps,
   );
+}
+
+export async function getMemberUpdateContext(
+  interaction,
+  options,
+  deps: GovernanceDependencies = {},
+) {
+  const db = dbFrom(deps);
+  const actor = actorMember(interaction);
+  const target = await targetGuildMember(interaction, options.user);
+  const member = await getMemberRecord(db, target.id);
+  assertUser(member?.university_name && member.status === 'active', 'That user does not have an active member record.');
+  assertCanManageMember(actor, member.university_name, target);
+  const [divisions, boardRoles, projects] = await Promise.all([
+    getMemberDivisions(db, target.id),
+    getBoardRoles(db, target.id),
+    getActiveProjectAssignments(db, target.id),
+  ]);
+  return { target, member, divisions, boardRoles, projects };
 }
 
 export async function removeMember(interaction, options, deps: GovernanceDependencies = {}) {
@@ -822,7 +845,7 @@ export async function updateDivision(interaction, options, deps: GovernanceDepen
     divisionColor,
     `Choose one of the supported division colors: ${Object.values(DIVISION_COLORS).map(({ key }) => key).join(', ')}.`,
   );
-  const nameChanged = division.name.toLowerCase() !== newName.toLowerCase();
+  const nameChanged = division.name !== newName;
   const colorChanged = division.color.toLowerCase() !== divisionColor.key;
   assertUser(nameChanged || colorChanged, 'Specify a new division name or color different from the current value.');
 
@@ -1323,6 +1346,8 @@ export {
   formatBoardInfo,
   formatMemberInfo,
   invalidateGovernanceAutocompleteCache,
+  listDivisions,
+  listUniversities,
   memberRemovalCleanupPlan,
   projectChannelCleanupTargets,
   resolveDivisionTextForMemberUpdate,

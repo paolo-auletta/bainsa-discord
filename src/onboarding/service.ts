@@ -13,6 +13,7 @@ import { BOARD_ROLES, divisionLabel, MEMBER_TYPES, ROLE_NAMES } from '../constan
 import { query, transaction } from '../db.js';
 import { UserFacingError, assertUser } from '../errors.js';
 import { logger } from '../logger.js';
+import { renderHandoffMessage } from '../messages/index.js';
 import { divisionRoleName, divisionTextChannelName, universityCategoryName } from '../naming.js';
 import { hasPublishedProfile } from '../profiles/repository.js';
 import {
@@ -64,34 +65,44 @@ export async function notifyApprovedMemberAboutDirectory({ guild, userId, reques
   const directoryLink = channelUrl(guild, directory);
   const links = approvedStartLinks(guild, university, divisions);
   const access = accessSummary(request, university, divisions);
-  const startLines = links.length > 0
+  const spaces = links.length > 0
     ? links.map((line) => `• ${line}`)
     : ['• Open the newly available Global BAINSA and university spaces to get started.'];
-  await member.send([
-    '✅ Your BAINSA application was approved.',
-    '',
-    `**Your access** · ${access}`,
-    '',
-    '**Start here**',
-    ...startLines,
-    '',
-    directoryLink
-      ? `Create your profile in <#${directory.id}> next. It helps BAINSA members find you for research, projects, and collaboration.`
-      : 'Create your profile in the people database next. It helps BAINSA members find you for research, projects, and collaboration.',
-  ].join('\n'));
+  await member.send(renderHandoffMessage({
+    kind: 'handoff-message',
+    tone: 'success',
+    title: 'Your BAINSA application was approved',
+    sections: [
+      { heading: 'Your access', body: access },
+      { heading: 'Spaces now available', body: spaces },
+    ],
+    nextActions: [directoryLink
+      ? `Create your profile in <#${directory.id}>. It helps members find you for research, projects, and collaboration.`
+      : 'Create your profile in the people database. It helps members find you for research, projects, and collaboration.'],
+    provenance: 'BAINSA onboarding · Access handoff',
+    audience: 'member',
+  }));
 }
 
 export async function notifyRejectedApplicant({ guild, userId, request, university, divisions = [] }) {
   const member = await guild.members.fetch(String(userId));
   const onboarding = guild.channels?.cache?.find((channel) => channel?.name === 'onboarding');
   const onboardingLink = channelUrl(guild, onboarding);
-  await member.send([
-    'Your BAINSA application was declined.',
-    `**Application** · ${accessSummary(request, university, divisions)}`,
-    `**Reason shared by the reviewer** · ${escapeMarkdown(request.review_reason || 'No reason was provided.')}`,
-    '',
-    onboardingLink ? `You can review this decision again in onboarding: ${onboardingLink}` : 'You can review this decision again in #onboarding in the BAINSA server.',
-  ].join('\n'));
+  await member.send(renderHandoffMessage({
+    kind: 'handoff-message',
+    tone: 'danger',
+    title: 'Your BAINSA application was declined',
+    sections: [
+      { heading: 'Application', body: accessSummary(request, university, divisions) },
+      { heading: 'Reason shared by the reviewer', body: escapeMarkdown(request.review_reason || 'No reason was provided.') },
+    ],
+    nextActions: [onboardingLink
+      ? 'Open onboarding to review the decision and your current application status.'
+      : 'Return to #onboarding in the BAINSA server to review the decision.'],
+    links: onboardingLink ? [{ label: 'Open onboarding', url: onboardingLink }] : [],
+    provenance: 'BAINSA onboarding · Decision handoff',
+    audience: 'member',
+  }));
 }
 
 export function createOnboardingService({
@@ -580,7 +591,21 @@ export function createOnboardingService({
 
   async function sendJoinDm(member) {
     try {
-      await member.send('Welcome to BAINSA. Open #onboarding to begin your private application. You can return there and use Check application status at any time.');
+      const onboarding = member.guild?.channels?.cache?.find((channel) => channel?.name === 'onboarding');
+      const onboardingLink = channelUrl(member.guild, onboarding);
+      await member.send(renderHandoffMessage({
+        kind: 'handoff-message',
+        tone: 'brand',
+        title: 'Welcome to BAINSA',
+        context: 'Your application is private and can be resumed if you leave before submitting it.',
+        nextActions: [
+          'Open #onboarding and start your application.',
+          'Use Check application status there whenever you want to return to it.',
+        ],
+        links: onboardingLink ? [{ label: 'Open onboarding', url: onboardingLink }] : [],
+        provenance: 'BAINSA onboarding · Getting started',
+        audience: 'member',
+      }));
     } catch (error) {
       logger.info('Could not DM onboarding instructions', {
         userId: member.user?.id,

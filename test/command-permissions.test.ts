@@ -33,11 +33,9 @@ test('every registered command has a deliberate board-visibility policy', () => 
     'member-info',
     'member-remove',
     'member-update',
-    'project-add-member',
     'project-close',
     'project-create',
     'project-info',
-    'project-remove-member',
     'project-update',
   ]);
 });

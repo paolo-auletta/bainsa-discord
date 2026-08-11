@@ -8,34 +8,25 @@ import {
   replyEphemeral,
 } from '../../discord/reply.js';
 import { logger } from '../../logger.js';
-import { DIVISION_COLOR_CHOICES, divisionLabel } from '../../constants.js';
+import { divisionLabel } from '../../constants.js';
 import {
   BOARD_ROLE_CHOICES,
-  MEMBER_TYPE_CHOICES,
 } from '../../services/governance/policy.js';
 import {
   addDivisionMember,
   assignBoardRole,
-  createDivision,
   findDivisions,
   findUniversities,
   formatBoardInfo,
   formatMemberInfo,
   getBoardInfo,
   getMemberInfo,
-  removeBoardRole,
   removeDivisionMember,
   removeMember,
-  updateDivision,
-  updateMember,
 } from '../../services/governance/service.js';
-
-function withMemberTypeChoices(option) {
-  return option
-    .setName('member_type')
-    .setDescription('Researcher or Alumni')
-    .addChoices(...MEMBER_TYPE_CHOICES);
-}
+import { boardRoleRemovalConfirmation } from '../../services/governance/confirmations.js';
+import { formatBoardAssignmentHandoff } from '../../services/governance/formatters.js';
+import { governanceCommandPanels } from '../../services/governance/panels.js';
 
 function withBoardRoleChoices(option) {
   return option
@@ -49,14 +40,6 @@ function universityOption(option) {
     .setName('university')
     .setDescription('University scope')
     .setRequired(true)
-    .setAutocomplete(true);
-}
-
-function optionalUniversityOption(option) {
-  return option
-    .setName('university')
-    .setDescription('New university scope')
-    .setRequired(false)
     .setAutocomplete(true);
 }
 
@@ -133,6 +116,14 @@ async function run(interaction, work) {
   }
 }
 
+async function openPanel(interaction, start) {
+  try {
+    await start();
+  } catch (error) {
+    await handleInteractionError(interaction, error);
+  }
+}
+
 async function postActivity(interaction, commandName, result) {
   await replyBoardActivity(
     interaction,
@@ -141,6 +132,17 @@ async function postActivity(interaction, commandName, result) {
       result,
     }),
   );
+}
+
+async function notifyBoardAssignment(result) {
+  try {
+    await result.target.send(formatBoardAssignmentHandoff(result));
+  } catch (error) {
+    logger.warn('Board assignment DM could not be delivered', {
+      userId: String(result.target.id),
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function autocomplete(interaction) {
@@ -170,30 +172,11 @@ async function autocomplete(interaction) {
 }
 
 const memberUpdate = {
-  data: command('member-update', 'Update a member type, university, divisions, or notes.')
-    .addUserOption((option) => option.setName('user').setDescription('Member to update').setRequired(true))
-    .addStringOption((option) => withMemberTypeChoices(option).setRequired(false))
-    .addStringOption(optionalUniversityOption)
-    .addStringOption((option) =>
-      option
-        .setName('divisions')
-        .setDescription('Replacement comma-separated division list')
-        .setRequired(false)
-        .setAutocomplete(true),
-    )
-    .addStringOption((option) => option.setName('notes').setDescription('Replacement/internal notes').setRequired(false)),
-  autocomplete,
-  execute: (interaction) =>
-    run(interaction, async () => {
-      const result = await updateMember(interaction, {
-        user: interaction.options.getUser('user', true),
-        memberType: interaction.options.getString('member_type') ?? undefined,
-        university: interaction.options.getString('university') ?? undefined,
-        divisionsText: interaction.options.getString('divisions') ?? undefined,
-        notes: interaction.options.getString('notes') ?? undefined,
-      });
-      await postActivity(interaction, 'member-update', result);
-    }),
+  data: command('member-update', 'Open the private guided member update panel.'),
+  execute: (interaction) => openPanel(
+    interaction,
+    () => governanceCommandPanels.startMemberUpdate(interaction),
+  ),
 };
 
 const memberRemove = {
@@ -223,65 +206,19 @@ const memberInfo = {
 };
 
 const divisionCreate = {
-  data: command('division-create', 'Create a university division, roles, and optional channels.')
-    .addStringOption(universityOption)
-    .addStringOption((option) =>
-      option.setName('division_name').setDescription('New division name').setRequired(true),
-    )
-    .addStringOption((option) =>
-      option
-        .setName('color')
-        .setDescription('Division color')
-        .setRequired(true)
-        .addChoices(...DIVISION_COLOR_CHOICES),
-    )
-    .addUserOption((option) => option.setName('head').setDescription('Initial division head').setRequired(true))
-    .addBooleanOption((option) =>
-      option.setName('create_text_channel').setDescription('Create the division text channel').setRequired(true),
-    )
-    .addBooleanOption((option) =>
-      option.setName('create_voice_channel').setDescription('Create the division voice channel').setRequired(true),
-    ),
-  autocomplete,
-  execute: (interaction) =>
-    run(interaction, async () => {
-      const result = await createDivision(interaction, {
-        university: interaction.options.getString('university', true),
-        divisionName: interaction.options.getString('division_name', true),
-        color: interaction.options.getString('color', true),
-        head: interaction.options.getUser('head', true),
-        createTextChannel: interaction.options.getBoolean('create_text_channel', true),
-        createVoiceChannel: interaction.options.getBoolean('create_voice_channel', true),
-      });
-      await postActivity(interaction, 'division-create', result);
-    }),
+  data: command('division-create', 'Open the private guided division setup.'),
+  execute: (interaction) => openPanel(
+    interaction,
+    () => governanceCommandPanels.startDivisionCreate(interaction),
+  ),
 };
 
 const divisionUpdate = {
-  data: command('division-update', 'Update a division name or color and reconcile managed resources.')
-    .addStringOption(universityOption)
-    .addStringOption((option) =>
-      divisionOption(option, 'current_name', 'Current division name', true),
-    )
-    .addStringOption((option) => option.setName('new_name').setDescription('New division name').setRequired(false))
-    .addStringOption((option) =>
-      option
-        .setName('color')
-        .setDescription('New division color')
-        .setRequired(false)
-        .addChoices(...DIVISION_COLOR_CHOICES),
-    ),
-  autocomplete,
-  execute: (interaction) =>
-    run(interaction, async () => {
-      const result = await updateDivision(interaction, {
-        university: interaction.options.getString('university', true),
-        currentName: interaction.options.getString('current_name', true),
-        newName: interaction.options.getString('new_name'),
-        color: interaction.options.getString('color'),
-      });
-      await postActivity(interaction, 'division-update', result);
-    }),
+  data: command('division-update', 'Open the private guided division update panel.'),
+  execute: (interaction) => openPanel(
+    interaction,
+    () => governanceCommandPanels.startDivisionUpdate(interaction),
+  ),
 };
 
 const divisionAddMember = {
@@ -335,6 +272,7 @@ const boardAssign = {
         role: interaction.options.getString('role', true),
         division: interaction.options.getString('division') ?? null,
       });
+      await notifyBoardAssignment(result);
       await postActivity(interaction, 'board-assign', result);
     }),
 };
@@ -347,17 +285,19 @@ const boardRemove = {
     .addStringOption((option) => divisionOption(option, 'division', 'Head division to remove, or blank for all', false))
     .addStringOption((option) => option.setName('reason').setDescription('Optional removal reason').setRequired(false)),
   autocomplete,
-  execute: (interaction) =>
-    run(interaction, async () => {
-      const result = await removeBoardRole(interaction, {
+  execute: async (interaction) => {
+    try {
+      await boardRoleRemovalConfirmation.start(interaction, {
         user: interaction.options.getUser('user', true),
         university: interaction.options.getString('university', true),
         role: interaction.options.getString('role', true),
         division: interaction.options.getString('division') ?? null,
         reason: interaction.options.getString('reason') ?? null,
       });
-      await postActivity(interaction, 'board-remove', result);
-    }),
+    } catch (error) {
+      await handleInteractionError(interaction, error);
+    }
+  },
 };
 
 const boardInfo = {
@@ -369,7 +309,7 @@ const boardInfo = {
       const info = await getBoardInfo(interaction, {
         university: interaction.options.getString('university', true),
       });
-      await replyEphemeral(interaction, `**${info.university.name} board**\n${formatBoardInfo(info)}`);
+      await replyEphemeral(interaction, formatBoardInfo(info));
     }),
 };
 
