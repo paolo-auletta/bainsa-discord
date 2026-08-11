@@ -145,12 +145,21 @@ function page<T>(items: T[], currentPage: number) {
   return { items: items.slice(start, start + PAGE_SIZE), page: selectedPage, pageCount };
 }
 
-function panelLabel(kind: MembershipPanelKind) {
-  return kind === 'division-add-member' ? 'Division membership' : 'Division membership removal';
+function panelLabel() {
+  return 'Division membership';
 }
 
 function panelTitle(kind: MembershipPanelKind) {
-  return kind === 'division-add-member' ? 'Add a division member' : 'Remove a division member';
+  return kind === 'division-add-member' ? 'Add member to a division' : 'Remove member from a division';
+}
+
+function memberName(session: MembershipPanelSession) {
+  return escapeMarkdown(
+    session.context?.member.full_name
+      ?? session.context?.target.user?.username
+      ?? session.targetUser?.username
+      ?? 'member',
+  );
 }
 
 function targetPayload(
@@ -165,7 +174,7 @@ function targetPayload(
     description: remove
       ? `Choose an active ${session.university.name} member. BAINSA will show every current division and make only safe in-scope removals actionable.`
       : `Choose an active ${session.university.name} Researcher. BAINSA will load their current memberships before offering divisions in your scope.`,
-    progress: { label: panelLabel(session.kind), current: 1, total: 3 },
+    progress: { label: panelLabel(), current: 1, total: 3 },
     facts: [
       { label: 'University', value: session.university.name },
       ...(session.targetUser ? [{ label: 'Selected member', value: userReference(session.targetUser) }] : []),
@@ -317,10 +326,12 @@ function membershipAvailability(session: MembershipPanelSession) {
   const remove = session.kind === 'division-remove-member';
   return boundedLines((session.context?.divisions ?? []).map((division) => {
     const label = divisionLabel(division.name, division.color);
-    if (!remove) return `• ${label} — Current`;
-    if (!canManageDivision(session, division)) return `• ${label} — Read only outside your scope`;
+    if (!remove) return `• ${label}`;
+    if (!canManageDivision(session, division)) return `• ${label} · Outside your scope`;
     const blocker = divisionRemovalBlocker(session, division);
-    return `• ${label} — ${blocker ? `Blocked: ${blocker}` : 'Removable'}`;
+    return blocker
+      ? `• ${label} · Cannot remove — ${blocker}`
+      : `• ${label} · Can remove`;
   }));
 }
 
@@ -348,15 +359,20 @@ function choicePayload(session: MembershipPanelSession) {
   return renderInteractionPanel({
     kind: 'interaction-panel',
     tone: add ? 'brand' : 'warning',
-    title: panelTitle(session.kind),
-    description: 'Current member information stays visible. Selecting a division updates the proposed affiliation immediately.',
-    progress: { label: panelLabel(session.kind), current: 2, total: 3 },
+    title: add
+      ? `Add ${memberName(session)} to a division`
+      : `Remove ${memberName(session)} from a division`,
+    progress: { label: panelLabel(), current: 2, total: 3 },
     facts: summary.facts,
     sections: [
       ...summary.sections,
-      { heading: 'Membership availability', body: membershipAvailability(session) },
+      ...(!add ? [{
+        heading: 'Current division memberships',
+        body: membershipAvailability(session),
+        spacingBefore: true,
+      }] : []),
     ],
-    detailsDensity: 'compact-groups',
+    detailsDensity: 'compact',
     controls: choices.items.length ? [{
       kind: 'string-select',
       id: id(session, ACTIONS.DIVISION),
@@ -386,28 +402,57 @@ function choicePayload(session: MembershipPanelSession) {
   });
 }
 
+function divisionMembershipList(divisions: DivisionRow[]) {
+  if (divisions.length === 0) return 'None';
+  return divisions
+    .map((division) => escapeMarkdown(divisionLabel(division.name, division.color)))
+    .join(', ');
+}
+
+function reviewSummary(session: MembershipPanelSession, division: DivisionRow, add: boolean) {
+  assertUser(session.context, 'Load a member before reviewing this change.');
+  const memberSummary = memberRecordSummary(session.context);
+  const currentMemberships = divisionMembershipList(session.context.divisions);
+  const nextMemberships = divisionMembershipList(divisionsAfterChange(session, division, add));
+  return {
+    facts: [
+      memberSummary.metadata.find((field) => field.label === 'Member')
+        ?? { label: 'Member', value: userReference(session.context.target) },
+      { label: 'University', value: escapeMarkdown(session.university.name) },
+      {
+        label: add ? 'Division being added' : 'Division being removed',
+        value: escapeMarkdown(divisionLabel(division.name, division.color)),
+      },
+    ],
+    sections: [
+      {
+        heading: 'Division memberships',
+        body: `${currentMemberships} → ${nextMemberships}`,
+      },
+      ...(!add ? [{
+        heading: 'Private reason',
+        body: session.reason ? escapeMarkdown(session.reason) : 'None',
+      }] : []),
+    ],
+  };
+}
+
 function reviewPayload(session: MembershipPanelSession) {
   const division = selectedDivision(session);
   assertUser(division, 'Choose a current in-scope division before reviewing.');
   const add = session.kind === 'division-add-member';
-  const summary = divisionChangeSummary(session);
+  const summary = reviewSummary(session, division, add);
   return renderInteractionPanel({
     kind: 'interaction-panel',
     tone: add ? 'changed' : 'warning',
-    title: `Review · ${panelTitle(session.kind)}`,
-    description: add
-      ? 'This adds the selected division membership and managed Discord access.'
-      : 'This removes only the selected division access. University membership remains unchanged.',
-    progress: { label: panelLabel(session.kind), current: 3, total: 3 },
+    title: add ? 'Review division addition' : 'Review division removal',
+    progress: { label: panelLabel(), current: 3, total: 3 },
     facts: summary.facts,
-    sections: [
-      ...summary.sections,
-      ...(!add ? [{ heading: 'Private reason', body: session.reason ? 'Added for the affected member and audit record' : 'Not added' }] : []),
-    ],
+    sections: summary.sections,
     detailsDensity: 'compact-groups',
     actions: [
-      { id: id(session, ACTIONS.SAVE), label: add ? 'Confirm addition' : 'Confirm removal', style: add ? 'success' : 'danger' },
-      { id: id(session, ACTIONS.BACK_CHOICE), label: 'Back to choices', style: 'secondary' },
+      { id: id(session, ACTIONS.SAVE), label: add ? 'Add member to division' : 'Remove member from division', style: add ? 'success' : 'danger' },
+      { id: id(session, ACTIONS.BACK_CHOICE), label: 'Change division', style: 'secondary' },
       { id: id(session, ACTIONS.CANCEL), label: 'Cancel', style: 'danger' },
     ],
     audience: 'actor',
@@ -417,7 +462,7 @@ function reviewPayload(session: MembershipPanelSession) {
 function reasonModal(session: MembershipPanelSession) {
   return renderInteractionModal({
     id: id(session, ACTIONS.REASON_MODAL),
-    title: `${panelLabel(session.kind)} · Reason`,
+    title: `${panelLabel()} · Reason`,
     fields: [{
       id: 'reason',
       label: 'Private reason',
@@ -631,7 +676,7 @@ export function createGovernanceMembershipPanelService({
       store.remove(session);
       await interaction.update(renderInteractionPanel(interactionOutcome({
         outcome: 'cancelled',
-        title: `${panelLabel(session.kind)} cancelled`,
+        title: `${panelLabel()} cancelled`,
         description: 'Nothing was changed.',
       })));
       return;

@@ -35,6 +35,7 @@ export interface EventCardSpec {
 export interface WorkspaceSectionSpec {
   heading?: string;
   body: string | readonly string[];
+  spacingBefore?: boolean;
 }
 
 export interface WorkspaceDocumentSpec {
@@ -72,6 +73,7 @@ export type InteractionControlSpec =
       id: string;
       label: string;
       groupLabel?: string;
+      groupSpacingBefore?: boolean;
       fieldLabel?: string;
       description?: string;
       style?: Exclude<InteractionActionStyle, 'link'>;
@@ -84,6 +86,7 @@ export type InteractionControlSpec =
       placeholder: string;
       label?: string;
       groupLabel?: string;
+      groupSpacingBefore?: boolean;
       description?: string;
       options: readonly StringSelectOptionSpec[];
       min?: number;
@@ -96,6 +99,7 @@ export type InteractionControlSpec =
       placeholder: string;
       label?: string;
       groupLabel?: string;
+      groupSpacingBefore?: boolean;
       description?: string;
       selectedUserIds?: readonly string[];
       min?: number;

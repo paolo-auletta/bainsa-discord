@@ -128,8 +128,9 @@ test('division removal shows all memberships, scopes the selector, and previews 
   });
   const options = { roles: ['Bocconi - Head of Projects'] };
   let payload = await loadMember(panel, panel.startDivisionRemoveMember, options);
-  assert.match(panelText(payload), /Analysis[\s\S]*Read only outside your scope/);
-  assert.match(panelText(payload), /Projects[\s\S]*Removable/);
+  assert.match(panelText(payload), /Analysis[\s\S]*Outside your scope/);
+  assert.match(panelText(payload), /Projects[\s\S]*Can remove/);
+  assert.match(panelText(payload), /\*\*Projects:\*\*[\s\S]*\n\n\*\*Current division memberships:\*\*\n•/);
   const selector = action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.DIVISION);
   assert.deepEqual(selector.options.map((option) => option.value), ['d-projects']);
 
@@ -143,6 +144,12 @@ test('division removal shows all memberships, scopes the selector, and previews 
     ...baseInteraction({ ...options, customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.REVIEW).custom_id }),
     async update(next) { payload = next; },
   });
+  assert.match(panelText(payload), /Review division removal/);
+  assert.match(panelText(payload), /\*\*Member:\*\*[\s\S]*Ada Lovelace/);
+  assert.match(panelText(payload), /\*\*University:\*\* Bocconi/);
+  assert.match(panelText(payload), /\*\*Division being removed:\*\* 🟦 Projects/);
+  assert.match(panelText(payload), /\*\*Division memberships:\*\*\n🟧 Analysis, 🟦 Projects → 🟧 Analysis/);
+  assert.equal(action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.SAVE).label, 'Remove member from division');
   assert.equal(action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.CANCEL).style, ButtonStyle.Danger);
   await panel.handleButton({
     ...baseInteraction({ ...options, customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.SAVE).custom_id }),
@@ -170,11 +177,16 @@ test('division addition previews the new affiliation and saves only after review
     async update(next) { payload = next; },
   });
   assert.match(panelText(payload), /Affiliation:[\s\S]*Analysis → Bocconi[^\n]*Analysis[^\n]*Culture/);
+  assert.doesNotMatch(panelText(payload), /Current division memberships/);
   assert.equal(operationInput, undefined);
   await panel.handleButton({
     ...baseInteraction({ customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.REVIEW).custom_id }),
     async update(next) { payload = next; },
   });
+  assert.match(panelText(payload), /Review division addition/);
+  assert.match(panelText(payload), /\*\*Division being added:\*\* 🟪 Culture/);
+  assert.match(panelText(payload), /\*\*Division memberships:\*\*\n🟧 Analysis → 🟧 Analysis, 🟪 Culture/);
+  assert.equal(action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.SAVE).label, 'Add member to division');
   await panel.handleButton({
     ...baseInteraction({ customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.SAVE).custom_id }),
     async update() {},
@@ -190,7 +202,7 @@ test('division removal explains project and last-division blockers before review
   });
   const panel = service({ loadMemberContext: async () => member });
   let payload = await loadMember(panel, panel.startDivisionRemoveMember);
-  assert.match(panelText(payload), /Projects[\s\S]*Blocked:[\s\S]*Signals/);
+  assert.match(panelText(payload), /Projects[\s\S]*Cannot remove[\s\S]*Signals/);
   assert.deepEqual(action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.DIVISION).options.map((option) => option.value), ['d-analysis']);
 
   const lastPanel = service({ loadMemberContext: async () => context({ divisions: [allDivisions[0]] }) });

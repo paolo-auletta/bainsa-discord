@@ -119,7 +119,10 @@ test('board update renders every active position on one page when the roster fit
   assert.equal(vicePresident.max_values, 25);
   assert.equal(projects.max_values, 25);
   assert.deepEqual(projects.default_values.map((value) => value.id), [HEAD_ID]);
-  assert.match(text(payload), /University leadership[\s\S]*Division leadership/);
+  assert.match(text(payload), /### University leadership[\s\S]*### Division leadership/);
+  assert.ok(components(payload).some((component) =>
+    component.type === ComponentType.Separator && component.divider === false,
+  ));
   assert.ok(action(payload, 'h3'));
   assert.ok(action(payload, 'h4'));
   assert.match(text(payload), /Events/);

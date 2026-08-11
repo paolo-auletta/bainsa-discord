@@ -287,6 +287,7 @@ function positionControls(session: BoardUpdateSession): InteractionControlSpec[]
         : `Choose one or more ${position.label}s`,
       label: readOnly ? `${position.label} · View only` : position.label,
       groupLabel: startsGroup ? position.group : undefined,
+      groupSpacingBefore: startsGroup && position.group === 'Division leadership',
       description: position.role === BOARD_ROLES.HEAD
         ? `Division leadership for ${position.division.name}`
         : readOnly

@@ -30,6 +30,10 @@ function separator() {
   return new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Large);
 }
 
+function spacer() {
+  return new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small);
+}
+
 function actionButton(action: InteractionActionSpec) {
   const style = action.style ?? 'secondary';
   const button = new ButtonBuilder()
@@ -86,12 +90,13 @@ function sectionText(
   density: InteractionPanelSpec['detailsDensity'],
 ) {
   const body = Array.isArray(section.body) ? section.body.join('\n') : section.body;
-  if (!section.heading) return String(body ?? '');
-  if (density === 'compact-groups') return `**${section.heading}:**\n${body}`;
-  if (density !== 'compact') return `**${section.heading}**\n${body}`;
-  return String(body ?? '').includes('\n')
+  const prefix = section.spacingBefore ? '\n' : '';
+  if (!section.heading) return `${prefix}${String(body ?? '')}`;
+  if (density === 'compact-groups') return `${prefix}**${section.heading}:**\n${body}`;
+  if (density !== 'compact') return `${prefix}**${section.heading}**\n${body}`;
+  return `${prefix}${String(body ?? '').includes('\n')
     ? `**${section.heading}:**\n${body}`
-    : `**${section.heading}:** ${body}`;
+    : `**${section.heading}:** ${body}`}`;
 }
 
 function fieldGuidance(label: string, description?: string) {
@@ -152,6 +157,7 @@ export function renderInteractionPanel(spec: InteractionPanelSpec): BotMessagePa
         + controls.length
         + controls.filter((control) => controlLabel(control)).length
         + controls.filter((control) => control.groupLabel).length
+        + controls.filter((control) => control.groupSpacingBefore).length
         + (spec.contentActions?.length && spec.contentActionsLabel ? 1 : 0)
         + (spec.contentActions?.length ? 1 : 0)
       : 0)
@@ -173,8 +179,11 @@ export function renderInteractionPanel(spec: InteractionPanelSpec): BotMessagePa
   if (controls.length || spec.contentActions?.length) {
     container.addSeparatorComponents(separator());
     for (const control of controls) {
+      if (control.groupSpacingBefore) {
+        container.addSeparatorComponents(spacer());
+      }
       if (control.groupLabel) {
-        container.addTextDisplayComponents(text(`**${cleanText(control.groupLabel)}**`));
+        container.addTextDisplayComponents(text(`### ${cleanText(control.groupLabel)}`));
       }
       const label = controlLabel(control);
       if (label) container.addTextDisplayComponents(text(label));
