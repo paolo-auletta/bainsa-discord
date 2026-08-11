@@ -1,4 +1,5 @@
 import { postBoardActivity } from '../discord/reply.js';
+import { hasGlobalAuthority } from '../authorization.js';
 import { botCommandChannelScope, commandChannelScope } from '../runtime/command-channels.js';
 
 function sameText(left: unknown, right: unknown) {
@@ -19,6 +20,12 @@ export function findUniversityBotLog(guild, universityName: string) {
   }) ?? null;
 }
 
+export function findGlobalBotLog(guild) {
+  return cachedChannels(guild).find((channel) =>
+    botCommandChannelScope(channel)?.kind === 'global',
+  ) ?? null;
+}
+
 export function universityActivityChannel(interaction, universityName: string) {
   const currentScope = botCommandChannelScope(interaction.channel);
   if (currentScope?.kind === 'university' && sameText(currentScope.universityName, universityName)) {
@@ -33,8 +40,23 @@ export function universityActivityChannel(interaction, universityName: string) {
     : null;
 }
 
+export function universityActivityChannels(interaction, universityName: string) {
+  const universityChannel = universityActivityChannel(interaction, universityName);
+  const globalChannel = interaction.member && hasGlobalAuthority(interaction.member)
+    ? findGlobalBotLog(interaction.guild)
+    : null;
+  return [...new Map(
+    [universityChannel, globalChannel]
+      .filter(Boolean)
+      .map((channel) => [String(channel.id ?? ''), channel]),
+  ).values()];
+}
+
 export async function postUniversityBoardActivity(interaction, payload, universityName: string) {
-  const channel = universityActivityChannel(interaction, universityName);
-  if (!channel) return { status: 'unavailable', channel: null };
-  return postBoardActivity(interaction, payload, { channel });
+  const channels = universityActivityChannels(interaction, universityName);
+  if (!channels.length) return { status: 'unavailable', channel: null, mirrors: [] };
+  const [primary, ...mirrors] = await Promise.all(
+    channels.map((channel) => postBoardActivity(interaction, payload, { channel })),
+  );
+  return { ...primary, mirrors };
 }

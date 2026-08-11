@@ -111,14 +111,14 @@ function projectSummary(session) {
       "",
       "**Project summary**",
       "",
-      `🧭 **Scope** · ${selectedScope(session)}`,
+      `**Scope** · ${selectedScope(session)}`,
       "",
-      `👥 **Team** · ${teamSummary(session)}`,
+      `**Team** · ${teamSummary(session)}`,
       "",
-      `📅 **Timeline** · ${timelineSummary(session)}`,
+      `**Timeline** · ${timelineSummary(session)}`,
       "",
-      `📣 **Public summary** · ${session.summary ? "Added" : "Required"}`,
-      `📝 **Internal notes** · ${session.notes ? "Added" : "Not added"}`,
+      `**Public summary** · ${session.summary ? "Added" : "Required"}`,
+      `**Internal notes** · ${session.notes ? "Added" : "Not added"}`,
     ].join("\n"),
   );
 }
@@ -136,14 +136,13 @@ function actionButton(
   action,
   label,
   style = ButtonStyle.Secondary,
-  options: { disabled?: boolean; emoji?: string } = {},
+  options: { disabled?: boolean } = {},
 ) {
   const button = new ButtonBuilder()
     .setCustomId(projectSetupId(session.id, action))
     .setLabel(label)
     .setStyle(style)
     .setDisabled(Boolean(options.disabled));
-  if (options.emoji) button.setEmoji(options.emoji);
   return button;
 }
 
@@ -459,7 +458,6 @@ export function detailsPayload(session) {
           PROJECT_SETUP_ACTIONS.DATES_OPEN,
           session.startDate ? "Edit project timeline" : "Set project timeline",
           ButtonStyle.Primary,
-          { emoji: "📅" },
         ),
       ),
     )
@@ -471,7 +469,6 @@ export function detailsPayload(session) {
           PROJECT_SETUP_ACTIONS.NOTES_OPEN,
           session.summary ? "Edit summary and notes" : "Add public summary",
           ButtonStyle.Primary,
-          { emoji: "📝" },
         ),
       ),
     )

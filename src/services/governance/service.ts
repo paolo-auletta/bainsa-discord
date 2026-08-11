@@ -31,6 +31,7 @@ import {
   assertCanManageMember,
   assertCanRemoveBoardRole,
   assertCanRemoveMember,
+  assertHeadDivisionMembership,
   assertMemberDivisionRequirement,
   assertMemberType,
   assertNoDivisionRolesForAlumni,
@@ -504,6 +505,7 @@ async function applyMemberMembership(interaction, options, deps: GovernanceDepen
 
   const divisions = await getDivisionRecords(db, university, divisionNames);
   assertMemberDivisionRequirement(memberType, divisions, boardRoles, university.name);
+  assertHeadDivisionMembership(boardRoles, divisions, university.name);
   const universityBoardMember = boardRoles.some((boardRole) =>
     boardRole.university_name === university.name &&
     [BOARD_ROLES.HEAD, BOARD_ROLES.VICE_PRESIDENT, BOARD_ROLES.PRESIDENT].includes(boardRole.role),
@@ -524,7 +526,15 @@ async function applyMemberMembership(interaction, options, deps: GovernanceDepen
 
   try {
     await db.transaction(async (q) => {
+      await lockDivisionHeadEligibilityRows(
+        q,
+        boardRoles
+          .filter((boardRole) => boardRole.role === BOARD_ROLES.HEAD && boardRole.division_id != null)
+          .map((boardRole) => boardRole.division_id),
+      );
       await lockMemberEligibilityRows(q, [target.id]);
+      const lockedBoardRoles = await getBoardRoles(q, target.id);
+      assertHeadDivisionMembership(lockedBoardRoles, divisions, university.name);
       await assertMemberProjectAssignmentEligibility(q, {
         userId: target.id,
         memberType,

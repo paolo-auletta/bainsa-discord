@@ -1,7 +1,7 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 
 import { formatBoardActivity } from '../../activity/formatters.js';
-import { universityActivityChannel } from '../../activity/router.js';
+import { universityActivityChannels } from '../../activity/router.js';
 import {
   handleInteractionError,
   replyBoardActivity,
@@ -57,7 +57,7 @@ async function postActivity(interaction, commandName, result) {
     });
   const universityName = result.university?.name ?? result.universityName;
   await replyBoardActivity(interaction, payload, {
-    channel: universityActivityChannel(interaction, universityName),
+    channels: universityActivityChannels(interaction, universityName),
   });
 }
 

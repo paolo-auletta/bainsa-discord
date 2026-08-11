@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { commands } from '../src/commands/index.js';
+import { postUniversityBoardActivity } from '../src/activity/router.js';
 import { replyBoardActivity, replyEphemeral } from '../src/discord/reply.js';
 import { UserFacingError } from '../src/errors.js';
 import { guideInteractions } from '../src/guide/service.js';
@@ -346,6 +347,34 @@ test('board activity replies are posted once with a private acknowledgement', as
     embeds: [{ title: 'Activity' }],
   });
   assert.match(payloadText(edited), /^\*\*Change saved\*\*\nActivity posted in this channel\.$/);
+});
+
+test('Global President activity is mirrored to the global and affected university bot logs', async () => {
+  const universityMessages = [];
+  const globalMessages = [];
+  const universityChannel = {
+    id: 'bocconi-log', name: 'bot-log', parent: { name: 'BAINSA BOCCONI' },
+    async send(payload) { universityMessages.push(payload); },
+  };
+  const globalChannel = {
+    id: 'global-log', name: 'bot-log', parent: { name: 'LOGS' },
+    async send(payload) { globalMessages.push(payload); },
+  };
+
+  const delivery = await postUniversityBoardActivity({
+    commandName: 'board-update',
+    user: { id: 'global-president' },
+    member: { roles: { cache: [{ name: 'Global President' }] } },
+    channel: globalChannel,
+    guild: { channels: { cache: new Map([
+      [universityChannel.id, universityChannel],
+      [globalChannel.id, globalChannel],
+    ]) } },
+  }, { embeds: [{ title: 'Board updated' }] }, 'Bocconi');
+
+  assert.equal(delivery.status, 'posted');
+  assert.equal(universityMessages.length, 1);
+  assert.equal(globalMessages.length, 1);
 });
 
 test('project-channel mutations can route governance activity to the scoped bot log', async () => {

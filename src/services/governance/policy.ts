@@ -104,6 +104,22 @@ export function assertMemberDivisionRequirement(memberType, divisions, boardRole
   );
 }
 
+export function assertHeadDivisionMembership(boardRoles, divisions, universityName) {
+  const selectedDivisionIds = new Set(divisions.map((division) => String(division.id)));
+  const missingHeadMembership = boardRoles.find((boardRole) =>
+    boardRole.role === BOARD_ROLES.HEAD
+    && String(boardRole.university_name ?? '').toLowerCase() === String(universityName).toLowerCase()
+    && boardRole.division_id != null
+    && !selectedDivisionIds.has(String(boardRole.division_id)),
+  );
+  if (!missingHeadMembership) return;
+
+  assertUser(
+    false,
+    `Remove the member's Head of ${missingHeadMembership.division_name ?? 'this division'} board role before removing their division membership.`,
+  );
+}
+
 export function assertCanManageMember(actorMember, targetUniversityName, targetMember) {
   assertUser(!hasRole(targetMember, ROLE_NAMES.BOT), 'The Bot member cannot be managed.');
   if (isGlobalPresident(actorMember)) return;

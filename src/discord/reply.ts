@@ -44,8 +44,17 @@ export async function postBoardActivity(interaction, payload, { channel = intera
   return { status: 'unavailable', channel: null };
 }
 
-export async function replyBoardActivity(interaction, payload, options = {}) {
-  const delivery = await postBoardActivity(interaction, payload, options);
+export async function replyBoardActivity(
+  interaction,
+  payload,
+  options: { channel?: unknown; channels?: unknown[] } = {},
+) {
+  const channels = Array.isArray(options.channels) && options.channels.length
+    ? options.channels
+    : [options.channel ?? interaction.channel];
+  const [delivery] = await Promise.all(
+    channels.map((channel) => postBoardActivity(interaction, payload, { channel })),
+  );
   if (delivery.status === 'no-change') {
     return replyEphemeral(interaction, renderInteractionPanel(interactionOutcome({
       outcome: 'no-change',

@@ -12,7 +12,8 @@ import {
 } from '../../messages/index.js';
 import { botCommandChannelScope } from '../../runtime/command-channels.js';
 import { resolveCommandContext } from '../../runtime/command-scope.js';
-import { formatBoardInfo, getBoardInfo, listUniversities } from './service.js';
+import { boardRecordSummary } from './formatters.js';
+import { getBoardInfo, listUniversities } from './service.js';
 
 const PREFIX = 'gbi';
 const PAGE_SIZE = 25;
@@ -90,6 +91,33 @@ function loadingPayload(universityName: string) {
   });
 }
 
+// The university picker is Components V2, and Discord cannot replace that
+// message with an embed. Keep the final roster in the same message format.
+function boardPayload(info) {
+  const summary = boardRecordSummary(info);
+  const consistencyIssues = info.rows.filter((row) =>
+    row.missingRoles.length > 0 || (row.unexpectedRoles?.length ?? 0) > 0,
+  );
+  const divisions = summary.divisions.length
+    ? summary.divisions.map((field) => `**${field.label}** · ${field.value}`).join('\n')
+    : 'No active divisions are recorded.';
+  const issueSummary = consistencyIssues.length
+    ? `${consistencyIssues.length} member${consistencyIssues.length === 1 ? '' : 's'} need Discord-role recovery. Open \`/board-update\` and save the roster again.`
+    : 'Discord roles match the recorded board roster.';
+
+  return renderInteractionPanel({
+    kind: 'interaction-panel',
+    tone: consistencyIssues.length ? 'warning' : (info.rows.length ? 'brand' : 'warning'),
+    title: summary.title,
+    description: summary.description,
+    facts: summary.leadership,
+    sections: [{ heading: 'Division Heads', body: divisions }],
+    detailsDensity: 'compact-groups',
+    status: issueSummary,
+    audience: 'actor',
+  });
+}
+
 export function createBoardInfoPanelService({
   loadUniversities = listUniversities,
   loadBoardInfo = getBoardInfo,
@@ -113,7 +141,7 @@ export function createBoardInfoPanelService({
     try {
       const info = await loadBoardInfo(interaction, { university: session.university.name });
       store.remove(session);
-      await interaction.editReply(interactionEditPayload(formatBoardInfo(info)));
+      await interaction.editReply(interactionEditPayload(boardPayload(info)));
     } catch (error) {
       session.busy = false;
       throw error;

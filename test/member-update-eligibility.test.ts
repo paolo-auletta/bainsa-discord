@@ -178,6 +178,24 @@ test('member-update rejects removing an active project member division before si
   await expectRejectedUpdate(harness, { divisionsText: 'Culture' }, [44]);
 });
 
+test('member-update rejects removing the division membership required by an active Head role', async () => {
+  const harness = memberUpdateHarness({
+    boardRoles: [{
+      role: 'head',
+      university_name: 'Bocconi',
+      division_id: 'analysis-id',
+      division_name: 'Analysis',
+    }],
+  });
+
+  await assert.rejects(
+    updateMember(harness.interaction, { user: { id: 'target' }, divisionsText: 'Culture' }, harness.deps),
+    /Remove the member's Head of Analysis board role before removing their division membership/,
+  );
+  assert.equal(harness.target.mutationCount(), 0);
+  assert.equal(harness.transactionCount(), 0);
+});
+
 test('member-update requires every non-executive Researcher to keep at least one division', async () => {
   for (const boardRoles of [
     [],

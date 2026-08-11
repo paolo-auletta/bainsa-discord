@@ -3,7 +3,7 @@ import { escapeMarkdown } from 'discord.js';
 import { formatBoardActivity } from '../../activity/formatters.js';
 import { postUniversityBoardActivity } from '../../activity/router.js';
 import { hasGlobalAuthority } from '../../authorization.js';
-import { DIVISION_COLORS, MEMBER_TYPES, divisionLabel } from '../../constants.js';
+import { BOARD_ROLES, DIVISION_COLORS, MEMBER_TYPES, divisionLabel } from '../../constants.js';
 import { assertUser, UserFacingError } from '../../errors.js';
 import { flowCustomId, parseFlowCustomId } from '../../flows/custom-id.js';
 import { createFlowSessionStore, type FlowSessionBase } from '../../flows/session-store.js';
@@ -32,6 +32,10 @@ import {
 
 const PREFIX = 'gm';
 const PAGE_SIZE = 25;
+
+function sameText(left: unknown, right: unknown) {
+  return String(left ?? '').trim().toLowerCase() === String(right ?? '').trim().toLowerCase();
+}
 
 const ACTIONS = Object.freeze({
   DIVISION_CREATE_UNIVERSITY: 'dcu',
@@ -109,6 +113,7 @@ interface DiscordMemberReference {
 interface BoardRoleRow {
   role?: string;
   university_name?: string | null;
+  division_id?: unknown;
   division_name?: string | null;
 }
 
@@ -656,6 +661,23 @@ function memberUniversityMoveBlocker(session: MemberUpdateSession) {
   return null;
 }
 
+function memberDivisionHeadBlocker(session: MemberUpdateSession) {
+  if (!session.context || !session.university) return null;
+  const selectedDivisionIds = new Set(session.divisionIds.map(String));
+  const missingMembership = session.context.boardRoles.find((role) =>
+    role.role === BOARD_ROLES.HEAD
+    && sameText(role.university_name, session.university.name)
+    && role.division_id != null
+    && !selectedDivisionIds.has(String(role.division_id)),
+  );
+  if (!missingMembership) return null;
+  return `Remove the member’s Head of ${missingMembership.division_name ?? 'this division'} board role before removing their division membership.`;
+}
+
+function memberUpdateBlocker(session: MemberUpdateSession) {
+  return memberUniversityMoveBlocker(session) ?? memberDivisionHeadBlocker(session);
+}
+
 const MEMBER_DIVISION_REQUIREMENT = 'Choose at least one division. Only Global Presidents, Presidents, and Vice Presidents can be Researchers without one.';
 
 function summaryBody(body: string | readonly string[]) {
@@ -761,12 +783,12 @@ function memberDetailsPayload(session: MemberUpdateSession) {
         id: id(session, ACTIONS.MEMBER_UPDATE_REVIEW),
         label: 'Continue to review',
         style: 'primary',
-        disabled: !hasMemberChanges(session) || !hasValidMemberDivisions(session) || Boolean(memberUniversityMoveBlocker(session)),
+        disabled: !hasMemberChanges(session) || !hasValidMemberDivisions(session) || Boolean(memberUpdateBlocker(session)),
       },
       { id: id(session, ACTIONS.MEMBER_UPDATE_BACK_TARGET), label: 'Back to users', style: 'secondary' },
       { id: id(session, ACTIONS.MEMBER_UPDATE_CANCEL), label: 'Cancel update', style: 'danger' },
     ],
-    status: memberUniversityMoveBlocker(session)
+    status: memberUpdateBlocker(session)
       ?? (hasValidMemberDivisions(session) ? undefined : MEMBER_DIVISION_REQUIREMENT),
     audience: 'actor',
   });
@@ -1114,7 +1136,7 @@ export function createGovernancePanelService({
   async function saveMemberUpdate(interaction, session: MemberUpdateSession) {
     assertUser(hasMemberChanges(session), 'Choose at least one real member change before saving.');
     assertUser(hasValidMemberDivisions(session), MEMBER_DIVISION_REQUIREMENT);
-    assertUser(!memberUniversityMoveBlocker(session), memberUniversityMoveBlocker(session));
+    assertUser(!memberUpdateBlocker(session), memberUpdateBlocker(session));
     resolveCommandContext({
       commandName: 'member-update',
       channelScope: botCommandChannelScope(interaction.channel),
@@ -1308,7 +1330,7 @@ export function createGovernancePanelService({
     if (action === ACTIONS.MEMBER_UPDATE_REVIEW) {
       assertUser(hasMemberChanges(session), 'Choose at least one real member change before continuing.');
       assertUser(hasValidMemberDivisions(session), MEMBER_DIVISION_REQUIREMENT);
-      assertUser(!memberUniversityMoveBlocker(session), memberUniversityMoveBlocker(session));
+      assertUser(!memberUpdateBlocker(session), memberUpdateBlocker(session));
       session.screen = 'review';
       await interaction.update(memberReviewPayload(session));
       return;
