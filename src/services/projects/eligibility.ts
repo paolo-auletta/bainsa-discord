@@ -1,6 +1,12 @@
 import { MEMBER_TYPES, PROJECT_PERSON_ROLES, PROJECT_STATUSES } from '../../constants.js';
 import { assertUser } from '../../errors.js';
 import { formatDiscordUserReferences } from './validation.js';
+import {
+  loadActiveProjectAssignmentsForMember,
+  loadProjectMembershipRows,
+  lockProjectDivisionEligibilityRows,
+  lockProjectMemberEligibilityRows,
+} from './repository.js';
 
 // Every project_people or membership writer must enter this boundary before it
 // changes durable state.  Sorting Discord IDs gives concurrent multi-person
@@ -20,14 +26,7 @@ export function sortedDiscordUserIds(userIds) {
 export async function lockMemberEligibilityRows(q, userIds) {
   const ids = sortedDiscordUserIds(userIds);
   if (ids.length === 0) return ids;
-  await q.query(
-    `SELECT discord_user_id
-       FROM members
-      WHERE discord_user_id = ANY($1::text[])
-      ORDER BY discord_user_id
-      FOR UPDATE`,
-    [ids],
-  );
+  await lockProjectMemberEligibilityRows(q, ids);
   return ids;
 }
 
@@ -38,34 +37,12 @@ export async function lockDivisionHeadEligibilityRows(q, divisionIds) {
   const ids = [...new Set<string>(divisionIds.filter((id) => id != null).map((id) => String(id)))]
     .sort((left, right) => left.localeCompare(right));
   if (ids.length === 0) return ids;
-  await q.query(
-    `SELECT id
-       FROM divisions
-      WHERE id = ANY($1::bigint[])
-      ORDER BY id
-      FOR UPDATE`,
-    [ids],
-  );
+  await lockProjectDivisionEligibilityRows(q, ids);
   return ids;
 }
 
 async function membershipRows(q, userIds) {
-  const result = await q.query(
-    `SELECT m.discord_user_id, m.member_type, m.university_id, m.status, md.division_id,
-            EXISTS (
-              SELECT 1
-                FROM board_assignments br
-               WHERE br.discord_user_id = m.discord_user_id
-                 AND br.university_id = m.university_id
-                 AND br.active = true
-                 AND br.role IN ('head', 'vice_president', 'president')
-            ) AS is_university_board_member
-       FROM members m
-       LEFT JOIN member_divisions md ON md.discord_user_id = m.discord_user_id
-      WHERE m.discord_user_id = ANY($1::text[])`,
-    [sortedDiscordUserIds(userIds)],
-  );
-  return result.rows;
+  return loadProjectMembershipRows(q, sortedDiscordUserIds(userIds));
 }
 
 function membershipIndex(rows) {
@@ -139,28 +116,12 @@ export async function assertMemberProjectAssignmentEligibility(q, {
   divisionIds,
   additionalBoardUniversityIds = [],
 }) {
-  const result = await q.query(
-    `SELECT p.id, p.name, p.university_id, p.division_id, pp.role,
-            EXISTS (
-              SELECT 1
-                FROM board_assignments br
-               WHERE br.discord_user_id = pp.discord_user_id
-                 AND br.university_id = p.university_id
-                 AND br.active = true
-                 AND br.role IN ('head', 'vice_president', 'president')
-            ) AS is_university_board_member
-       FROM project_people pp
-       JOIN projects p ON p.id = pp.project_id
-      WHERE pp.discord_user_id = $1
-        AND p.status = ANY($2::text[])
-      ORDER BY p.name, p.id, pp.role`,
-    [String(userId), ACTIVE_PROJECT_STATUSES],
-  );
+  const rows = await loadActiveProjectAssignmentsForMember(q, userId, ACTIVE_PROJECT_STATUSES);
   const allowedDivisions = new Set(divisionIds.map((divisionId) => String(divisionId)));
   const additionalBoardUniversities = new Set(
     additionalBoardUniversityIds.map((candidate) => String(candidate)),
   );
-  const incompatible = result.rows.filter((project) => {
+  const incompatible = rows.filter((project) => {
     const desiredMember = {
       member_type: memberType,
       university_id: universityId,

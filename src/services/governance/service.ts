@@ -13,7 +13,6 @@ import {
   divisionColorDetails,
   DIVISION_COLORS,
   MEMBER_TYPES,
-  PROJECT_STATUSES,
   ROLE_NAMES,
   universityRoleColor,
 } from '../../constants.js';
@@ -75,38 +74,57 @@ import {
 } from './formatters.js';
 import {
   addMemberDivisionRow,
+  activeDivisionExists,
+  activeDivisionConflictExists,
+  deactivateBoardAssignments,
+  deactivateExactBoardAssignment,
+  deactivateOtherHeadAssignments,
+  ensureBoardAssignment,
+  getActiveHeadDivisions,
+  getActiveProjectEligibilityAssignments,
+  getActiveProjectsBlockingDivisionRemoval,
+  getBoardAuthorityRoles,
+  getExclusiveBoardAssignment,
   getActiveProjectAssignments,
   getBoardRoles,
   getDivisionByName,
   getDivisionRecords,
   getMemberDivisions,
   getMemberRecord,
+  getMemberProfileVisibilityForUpdate,
   getProjectAssignmentsForRemoval,
   getUniversityDivisionDiscordRoleIds,
   getUniversityByName,
+  hasActiveBoardAssignment,
   removeMemberDivisionRow,
+  removeMemberCanonicalState,
   replaceMemberDivisionRows,
+  hasPublishedMemberProfileForUpdate,
+  createDivisionRecord,
+  insertBoardAssignment,
+  listActiveBoardAssignments,
+  listActiveDivisionsForBoard,
+  listBoardInfoAssignments,
+  lockUniversityForUpdate,
+  updateDivisionRecord,
   upsertMemberRecord,
 } from './repository.js';
 import { hideProfileAndEnqueue, requestProfileReconciliation } from '../../profiles/repository.js';
+import { enqueueProjectReconciliation, reconcileProject } from '../projects/reconciliation.js';
 
 type GovernanceDependencies = { db?: Pick<typeof defaultDb, 'query' | 'transaction'> };
-
-const ACTIVE_PROJECT_STATUSES = [PROJECT_STATUSES.ACTIVE, PROJECT_STATUSES.PAUSED];
 
 function dbFrom(deps: GovernanceDependencies = {}) {
   return deps?.db ?? defaultDb;
 }
 
+function recoveryError(error, message) {
+  if (error instanceof UserFacingError) return error;
+  return new UserFacingError(message, { cause: error });
+}
+
 async function enqueuePublishedProfileReconciliation(client, discordUserId) {
-  const published = await client.query(
-    `SELECT 1
-       FROM member_profiles
-      WHERE discord_user_id = $1 AND visibility = 'published'
-      FOR UPDATE`,
-    [String(discordUserId)],
-  );
-  if (published.rowCount !== 1) return null;
+  if (!await hasPublishedMemberProfileForUpdate(client, discordUserId)) return null;
   return requestProfileReconciliation(client, discordUserId);
 }
 
@@ -289,6 +307,14 @@ function removableMembershipRoleNames(previousRecord, previousDivisions, nextUni
   return [...new Set(names)];
 }
 
+function removableBoardRoleNames(boardRoles) {
+  return boardRoles.map((assignment) =>
+    assignment.role === BOARD_ROLES.HEAD
+      ? divisionHeadRoleName(assignment.university_name, assignment.division_name)
+      : universityBoardRoleName(assignment.university_name, boardRoleLabel(assignment.role)),
+  );
+}
+
 function discordDivisionRolesForUniversity(member, guild, divisionRoleIds) {
   const roleIds = divisionRoleIds.flatMap((division) => [division.member_role_id, division.head_role_id]);
   return roleIds
@@ -320,57 +346,13 @@ function assertCanPromoteResearcher(previousRecord, universityName) {
 }
 
 async function assertNoActiveProjectAccessLoss(db, userId, division) {
-  const result = await db.query(
-    `SELECT p.id, p.name
-       FROM project_people pp
-       JOIN projects p ON p.id = pp.project_id
-      WHERE pp.discord_user_id = $1
-        AND p.division_id = $2
-        AND p.status = ANY($3::text[])
-        AND pp.role = 'member'
-        AND NOT EXISTS (
-          SELECT 1
-            FROM board_assignments br
-           WHERE br.discord_user_id = pp.discord_user_id
-             AND br.university_id = $4
-             AND br.active = true
-             AND br.role IN ('head', 'vice_president', 'president')
-        )
-      ORDER BY p.name
-      LIMIT 5`,
-    [String(userId), division.id, ACTIVE_PROJECT_STATUSES, division.university_id],
-  );
+  const projects = await getActiveProjectsBlockingDivisionRemoval(db, userId, division);
   assertUser(
-    result.rowCount === 0,
-    `Cannot remove this division role because the member still has active project access in ${division.name}: ${result.rows
+    projects.length === 0,
+    `Cannot remove this division role because the member still has active project access in ${division.name}: ${projects
       .map((row) => row.name)
       .join(', ')}.`,
   );
-}
-
-async function getExclusiveBoardAssignment(db, universityId, role, divisionId = null) {
-  if (role === BOARD_ROLES.PRESIDENT) return null;
-  const result = role === BOARD_ROLES.HEAD
-    ? await db.query(
-        `SELECT discord_user_id
-           FROM board_assignments
-          WHERE university_id = $1
-            AND role = $2
-            AND division_id = $3
-            AND active = true
-          LIMIT 1`,
-        [universityId, role, divisionId],
-      )
-    : await db.query(
-        `SELECT discord_user_id
-           FROM board_assignments
-          WHERE university_id = $1
-            AND role = $2
-            AND active = true
-          LIMIT 1`,
-        [universityId, role],
-      );
-  return result.rows[0] ?? null;
 }
 
 function assertExclusiveBoardAssignmentAvailable(assignment, targetId, role, university, division) {
@@ -472,17 +454,9 @@ async function assertActiveProjectUpdateEligibility(
   divisions,
   { universityBoardMember = false } = {},
 ) {
-  const result = await db.query(
-    `SELECT p.id, p.name, p.university_id, p.division_id, pp.role
-       FROM project_people pp
-       JOIN projects p ON p.id = pp.project_id
-      WHERE pp.discord_user_id = $1
-        AND p.status = ANY($2::text[])
-      ORDER BY p.name, p.id, pp.role`,
-    [String(userId), ACTIVE_PROJECT_STATUSES],
-  );
+  const result = await getActiveProjectEligibilityAssignments(db, userId);
   const divisionIds = new Set(divisions.map((division) => String(division.id)));
-  const incompatible = result.rows.filter((project) =>
+  const incompatible = result.filter((project) =>
     projectEligibilityFailure(project, memberType, university.id, divisionIds, universityBoardMember),
   );
 
@@ -578,10 +552,7 @@ async function applyMemberMembership(interaction, options, deps: GovernanceDepen
     });
   } catch (error) {
     await compensateRoles(target, addedRoles, removedRoles, 'Compensating failed governance DB write');
-    throw new UserFacingError(
-      `Discord roles were restored because the database update failed: ${error.message}`,
-      { cause: error },
-    );
+    throw recoveryError(error, 'Discord roles were restored because the membership update could not be saved. Try again.');
   }
 
   return {
@@ -653,9 +624,7 @@ export async function removeMember(interaction, options, deps: GovernanceDepende
   const boardRoles = await getBoardRoles(db, target.id);
   const projects = await getProjectAssignmentsForRemoval(db, target.id);
   const removalPlan = memberRemovalCleanupPlan({ divisions, boardRoles, projects });
-  const overwriteCleanup = await removeProjectPermissionOverwrites(interaction.guild, target.id, projects);
-
-  await target.kick(options.reason ?? 'BAINSA member removal');
+  let canonicalRemoval;
 
   try {
     await db.transaction(async (q) => {
@@ -666,36 +635,21 @@ export async function removeMember(interaction, options, deps: GovernanceDepende
           .map((boardRole) => boardRole.division_id),
       );
       await lockMemberEligibilityRows(q, [target.id]);
-      const boardUpdate = await q.query(
-        `UPDATE board_assignments
-            SET active = false,
-                updated_at = now()
-          WHERE discord_user_id = $1
-            AND active = true`,
-        [String(target.id)],
-      );
-      const divisionDelete = await q.query(
-        'DELETE FROM member_divisions WHERE discord_user_id = $1',
-        [String(target.id)],
-      );
-      const projectDelete = await q.query(
-        'DELETE FROM project_people WHERE discord_user_id = $1',
-        [String(target.id)],
-      );
+      canonicalRemoval = await removeMemberCanonicalState(q, target.id);
+      if (!canonicalRemoval) return;
       await assertMemberProjectAssignmentEligibility(q, {
         userId: target.id,
         memberType: member.member_type,
         universityId: member.university_id,
         divisionIds: [],
       });
-      await q.query(
-        `UPDATE members
-            SET status = 'removed',
-                removed_at = now(),
-                updated_at = now()
-          WHERE discord_user_id = $1`,
-        [String(target.id)],
-      );
+      const projectReconciliationGenerations = [];
+      for (const projectId of canonicalRemoval.projectIds) {
+        projectReconciliationGenerations.push({
+          projectId,
+          desiredGeneration: String(await enqueueProjectReconciliation(q, projectId)),
+        });
+      }
       const profile = await hideProfileAndEnqueue(q, target.id);
       await writeAudit(q, {
         actorId: interaction.user.id,
@@ -706,10 +660,10 @@ export async function removeMember(interaction, options, deps: GovernanceDepende
         before: { member, divisions, boardRoles, projects, removalPlan },
         after: {
           status: 'removed',
-          boardAssignmentsDeactivated: boardUpdate.rowCount,
-          divisionsCleared: divisionDelete.rowCount,
-          projectAssignmentsDeleted: projectDelete.rowCount,
-          projectOverwriteCleanup: overwriteCleanup,
+          boardAssignmentsDeactivated: canonicalRemoval.boardAssignmentsDeactivated,
+          divisionsCleared: canonicalRemoval.divisionsCleared,
+          projectAssignmentsDeleted: canonicalRemoval.projectAssignmentsDeleted,
+          projectReconciliation: projectReconciliationGenerations,
           profile: profile == null
             ? { visibilityChanged: false, reconciliationRequested: false }
             : {
@@ -722,13 +676,60 @@ export async function removeMember(interaction, options, deps: GovernanceDepende
       });
     });
   } catch (error) {
+    throw recoveryError(error, 'The member was not removed because the membership record could not be saved. No Discord removal was attempted; try again.');
+  }
+
+  // A direct deletion closes the rejoin window immediately; the durable
+  // reconciliation intent above then converges each channel to the complete
+  // desired overwrite set (which cannot include this removed member).
+  const overwriteCleanup = await removeProjectPermissionOverwrites(interaction.guild, target.id, projects);
+  // Serialize this bounded removal batch so one removal cannot burst Discord
+  // work or reconciliation claims across every past assignment at once.
+  const reconciliations = [];
+  for (const projectId of canonicalRemoval?.projectIds ?? []) {
+    reconciliations.push(await reconcileProject({ projectId, guild: interaction.guild, db }));
+  }
+  const reconciliationFailures = reconciliations
+    .filter((result) => result.status === 'failed')
+    .map((result) => ({ channelId: String(result.projectId), code: 'reconciliation_failed' }));
+  const cleanup = {
+    cleanedChannelIds: overwriteCleanup.cleanedChannelIds,
+    failures: [...overwriteCleanup.failures, ...reconciliationFailures],
+  };
+
+  try {
+    await target.kick(options.reason ?? 'BAINSA member removal');
+  } catch (error) {
+    logger.warn('Member removal kick failed after canonical removal', {
+      userId: String(target.id), error: error instanceof Error ? error.message : String(error),
+    });
+    let fallbackRolesRemoved = true;
+    try {
+      await removeRolesByName(
+        target,
+        interaction.guild,
+        stableRoleNames([
+          ...removableMembershipRoleNames(member, divisions, member.university_name),
+          ...removableBoardRoleNames(boardRoles),
+        ]),
+        'BAINSA member removal fallback after failed kick',
+      );
+    } catch (fallbackError) {
+      fallbackRolesRemoved = false;
+      logger.warn('Member removal fallback role cleanup failed', {
+        userId: String(target.id),
+        error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+      });
+    }
     throw new UserFacingError(
-      `The member was kicked, but the database/audit update failed and needs manual repair: ${error.message}`,
+      fallbackRolesRemoved
+        ? 'The membership record was removed, but Discord could not complete the server removal. Managed roles were removed and project access cleanup is queued for reconciliation; contact an administrator if the member remains in the server.'
+        : 'The membership record was removed, but Discord could not complete the server removal or fully remove managed roles. Project access cleanup is queued for reconciliation; contact an administrator immediately.',
       { cause: error },
     );
   }
 
-  return { target, universityName: member.university_name, overwriteCleanup };
+  return { target, universityName: member.university_name, overwriteCleanup: cleanup };
 }
 
 /**
@@ -738,14 +739,7 @@ export async function removeMember(interaction, options, deps: GovernanceDepende
 export async function hideDepartedMemberProfile(member, deps: GovernanceDependencies = {}) {
   const db = dbFrom(deps);
   return db.transaction(async (client) => {
-    const profile = await client.query(
-      `SELECT visibility
-         FROM member_profiles
-        WHERE discord_user_id = $1
-        FOR UPDATE`,
-      [String(member.id)],
-    );
-    if (profile.rows[0]?.visibility === 'hidden') return null;
+    if (await getMemberProfileVisibilityForUpdate(client, member.id) === 'hidden') return null;
     return hideProfileAndEnqueue(client, member.id);
   });
 }
@@ -796,11 +790,7 @@ export async function createDivision(interaction, options, deps: GovernanceDepen
   const head = await targetGuildMember(interaction, options.head);
   assertUser(!hasRole(head, ROLE_NAMES.BOT), 'The Bot member cannot head a division.');
 
-  const existing = await db.query(
-    'SELECT id FROM divisions WHERE university_id = $1 AND lower(name) = lower($2) AND active = true LIMIT 1',
-    [university.id, divisionName],
-  );
-  assertUser(existing.rowCount === 0, `${divisionName} already exists at ${university.name}.`);
+  assertUser(!await activeDivisionExists(db, university.id, divisionName), `${divisionName} already exists at ${university.name}.`);
   const previousHeadRecord = await getMemberRecord(db, head.id);
   assertCanPromoteResearcher(previousHeadRecord, university.name);
 
@@ -869,31 +859,14 @@ export async function createDivision(interaction, options, deps: GovernanceDepen
     }
 
     await db.transaction(async (q) => {
-      const inserted = await q.query(
-        `INSERT INTO divisions
-          (university_id, name, slug, color, member_role_id, head_role_id, text_channel_id, voice_channel_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING id`,
-        [
-          university.id,
-          divisionName,
-          slugify(divisionName),
-          divisionColor.key,
-          accessRole.id,
-          headRole.id,
-          textChannel?.id ?? null,
-          voiceChannel?.id ?? null,
-        ],
-      );
-      const divisionId = inserted.rows[0].id;
+      const divisionId = await createDivisionRecord(q, {
+        universityId: university.id, name: divisionName, slug: slugify(divisionName), color: divisionColor.key,
+        accessRoleId: accessRole.id, headRoleId: headRole.id,
+        textChannelId: textChannel?.id ?? null, voiceChannelId: voiceChannel?.id ?? null,
+      });
       await upsertMemberRecord(q, head.id, MEMBER_TYPES.RESEARCHER, university.id, null);
       await addMemberDivisionRow(q, head.id, divisionId);
-      await q.query(
-        `INSERT INTO board_assignments (discord_user_id, university_id, role, division_id, active)
-         VALUES ($1, $2, $3, $4, true)
-         ON CONFLICT DO NOTHING`,
-        [String(head.id), university.id, BOARD_ROLES.HEAD, divisionId],
-      );
+      await ensureBoardAssignment(q, { userId: head.id, universityId: university.id, role: BOARD_ROLES.HEAD, divisionId });
       await writeAudit(q, {
         actorId: interaction.user.id,
         action: 'division.create',
@@ -920,10 +893,7 @@ export async function createDivision(interaction, options, deps: GovernanceDepen
         .filter((resource) => typeof resource.delete === 'function')
         .map((resource) => resource.delete('Compensating failed division create')),
     );
-    throw new UserFacingError(
-      `Division creation was rolled back because a later step failed: ${error.message}`,
-      { cause: error },
-    );
+    throw recoveryError(error, 'Division creation was rolled back because a later step failed. Try again.');
   }
 
   return { university, divisionName, divisionColor, head, textChannel, voiceChannel };
@@ -946,17 +916,7 @@ export async function updateDivision(interaction, options, deps: GovernanceDepen
   assertUser(nameChanged || colorChanged, 'Specify a new division name or color different from the current value.');
 
   if (nameChanged) {
-    const conflict = await db.query(
-      `SELECT id
-         FROM divisions
-        WHERE university_id = $1
-          AND lower(name) = lower($2)
-          AND id <> $3
-          AND active = true
-        LIMIT 1`,
-      [university.id, newName, division.id],
-    );
-    assertUser(conflict.rowCount === 0, `${newName} already exists at ${university.name}.`);
+    assertUser(!await activeDivisionConflictExists(db, university.id, newName, division.id), `${newName} already exists at ${university.name}.`);
   }
 
   const reason = `BAINSA governance: division.update ${university.name}/${division.name} to ${newName} (${divisionColor.key})`;
@@ -1001,17 +961,10 @@ export async function updateDivision(interaction, options, deps: GovernanceDepen
     }
 
     await db.transaction(async (q) => {
-      await q.query(
-        `UPDATE divisions
-            SET name = $1,
-                slug = $2,
-                color = $3,
-                member_role_id = $4,
-                head_role_id = $5,
-                updated_at = now()
-          WHERE id = $6`,
-        [newName, slugify(newName), divisionColor.key, accessRole.id, headRole.id, division.id],
-      );
+      await updateDivisionRecord(q, {
+        name: newName, slug: slugify(newName), color: divisionColor.key,
+        accessRoleId: accessRole.id, headRoleId: headRole.id, divisionId: division.id,
+      });
       await writeAudit(q, {
         actorId: interaction.user.id,
         action: 'division.update',
@@ -1044,10 +997,7 @@ export async function updateDivision(interaction, options, deps: GovernanceDepen
         ),
       });
     }
-    throw new UserFacingError(
-      `Division update failed. Discord roles and channels were restored where possible: ${error.message}`,
-      { cause: error },
-    );
+    throw recoveryError(error, 'Division update failed. Discord roles and channels were restored where possible; try again.');
   }
 
   return {
@@ -1138,10 +1088,7 @@ export async function addDivisionMember(interaction, options, deps: GovernanceDe
     });
   } catch (error) {
     await compensateRoles(target, addedRoles, removedRoles, 'Compensating failed division add member');
-    throw new UserFacingError(
-      `Discord roles were restored because the database update failed: ${error.message}`,
-      { cause: error },
-    );
+    throw recoveryError(error, 'Discord roles were restored because the division membership update could not be saved. Try again.');
   }
 
   return { target, university, division };
@@ -1241,10 +1188,7 @@ export async function removeDivisionMember(interaction, options, deps: Governanc
     });
   } catch (error) {
     await compensateRoles(target, [], removedRoles, 'Compensating failed division remove member');
-    throw new UserFacingError(
-      `Discord roles were restored because the database update failed: ${error.message}`,
-      { cause: error },
-    );
+    throw recoveryError(error, 'Discord roles were restored because the division membership update could not be saved. Try again.');
   }
 
   return { target, university, division };
@@ -1342,7 +1286,7 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
     await db.transaction(async (q) => {
       await lockDivisionHeadEligibilityRows(q, headEligibilityDivisionIds);
       if (role === BOARD_ROLES.VICE_PRESIDENT) {
-        await q.query('SELECT id FROM universities WHERE id = $1 FOR UPDATE', [university.id]);
+        await lockUniversityForUpdate(q, university.id);
       }
       await lockMemberEligibilityRows(q, [target.id]);
       const lockedMember = await getMemberRecord(q, target.id);
@@ -1384,27 +1328,13 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
       await upsertMemberRecord(q, target.id, MEMBER_TYPES.RESEARCHER, university.id, null);
       if (division) {
         await replaceMemberDivisionRows(q, target.id, [division]);
-        await q.query(
-          `UPDATE board_assignments
-              SET active = false,
-                  updated_at = now()
-            WHERE discord_user_id = $1
-              AND university_id = $2
-              AND role = $3
-              AND active = true
-              AND division_id IS DISTINCT FROM $4`,
-          [String(target.id), university.id, BOARD_ROLES.HEAD, division.id],
-        );
+        await deactivateOtherHeadAssignments(q, target.id, university.id, division.id);
       }
-      const insertedAssignment = await q.query(
-        `INSERT INTO board_assignments (discord_user_id, university_id, role, division_id, active)
-         VALUES ($1, $2, $3, $4, true)
-         ON CONFLICT DO NOTHING
-         RETURNING id`,
-        [String(target.id), university.id, role, division?.id ?? null],
-      );
+      const insertedAssignment = await insertBoardAssignment(q, {
+        userId: target.id, universityId: university.id, role, divisionId: division?.id ?? null,
+      });
       assertUser(
-        insertedAssignment.rowCount === 1,
+        insertedAssignment === 1,
         'That board appointment changed while this panel was open. Reload the member before trying again.',
       );
       await writeAudit(q, {
@@ -1418,10 +1348,7 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
     });
   } catch (error) {
     await compensateRoles(target, addedRoles, removedRoles, 'Compensating failed board assign');
-    throw new UserFacingError(
-      `Discord roles were restored because the database update failed: ${error.message}`,
-      { cause: error },
-    );
+    throw recoveryError(error, 'Discord roles were restored because the board assignment could not be saved. Try again.');
   }
 
   return { target, university, role, division };
@@ -1463,24 +1390,13 @@ export async function removeBoardRole(interaction, options, deps: GovernanceDepe
       ? `That member no longer has a Head role at ${university.name}.`
       : `That member no longer has the selected ${boardRoleLabel(role)} role.`,
   );
-  const headAssignments = role !== BOARD_ROLES.HEAD
+  const headAssignments: Array<{ id: unknown; name: string }> = role !== BOARD_ROLES.HEAD
     ? []
     : division
       ? [division]
       : (
-          await db.query(
-            `SELECT d.id, d.name
-               FROM board_assignments br
-               JOIN divisions d ON d.id = br.division_id
-              WHERE br.discord_user_id = $1
-                AND br.university_id = $2
-                AND br.role = $3
-                AND br.active = true
-                AND d.active = true
-              ORDER BY d.id`,
-            [String(target.id), university.id, BOARD_ROLES.HEAD],
-          )
-        ).rows;
+          await getActiveHeadDivisions(db, target.id, university.id)
+        );
   const rolesToRemove = role === BOARD_ROLES.HEAD
     ? headAssignments.map((assignment) => divisionHeadRoleName(university.name, assignment.name))
     : [universityBoardRoleName(university.name, boardRoleLabel(role))];
@@ -1517,17 +1433,7 @@ export async function removeBoardRole(interaction, options, deps: GovernanceDepe
         sameBoardAssignments(matchingRoles, lockedMatchingRoles),
         'That board assignment changed while this panel was open. Reload the member before trying again.',
       );
-      await q.query(
-        `UPDATE board_assignments
-            SET active = false,
-                updated_at = now()
-          WHERE discord_user_id = $1
-            AND university_id = $2
-            AND role = $3
-            AND active = true
-            AND ($4::bigint IS NULL OR division_id = $4)`,
-        [String(target.id), university.id, role, division?.id ?? null],
-      );
+      await deactivateBoardAssignments(q, target.id, university.id, role, division?.id ?? null);
       const memberDivisions = await getMemberDivisions(q, target.id);
       await assertMemberProjectAssignmentEligibility(q, {
         userId: target.id,
@@ -1547,10 +1453,7 @@ export async function removeBoardRole(interaction, options, deps: GovernanceDepe
     });
   } catch (error) {
     await compensateRoles(target, [], removedRoles, 'Compensating failed board remove');
-    throw new UserFacingError(
-      `Discord roles were restored because the database update failed: ${error.message}`,
-      { cause: error },
-    );
+    throw recoveryError(error, 'Discord roles were restored because the board removal could not be saved. Try again.');
   }
 
   return { target, university, role, division };
@@ -1560,16 +1463,8 @@ export async function updateBoardRoster(interaction, options, deps: GovernanceDe
   const db = dbFrom(deps);
   actorMember(interaction);
   const university = await getUniversityByName(db, options.university);
-  const authorityResult = await db.query(
-    `SELECT role
-       FROM board_assignments
-      WHERE discord_user_id = $1
-        AND university_id = $2
-        AND role IN ('president', 'vice_president')
-        AND active = true`,
-    [String(interaction.user.id), university.id],
-  );
-  const actorRoles = new Set(authorityResult.rows.map((assignment) => String(assignment.role)));
+  const authorityResult = await getBoardAuthorityRoles(db, interaction.user.id, university.id);
+  const actorRoles = new Set(authorityResult.map((assignment) => String(assignment.role)));
   const actorPresident = actorRoles.has(BOARD_ROLES.PRESIDENT);
   const actorVicePresident = actorRoles.has(BOARD_ROLES.VICE_PRESIDENT);
   assertUser(
@@ -1577,15 +1472,14 @@ export async function updateBoardRoster(interaction, options, deps: GovernanceDe
     `Only the President or Vice President of ${university.name} can update its board.`,
   );
 
-  const divisionResult = await db.query(
-    `SELECT id, university_id, name, color, member_role_id, head_role_id
-       FROM divisions
-      WHERE university_id = $1
-        AND active = true
-      ORDER BY name`,
-    [university.id],
-  );
-  const divisions = divisionResult.rows;
+  const divisions = await listActiveDivisionsForBoard(db, university.id) as Array<{
+    id: unknown;
+    university_id: unknown;
+    name: string;
+    color: string;
+    member_role_id: string | null;
+    head_role_id: string | null;
+  }>;
   const divisionsById = new Map(divisions.map((division) => [String(division.id), division]));
   const normalizeAssignments = (assignments) => assignments.map((assignment) => {
     const role = String(assignment.role);
@@ -1635,16 +1529,7 @@ export async function updateBoardRoster(interaction, options, deps: GovernanceDe
     'Presidents and Vice Presidents cannot simultaneously hold a division Head position.',
   );
 
-  const currentResult = await db.query(
-    `SELECT br.discord_user_id, br.university_id, br.role, br.division_id, d.name AS division_name
-       FROM board_assignments br
-       LEFT JOIN divisions d ON d.id = br.division_id
-      WHERE br.university_id = $1
-        AND br.active = true
-      ORDER BY br.role, br.division_id NULLS FIRST, br.discord_user_id`,
-    [university.id],
-  );
-  const currentAssignments = currentResult.rows;
+  const currentAssignments = await listActiveBoardAssignments(db, university.id);
   assertUser(
     sameBoardAssignments(currentAssignments, expectedAssignments),
     'The board changed while this panel was open. Run `/board-update` again to load the current roster.',
@@ -1742,21 +1627,12 @@ export async function updateBoardRoster(interaction, options, deps: GovernanceDe
 
   try {
     await db.transaction(async (q) => {
-      await q.query('SELECT id FROM universities WHERE id = $1 FOR UPDATE', [university.id]);
+      await lockUniversityForUpdate(q, university.id);
       await lockDivisionHeadEligibilityRows(q, divisions.map((division) => division.id));
       await lockMemberEligibilityRows(q, affectedUserIds);
-      const locked = await q.query(
-        `SELECT br.discord_user_id, br.university_id, br.role, br.division_id, d.name AS division_name
-           FROM board_assignments br
-           LEFT JOIN divisions d ON d.id = br.division_id
-          WHERE br.university_id = $1
-            AND br.active = true
-          ORDER BY br.role, br.division_id NULLS FIRST, br.discord_user_id
-          FOR UPDATE OF br`,
-        [university.id],
-      );
+      const locked = await listActiveBoardAssignments(q, university.id, { forUpdate: true });
       assertUser(
-        sameBoardAssignments(locked.rows, expectedAssignments),
+        sameBoardAssignments(locked, expectedAssignments),
         'The board changed while this update was being saved. Run `/board-update` again.',
       );
 
@@ -1789,27 +1665,14 @@ export async function updateBoardRoster(interaction, options, deps: GovernanceDe
       }
 
       for (const assignment of removals) {
-        await q.query(
-          `UPDATE board_assignments
-              SET active = false,
-                  updated_at = now()
-            WHERE discord_user_id = $1
-              AND university_id = $2
-              AND role = $3
-              AND division_id IS NOT DISTINCT FROM $4
-              AND active = true`,
-          [assignment.discord_user_id, university.id, assignment.role, assignment.division_id],
-        );
+        await deactivateExactBoardAssignment(q, assignment.discord_user_id, university.id, assignment.role, assignment.division_id);
       }
       for (const assignment of additions) {
-        const inserted = await q.query(
-          `INSERT INTO board_assignments (discord_user_id, university_id, role, division_id, active)
-           VALUES ($1, $2, $3, $4, true)
-           ON CONFLICT DO NOTHING
-           RETURNING id`,
-          [assignment.discord_user_id, university.id, assignment.role, assignment.division_id],
-        );
-        assertUser(inserted.rowCount === 1, 'A selected board position was assigned concurrently. Reload the board.');
+        const inserted = await insertBoardAssignment(q, {
+          userId: assignment.discord_user_id, universityId: university.id,
+          role: assignment.role, divisionId: assignment.division_id,
+        });
+        assertUser(inserted === 1, 'A selected board position was assigned concurrently. Reload the board.');
       }
       await writeAudit(q, {
         actorId: interaction.user.id,
@@ -1825,10 +1688,7 @@ export async function updateBoardRoster(interaction, options, deps: GovernanceDe
     await Promise.all(roleChanges.map(({ person, addedRoles, removedRoles }) =>
       compensateRoles(person.target, addedRoles, removedRoles, 'Compensating failed board roster update'),
     ));
-    throw new UserFacingError(
-      `Discord roles were restored because the board update could not be saved: ${error.message}`,
-      { cause: error },
-    );
+    throw recoveryError(error, 'Discord roles were restored because the board update could not be saved. Try again.');
   }
 
   return {
@@ -1848,38 +1708,20 @@ export async function getBoardInfo(interaction, options, deps: GovernanceDepende
   const db = dbFrom(deps);
   const actor = actorMember(interaction);
   const university = await getUniversityByName(db, options.university);
-  const actorBoardRows = isGlobalPresident(actor)
-    ? { rowCount: 0 }
-    : await db.query(
-        `SELECT 1
-           FROM board_assignments
-          WHERE discord_user_id = $1
-            AND university_id = $2
-            AND active = true
-          LIMIT 1`,
-        [String(interaction.user.id), university.id],
-      );
+  const actorHasBoardAssignment = !isGlobalPresident(actor)
+    && await hasActiveBoardAssignment(db, interaction.user.id, university.id);
   assertUser(
     isGlobalPresident(actor) ||
       hasRole(actor, universityBoardRoleName(university.name, 'President')) ||
       hasRole(actor, universityBoardRoleName(university.name, 'Vice President')) ||
-      actorBoardRows.rowCount > 0,
+      actorHasBoardAssignment,
     `Only ${university.name} board members can view board info.`,
   );
 
-  const result = await db.query(
-    `SELECT br.discord_user_id, br.role, br.division_id, d.name AS division_name, d.color AS division_color
-       FROM board_assignments br
-       LEFT JOIN divisions d ON d.id = br.division_id AND d.active = true
-      WHERE br.university_id = $1
-        AND br.active = true
-        AND (br.division_id IS NULL OR d.id IS NOT NULL)
-      ORDER BY br.role, d.name, br.discord_user_id`,
-    [university.id],
-  );
+  const result = await listBoardInfoAssignments(db, university.id);
 
   const rows = [];
-  for (const row of result.rows) {
+  for (const row of result) {
     const member = await interaction.guild.members.fetch(row.discord_user_id).catch(() => null);
     const expectedRoles = [ROLE_NAMES.RESEARCHER, universityAccessRoleName(university.name)];
     if (row.role === BOARD_ROLES.HEAD && row.division_name) {

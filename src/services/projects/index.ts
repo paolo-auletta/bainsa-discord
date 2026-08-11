@@ -18,12 +18,19 @@ import {
   assertActiveUniversityMembers,
   findActiveDivision,
   findActiveDivisionHeadIds,
+  createProjectRecord,
+  completeProjectRecord,
   getProject,
   getProjectForUpdate,
   getProjectPerson,
   getProjectPeople,
   insertProjectPeople,
   lockProjectAndCountPeople,
+  projectPeopleEqual,
+  projectReconciliationStatus,
+  removeProjectPerson,
+  replaceProjectPeople,
+  updateProjectRecord,
 } from './repository.js';
 import {
   assertProjectStatusChange,
@@ -46,7 +53,8 @@ import {
   lockDivisionHeadEligibilityRows,
   lockMemberEligibilityRows,
 } from './eligibility.js';
-import { enqueueProjectReconciliation, reconcileProject } from './reconciliation.js';
+import { reconcileProject } from './reconciliation.js';
+import { enqueueProjectReconciliation } from './repository.js';
 import {
   assertGuildMembers,
   findProjectParentId,
@@ -122,11 +130,7 @@ async function reconcileCommittedProject({ projectId, guild, db }) {
     getProject(db, projectId),
     getProjectPeople(db, projectId),
   ]);
-  const statusResult = await db.query(
-    'SELECT status FROM project_reconciliation WHERE project_id = $1',
-    [projectId],
-  );
-  const status = statusResult.rows[0]?.status;
+  const status = await projectReconciliationStatus(db, projectId);
   if (status === 'succeeded') return { status, project, people };
   return { status: status === 'failed' ? 'failed' : 'pending', project, people };
 }
@@ -206,24 +210,17 @@ export async function createProject(input, deps: ProjectDependencies = {}) {
       `The active Head assignments for ${divisionRecord.division_name} changed while the project was being created. Try again.`,
     );
     await assertProjectPeopleEligibility(client, divisionRecord, people);
-    const result = await client.query(
-      `INSERT INTO projects
-        (name, university_id, division_id, start_date, expected_end, summary, notes, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, name, university_id, division_id, start_date::text, expected_end::text, summary, notes, status,
-         outcome, final_notes, closed_at, channel_id AS discord_channel_id, home_message_id, workspace_guide_message_id, showcase_thread_id`,
-      [
-        name,
-        divisionRecord.university_id,
-        divisionRecord.division_id,
-        startDate,
-        expectedEnd,
-        summary,
-        notes,
-        PROJECT_STATUSES.ACTIVE,
-      ],
-    );
-    const created = { ...result.rows[0], ...divisionRecord };
+    const createdRecord = await createProjectRecord(client, {
+      name,
+      universityId: divisionRecord.university_id,
+      divisionId: divisionRecord.division_id,
+      startDate,
+      expectedEnd,
+      summary,
+      notes,
+      status: PROJECT_STATUSES.ACTIVE,
+    });
+    const created = { ...createdRecord, ...divisionRecord };
     await insertProjectPeople(client, created.id, people);
     await enqueueProjectReconciliation(client, created.id);
     await writeAudit(client, {
@@ -328,10 +325,7 @@ export async function removeProjectMember(input, deps: ProjectDependencies = {})
     const existingPerson = await getProjectPerson(client, lockedProject.id, input.user.id);
     assertUser(existingPerson, 'That user is not a project participant.');
     previousRole = existingPerson?.role ?? null;
-    await client.query('DELETE FROM project_people WHERE project_id = $1 AND discord_user_id = $2', [
-      lockedProject.id,
-      input.user.id,
-    ]);
+    await removeProjectPerson(client, lockedProject.id, input.user.id);
     await enqueueProjectReconciliation(client, lockedProject.id);
     await writeAudit(client, {
       actorId: input.interaction.user.id,
@@ -407,12 +401,7 @@ export async function updateProject(input, deps: ProjectDependencies = {}) {
       status: requested.status ?? lockedProject.status,
     };
     assertProjectStatusChange(lockedProject.status, patch.status);
-    await client.query(
-      `UPDATE projects
-       SET name = $1, expected_end = $2, summary = $3, notes = $4, status = $5, updated_at = now()
-       WHERE id = $6`,
-      [patch.name, patch.expected_end, patch.summary, patch.notes, patch.status, lockedProject.id],
-    );
+    await updateProjectRecord(client, lockedProject.id, patch);
     await enqueueProjectReconciliation(client, lockedProject.id);
     await writeAudit(client, {
       actorId: input.interaction.user.id,
@@ -465,19 +454,6 @@ function normalizedProjectPeople(people) {
     });
   }
   return [...normalized.values()];
-}
-
-function peopleSnapshot(people) {
-  return [...people]
-    .map((person) => `${String(person.discord_user_id)}:${String(person.role)}`)
-    .sort();
-}
-
-function samePeople(left, right) {
-  const leftSnapshot = peopleSnapshot(left);
-  const rightSnapshot = peopleSnapshot(right);
-  return leftSnapshot.length === rightSnapshot.length
-    && leftSnapshot.every((value, index) => value === rightSnapshot[index]);
 }
 
 function projectParticipantChanges(beforePeople, afterPeople) {
@@ -533,7 +509,7 @@ export async function updateProjectWithPeople(input, deps: ProjectDependencies =
     }
     if (input.expectedPeople) {
       assertUser(
-        samePeople(lockedPeople, input.expectedPeople),
+        projectPeopleEqual(lockedPeople, input.expectedPeople),
         'The project team changed while the panel was open. Restart /project-update to review the current team.',
       );
     }
@@ -555,22 +531,11 @@ export async function updateProjectWithPeople(input, deps: ProjectDependencies =
       'notes',
       'status',
     ].some((field) => String(lockedProject[field] ?? '') !== String(patch[field] ?? ''));
-    assertUser(metadataChanged || !samePeople(lockedPeople, requestedPeople), 'Choose at least one real project change before saving.');
+    assertUser(metadataChanged || !projectPeopleEqual(lockedPeople, requestedPeople), 'Choose at least one real project change before saving.');
 
     await lockAndAssertProjectPeopleEligibility(client, lockedProject, requestedPeople);
-    await client.query(
-      `UPDATE projects
-          SET name = $1,
-              expected_end = $2,
-              summary = $3,
-              notes = $4,
-              status = $5,
-              updated_at = now()
-        WHERE id = $6`,
-      [patch.name, patch.expected_end, patch.summary, patch.notes, patch.status, lockedProject.id],
-    );
-    await client.query('DELETE FROM project_people WHERE project_id = $1', [lockedProject.id]);
-    await insertProjectPeople(client, lockedProject.id, requestedPeople);
+    await updateProjectRecord(client, lockedProject.id, patch);
+    await replaceProjectPeople(client, lockedProject.id, requestedPeople);
     await enqueueProjectReconciliation(client, lockedProject.id);
     await writeAudit(client, {
       actorId: input.interaction.user.id,
@@ -670,13 +635,7 @@ export async function closeProject(input, deps: ProjectDependencies = {}) {
     const lockedPeople = await getProjectPeople(client, lockedProject.id);
     assertProjectManagementAuthority(input.interaction.member, lockedProject, lockedPeople);
     assertProjectIsOpen(lockedProject.status);
-    await client.query(
-      `UPDATE projects
-       SET status = $1, outcome = $2, final_notes = $3,
-           closed_at = now(), updated_at = now()
-       WHERE id = $4`,
-      [PROJECT_STATUSES.COMPLETED, outcome, finalNotes, lockedProject.id],
-    );
+    await completeProjectRecord(client, lockedProject.id, outcome, finalNotes, PROJECT_STATUSES.COMPLETED);
     await enqueueProjectReconciliation(client, lockedProject.id);
     await writeAudit(client, {
       actorId: input.interaction.user.id,

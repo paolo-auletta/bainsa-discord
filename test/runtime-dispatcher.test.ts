@@ -1,10 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { commands } from '../src/commands/index.js';
 import { replyBoardActivity, replyEphemeral } from '../src/discord/reply.js';
 import { UserFacingError } from '../src/errors.js';
+import { guideInteractions } from '../src/guide/service.js';
+import { createOnboardingService } from '../src/onboarding/service.js';
+import { createProfileService } from '../src/profiles/index.js';
 import { assertUniqueCommandNames, buildCommandMap, serializeCommands } from '../src/runtime/command-registry.js';
+import { composeInteractionDispatcher } from '../src/runtime/dispatcher-composition.js';
 import { createInteractionDispatcher, routeInteraction } from '../src/runtime/dispatcher.js';
+import { boardUpdatePanel } from '../src/services/governance/board-update-panel.js';
+import { governanceMembershipPanels } from '../src/services/governance/membership-panels.js';
+import { governanceCommandPanels } from '../src/services/governance/panels.js';
+import { projectCreateSetup } from '../src/services/projects/index.js';
+import { projectManagementPanels } from '../src/services/projects/management-panels.js';
 
 function payloadText(payload) {
   const queue = [...(payload.components ?? []).map((component) => component.toJSON?.() ?? component)];
@@ -16,6 +26,56 @@ function payloadText(payload) {
   }
   return content.join('\n');
 }
+
+test('production dispatcher composition includes every handler in dispatch order with disjoint custom-ID namespaces', () => {
+  const onboarding = createOnboardingService();
+  const profiles = createProfileService();
+  const composition = composeInteractionDispatcher({
+    commands,
+    governanceCommandPanels,
+    governanceMembershipPanels,
+    boardUpdatePanel,
+    projectManagementPanels,
+    onboarding,
+    guide: guideInteractions,
+    projectSetup: projectCreateSetup,
+    profiles,
+  });
+
+  assert.deepEqual(composition.componentHandlers, [
+    governanceCommandPanels,
+    governanceMembershipPanels,
+    boardUpdatePanel,
+    projectManagementPanels,
+  ]);
+  assert.equal(composition.commands, commands);
+
+  const handlers = [
+    ...composition.componentHandlers,
+    composition.onboarding,
+    composition.guide,
+    composition.projectSetup,
+    composition.profiles,
+  ];
+  const samples = [
+    'gm:session:dcu',
+    'gmm:session:t',
+    'gbu:session:e',
+    'pm:session:up',
+    'ob:start',
+    'guide:v1:user:topic:projects',
+    'pc:session:crt',
+    'pf:start',
+  ];
+
+  for (const customId of samples) {
+    assert.equal(
+      handlers.filter((handler) => handler?.canHandle(customId)).length,
+      1,
+      `Expected exactly one production handler for ${customId}`,
+    );
+  }
+});
 
 test('command registry rejects duplicate command names', () => {
   assert.throws(

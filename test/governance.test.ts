@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ChannelType, PermissionFlagsBits } from 'discord.js';
+import { ChannelType, PermissionFlagsBits, type APIEmbed } from 'discord.js';
 
 import {
   divisionAutocompleteChoice,
@@ -62,7 +62,38 @@ function cacheFrom(items = []) {
   };
 }
 
-function testRole(id, name, hexColor = '#000000') {
+type TestRole = {
+  id: string;
+  name: string;
+  hexColor: string;
+  editable: boolean;
+  lastSetNameReason?: string;
+  lastEdit?: unknown;
+  deletedReason?: string;
+  createSpec?: unknown;
+  setName(name: string, reason: string): Promise<TestRole>;
+  edit(update: { colors?: { primaryColor?: string } }): Promise<TestRole>;
+  delete(reason: string): Promise<void>;
+};
+
+type TestChannel = {
+  id: string;
+  name: string;
+  type: ChannelType;
+  parentId: string | null;
+  lastSetNameReason?: string;
+  deletedReason?: string;
+  createSpec?: unknown;
+  overwrites?: Array<{ id: string }>;
+  overwriteReason?: string;
+  permissionOverwrites?: {
+    set(overwrites: Array<{ id: string }>, reason: string): Promise<void>;
+  };
+  setName(name: string, reason: string): Promise<TestChannel>;
+  delete(reason: string): Promise<void>;
+};
+
+function testRole(id: string, name: string, hexColor = '#000000'): TestRole {
   return {
     id,
     name,
@@ -84,7 +115,7 @@ function testRole(id, name, hexColor = '#000000') {
   };
 }
 
-function testChannel(id, name, type, parentId = null) {
+function testChannel(id: string, name: string, type: ChannelType, parentId: string | null = null): TestChannel {
   return {
     id,
     name,
@@ -99,6 +130,10 @@ function testChannel(id, name, type, parentId = null) {
       this.deletedReason = reason;
     },
   };
+}
+
+function embedJson(embed: APIEmbed | { toJSON(): APIEmbed }): APIEmbed {
+  return typeof embed.toJSON === 'function' ? embed.toJSON() : embed;
 }
 
 function memberWithRoles(initialRoles = []) {
@@ -241,7 +276,7 @@ test('division-update reconciles case-only renames and recolors across roles, ch
       newName: 'PROJECTS',
       color: 'green',
     },
-    { db },
+    { db: db as never },
   );
 
   assert.deepEqual(result, {
@@ -319,7 +354,7 @@ test('division-update restores an already-renamed channel when a later channel r
       { university: 'Bocconi', currentName: 'Projects', newName: 'Innovation', color: 'green' },
       { db },
     ),
-    /Controlled voice rename failure/,
+    /Division update failed\. Discord roles and channels were restored where possible; try again\./,
   );
 
   assert.equal(transactionCalls, 0);
@@ -1657,7 +1692,7 @@ test('member-info renders a compact informational card from a direct Discord use
 
   assert.deepEqual(payload.allowedMentions, { parse: [] });
   assert.equal(payload.content, undefined);
-  const embed = payload.embeds[0].toJSON();
+  const embed = embedJson(payload.embeds[0]);
   assert.equal(embed.title, '🔵 Member information');
   assert.equal(embed.color, 0x5865f2);
   assert.deepEqual(embed.fields, [
@@ -1678,7 +1713,7 @@ test('member-info keeps empty assignments compact and readable', () => {
     boardRoles: [],
     projects: [],
   });
-  const fields = payload.embeds[0].toJSON().fields;
+  const fields = embedJson(payload.embeds[0]).fields;
   assert.equal(fields.find((field) => field.name === 'Member').value, 'Greek (<@100>)');
   assert.equal(fields.find((field) => field.name === 'Type').value, 'Alumni');
   assert.equal(fields.find((field) => field.name === 'Affiliation').value, 'Not assigned');
@@ -1694,7 +1729,7 @@ test('member-info uses a readable fallback when the Discord user cannot be resol
     boardRoles: [],
     projects: [],
   });
-  const member = payload.embeds[0].toJSON().fields.find((field) => field.name === 'Member').value;
+  const member = embedJson(payload.embeds[0]).fields.find((field) => field.name === 'Member').value;
   assert.equal(member, 'Grace Hopper');
   assert.doesNotMatch(JSON.stringify(payload), /\[object Object\]/);
 });
@@ -1714,7 +1749,7 @@ test('member-info keeps the complete compact card within Discord limits', () => 
       status: 'active',
     })),
   });
-  const embed = payload.embeds[0].toJSON();
+  const embed = embedJson(payload.embeds[0]);
   const characterCount = embed.title.length
     + embed.footer.text.length
     + embed.fields.reduce((total, field) => total + field.name.length + field.value.length, 0);

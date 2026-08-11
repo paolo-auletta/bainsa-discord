@@ -2107,22 +2107,6 @@
             recovery: 'Validation failure preserves the draft and offers retry/back. Cancel creates nothing. Expired/foreign/busy sessions return dedicated private errors.',
           },
           {
-            name: '/project-add-member',
-            purpose: 'Add a participant or change an existing participant’s project role.',
-            success: 'Event card distinguishes added from role changed; canonical records update; affected person receives a role-aware handoff.',
-            private: 'Eligibility details and any failed-DM logging stay private.',
-            alternate: 'New member, supervisor, board liaison, role transition, identical role no-op, or Discord reconciliation pending.',
-            recovery: 'Closed project, ineligible member, cross-role conflict, Bot, capacity limit, missing member, or insufficient management authority → private error.',
-          },
-          {
-            name: '/project-remove-member',
-            purpose: 'Remove a participant and their direct private-channel access.',
-            success: 'Danger event card records the participant removal; affected person receives remaining-access guidance.',
-            private: 'Optional reason is sent only to the affected person and audit log, never to board activity.',
-            alternate: 'DM delivered or unavailable; canonical project record repaired; reconciliation pending when Discord access removal must retry.',
-            recovery: 'Person is not assigned, project is completed, explicit project mismatches current channel, or caller lacks authority → no mutation.',
-          },
-          {
             name: '/project-update',
             purpose: 'Update project identity, end date, public summary, private notes, or active/paused state.',
             success: 'Changed event card lists public changes; project channel gets one compact transition; canonical records update in place.',

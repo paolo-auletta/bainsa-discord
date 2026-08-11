@@ -5,14 +5,19 @@ import { logger } from '../../logger.js';
 import { divisionHeadRoleName, projectChannelName, universityBoardRoleName, universityCategoryName } from '../../naming.js';
 import { syncProjectHome, syncProjectWorkspaceGuide, syncShowcaseThread } from './gateway.js';
 import { buildProjectPermissionOverwrites, projectPersonIdsByRole, uniqueIds } from './permissions.js';
-
-const PROJECT_SELECT = `
-  p.id, p.name, p.university_id, p.division_id, p.start_date::text AS start_date,
-  p.expected_end::text AS expected_end, p.summary, p.notes, p.status, p.outcome, p.final_notes, p.closed_at,
-  p.channel_id AS discord_channel_id, p.home_message_id, p.workspace_guide_message_id, p.showcase_thread_id,
-  u.name AS university_name, u.category_id, u.showcase_channel_id, d.name AS division_name, d.color AS division_color,
-  d.head_role_id AS division_head_role_id
-`;
+import {
+  claimProjectReconciliation,
+  completeProjectReconciliation,
+  enqueueProjectReconciliation,
+  failProjectReconciliation,
+  listProjectReconciliationCandidates,
+  loadProjectReconciliationState,
+  markProjectReconciliationProcessing,
+  persistProjectChannelId,
+  persistProjectHomeMessageId,
+  persistProjectShowcaseThreadId,
+  persistProjectWorkspaceGuideMessageId,
+} from './repository.js';
 const REPAIR_LIMIT = 10;
 
 interface ReconciliationWorkerOptions {
@@ -60,20 +65,10 @@ function desiredOverwrites(guild, project, people) {
   });
 }
 
-async function loadDesiredState(client, projectId) {
-  const projectResult = await client.query(
-    `SELECT ${PROJECT_SELECT}
-       FROM projects p JOIN universities u ON u.id = p.university_id
-       JOIN divisions d ON d.id = p.division_id
-      WHERE p.id = $1`,
-    [projectId],
-  );
-  if (projectResult.rowCount !== 1) throw new Error(`Project ${projectId} no longer exists.`);
-  const peopleResult = await client.query(
-    `SELECT discord_user_id, role FROM project_people WHERE project_id = $1 ORDER BY role, discord_user_id`,
-    [projectId],
-  );
-  return { project: projectResult.rows[0], people: peopleResult.rows };
+async function loadDesiredState(client, projectId, options = {}) {
+  const state = await loadProjectReconciliationState(client, projectId, options);
+  if (!state.project) throw new Error(`Project ${projectId} no longer exists.`);
+  return state;
 }
 
 async function ensureProjectChannel(client, guild, project, people) {
@@ -93,7 +88,7 @@ async function ensureProjectChannel(client, guild, project, people) {
   );
   if (matches.length > 1) throw new Error(`Multiple Discord channels match project ${project.id}'s reconciliation marker.`);
   if (matches.length === 1) {
-    await client.query('UPDATE projects SET channel_id = $1, updated_at = now() WHERE id = $2', [matches[0].id, project.id]);
+    await persistProjectChannelId(client, project.id, matches[0].id);
     project.discord_channel_id = matches[0].id;
     return matches[0];
   }
@@ -108,7 +103,7 @@ async function ensureProjectChannel(client, guild, project, people) {
   });
   // Persist the external identity before any later Discord call can fail.  A
   // retry will therefore repair this channel rather than create a duplicate.
-  await client.query('UPDATE projects SET channel_id = $1, updated_at = now() WHERE id = $2', [channel.id, project.id]);
+  await persistProjectChannelId(client, project.id, channel.id);
   project.discord_channel_id = channel.id;
   return channel;
 }
@@ -134,113 +129,68 @@ async function applyDesiredDiscordState(client, guild, project, people) {
 
   const showcaseThread = await syncShowcaseThread(guild, project, people);
   if (showcaseThread && String(showcaseThread.id) !== String(project.showcase_thread_id ?? '')) {
-    await client.query(
-      'UPDATE projects SET showcase_thread_id = $1, updated_at = now() WHERE id = $2',
-      [showcaseThread.id, project.id],
-    );
+    await persistProjectShowcaseThreadId(client, project.id, showcaseThread.id);
     project.showcase_thread_id = showcaseThread.id;
   }
 
   const homeMessage = await syncProjectHome(guild, project, people);
   if (homeMessage && String(homeMessage.id) !== String(project.home_message_id ?? '')) {
-    await client.query(
-      'UPDATE projects SET home_message_id = $1, updated_at = now() WHERE id = $2',
-      [homeMessage.id, project.id],
-    );
+    await persistProjectHomeMessageId(client, project.id, homeMessage.id);
     project.home_message_id = homeMessage.id;
   }
 
   const workspaceGuide = await syncProjectWorkspaceGuide(guild, project);
   if (workspaceGuide && String(workspaceGuide.id) !== String(project.workspace_guide_message_id ?? '')) {
-    await client.query(
-      'UPDATE projects SET workspace_guide_message_id = $1, updated_at = now() WHERE id = $2',
-      [workspaceGuide.id, project.id],
-    );
+    await persistProjectWorkspaceGuideMessageId(client, project.id, workspaceGuide.id);
     project.workspace_guide_message_id = workspaceGuide.id;
   }
 }
 
-export async function enqueueProjectReconciliation(client, projectId) {
-  const result = await client.query(
-    `INSERT INTO project_reconciliation (project_id, desired_generation, status, requested_at, last_error)
-     VALUES ($1, 1, 'pending', now(), NULL)
-     ON CONFLICT (project_id) DO UPDATE
-       SET desired_generation = project_reconciliation.desired_generation + 1,
-           status = 'pending', requested_at = now(), last_error = NULL
-     RETURNING desired_generation`,
-    [projectId],
-  );
-  return result.rows[0].desired_generation;
-}
-
-async function markFailure(client, projectId, generation, error) {
-  const message = error instanceof Error ? error.message : String(error);
-  await client.query(
-    `UPDATE project_reconciliation
-        SET status = 'failed', failed_at = now(), last_error = left($3, 2000)
-      WHERE project_id = $1 AND desired_generation = $2`,
-    [projectId, generation, message],
-  );
-}
+export { enqueueProjectReconciliation };
 
 export async function reconcileProject({ projectId, guild, db, allowStaleProcessing = false }) {
   if (!guild) return { status: 'failed', projectId, error: new Error('Guild is unavailable for reconciliation.') };
-  return db.transaction(async (client) => {
-    const claim = await client.query(
-      `SELECT desired_generation
-         FROM project_reconciliation
-        WHERE project_id = $1
-          AND (status IN ('pending', 'failed')
-            OR ($2::boolean AND status = 'processing' AND started_at < now() - interval '5 minutes'))
-        FOR UPDATE SKIP LOCKED`,
-      [projectId, allowStaleProcessing],
-    );
-    if (claim.rowCount !== 1) return { status: 'skipped', projectId };
-    const generation = claim.rows[0].desired_generation;
-    await client.query(
-      `UPDATE project_reconciliation
-          SET status = 'processing', attempts = attempts + 1, started_at = now(), last_error = NULL
-        WHERE project_id = $1 AND desired_generation = $2`,
-      [projectId, generation],
-    );
-    try {
-      const { project, people } = await loadDesiredState(client, projectId);
-      await applyDesiredDiscordState(client, guild, project, people);
-      const completed = await client.query(
-        `UPDATE project_reconciliation
-            SET status = 'succeeded', succeeded_at = now(), last_error = NULL
-          WHERE project_id = $1 AND desired_generation = $2
-          RETURNING desired_generation`,
-        [projectId, generation],
-      );
-      if (completed.rowCount !== 1) return { status: 'superseded', projectId, generation };
-      logger.info('Project reconciliation succeeded', { projectId: String(projectId), generation: String(generation) });
-      return { status: 'succeeded', projectId, generation, project, people };
-    } catch (error) {
-      await markFailure(client, projectId, generation, error);
-      logger.warn('Project reconciliation failed', {
-        projectId: String(projectId), generation: String(generation), error: error instanceof Error ? error.message : String(error),
-      });
-      return { status: 'failed', projectId, generation, error };
-    }
+  const claimed = await db.transaction(async (client) => {
+    // Project mutations lock the project row before incrementing the
+    // reconciliation generation. Use the same order here to avoid a cycle
+    // between a project update and a worker claim.
+    const { project, people } = await loadDesiredState(client, projectId, { forUpdate: true });
+    const generation = await claimProjectReconciliation(client, projectId, allowStaleProcessing);
+    if (generation == null) return null;
+    await markProjectReconciliationProcessing(client, projectId, generation);
+    return { generation, project, people };
   });
+  if (!claimed) return { status: 'skipped', projectId };
+
+  const { generation, project, people } = claimed;
+  try {
+    // Discord calls intentionally run after the claim transaction commits.
+    // Durable identity writes are individual repository operations, so no
+    // PostgreSQL row lock is held while waiting on Discord.
+    await applyDesiredDiscordState(db, guild, project, people);
+    if (!await completeProjectReconciliation(db, projectId, generation)) {
+      return { status: 'superseded', projectId, generation };
+    }
+    logger.info('Project reconciliation succeeded', { projectId: String(projectId), generation: String(generation) });
+    return { status: 'succeeded', projectId, generation, project, people };
+  } catch (error) {
+    await failProjectReconciliation(db, projectId, generation, error);
+    logger.warn('Project reconciliation failed', {
+      projectId: String(projectId), generation: String(generation), error: error instanceof Error ? error.message : String(error),
+    });
+    return { status: 'failed', projectId, generation, error };
+  }
 }
 
 export async function retryProjectReconciliations({ guild, db, limit = REPAIR_LIMIT }) {
-  const candidates = await db.query(
-    `SELECT project_id FROM project_reconciliation
-      WHERE status IN ('pending', 'failed')
-         OR (status = 'processing' AND started_at < now() - interval '5 minutes')
-      ORDER BY requested_at, project_id LIMIT $1`,
-    [Math.min(Math.max(Number(limit) || REPAIR_LIMIT, 1), REPAIR_LIMIT)],
-  );
+  const candidates = await listProjectReconciliationCandidates(db, Math.min(Math.max(Number(limit) || REPAIR_LIMIT, 1), REPAIR_LIMIT));
   const results = [];
-  for (const row of candidates.rows) {
-    const result = await reconcileProject({ projectId: row.project_id, guild, db, allowStaleProcessing: true });
+  for (const projectId of candidates) {
+    const result = await reconcileProject({ projectId, guild, db, allowStaleProcessing: true });
     results.push(result);
     if (result.status === 'failed') {
       logger.warn('Project reconciliation retry failed', {
-        projectId: String(row.project_id), error: result.error instanceof Error ? result.error.message : String(result.error),
+        projectId: String(projectId), error: result.error instanceof Error ? result.error.message : String(result.error),
       });
     }
   }

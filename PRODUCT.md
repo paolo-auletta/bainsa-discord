@@ -69,7 +69,7 @@ activity entries backed by a complete PostgreSQL audit record.
 - Discord platform limits shape the model, including role/channel/thread limits and the 1,000
   permission-overwrite limit. Project channels reserve six overwrites and therefore support at
   most 994 direct participants.
-- The existing implementation uses TypeScript 6, Node.js 22, discord.js 14, PostgreSQL through
+- The existing implementation uses TypeScript 6, Node.js 22.13+, discord.js 14, PostgreSQL through
   `pg`, explicit migrations, and Node's test runner. Production runs compiled JavaScript only.
 - The supported deployment requires a Discord application with the bot and
   `applications.commands` scopes, Server Members Intent, a correctly positioned bot role, and

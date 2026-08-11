@@ -84,6 +84,8 @@ transaction, migration, authorization, or deployment changes:
 ```bash
 npm ci
 npm run check
+npm run build
+npm run typecheck:tests
 npm run lint
 npm run format:check
 npm test

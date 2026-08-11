@@ -93,33 +93,41 @@ export async function getDefaultUniversity(db) {
 }
 
 export async function getRequestForUser(db, requestId, discordUserId) {
+  const id = onboardingRequestId(requestId);
+  if (id == null) return null;
   const { rows } = await db.query(
     `SELECT * FROM onboarding_requests
-     WHERE id::text = $1 AND discord_user_id = $2`,
-    [String(requestId), discordUserId],
+     WHERE id = $1::bigint AND discord_user_id = $2`,
+    [id, discordUserId],
   );
   return rows[0] ?? null;
 }
 
 export async function getRequest(db, requestId) {
+  const id = onboardingRequestId(requestId);
+  if (id == null) return null;
   const { rows } = await db.query(
-    `SELECT * FROM onboarding_requests WHERE id::text = $1`,
-    [String(requestId)],
+    `SELECT * FROM onboarding_requests WHERE id = $1::bigint`,
+    [id],
   );
   return rows[0] ?? null;
 }
 
 export async function lockRequest(db, requestId) {
+  const id = onboardingRequestId(requestId);
+  if (id == null) return null;
   const { rows } = await db.query(
     `SELECT * FROM onboarding_requests
-     WHERE id::text = $1
+     WHERE id = $1::bigint
      FOR UPDATE`,
-    [String(requestId)],
+    [id],
   );
   return rows[0] ?? null;
 }
 
 export async function updateDraft(db, requestId, discordUserId, patch) {
+  const id = onboardingRequestId(requestId);
+  if (id == null) return null;
   const allowed = new Map([
     ['member_type', patch.member_type],
     ['university_id', patch.university_id],
@@ -140,19 +148,19 @@ export async function updateDraft(db, requestId, discordUserId, patch) {
   if (sets.length === 0) {
     const { rows } = await db.query(
       `SELECT * FROM onboarding_requests
-       WHERE id::text = $1
+       WHERE id = $1::bigint
          AND discord_user_id = $2
          AND status = $3`,
-      [String(requestId), discordUserId, ONBOARDING_STATUSES.DRAFT],
+      [id, discordUserId, ONBOARDING_STATUSES.DRAFT],
     );
     return rows[0] ?? null;
   }
 
-  values.push(String(requestId), discordUserId, ONBOARDING_STATUSES.DRAFT);
+  values.push(id, discordUserId, ONBOARDING_STATUSES.DRAFT);
   const { rows } = await db.query(
     `UPDATE onboarding_requests
      SET ${sets.join(', ')}, updated_at = NOW()
-     WHERE id::text = $${values.length - 2}
+     WHERE id = $${values.length - 2}::bigint
        AND discord_user_id = $${values.length - 1}
        AND status = $${values.length}
      RETURNING *`,
@@ -162,6 +170,8 @@ export async function updateDraft(db, requestId, discordUserId, patch) {
 }
 
 export async function markReviewed(db, requestId, status, reviewerId, reason = null) {
+  const id = onboardingRequestId(requestId);
+  if (id == null) return null;
   const { rows } = await db.query(
     `UPDATE onboarding_requests
      SET status = $2,
@@ -169,11 +179,20 @@ export async function markReviewed(db, requestId, status, reviewerId, reason = n
          reviewed_at = NOW(),
          review_reason = $4,
          updated_at = NOW()
-     WHERE id::text = $1
+     WHERE id = $1::bigint
      RETURNING *`,
-    [String(requestId), status, reviewerId, reason],
+    [id, status, reviewerId, reason],
   );
   return rows[0] ?? null;
+}
+
+function onboardingRequestId(requestId) {
+  try {
+    return BigInt(requestId);
+  } catch {
+    // A malformed component id used to produce no matching row; keep that behavior.
+    return null;
+  }
 }
 
 export async function listUniversities(db) {

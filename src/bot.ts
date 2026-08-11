@@ -6,6 +6,7 @@ import { guideInteractions } from './guide/service.js';
 import { logger } from './logger.js';
 import { createOnboardingService } from './onboarding/service.js';
 import { createBotClient } from './runtime/client.js';
+import { composeInteractionDispatcher } from './runtime/dispatcher-composition.js';
 import { createInteractionDispatcher } from './runtime/dispatcher.js';
 import { isConfiguredGuildEvent } from './runtime/guild-events.js';
 import { installGracefulShutdown } from './runtime/shutdown.js';
@@ -23,14 +24,17 @@ import { createProjectReconciliationWorker } from './services/projects/reconcili
 const client = createBotClient();
 const onboarding = createOnboardingService();
 const profiles = createProfileService();
-const dispatchInteraction = createInteractionDispatcher({
+const dispatchInteraction = createInteractionDispatcher(composeInteractionDispatcher({
   commands,
-  componentHandlers: [governanceCommandPanels, governanceMembershipPanels, boardUpdatePanel, projectManagementPanels],
+  governanceCommandPanels,
+  governanceMembershipPanels,
+  boardUpdatePanel,
+  projectManagementPanels,
   onboarding,
   guide: guideInteractions,
   projectSetup: projectCreateSetup,
   profiles,
-});
+}));
 let projectReconciliationWorker: ReturnType<typeof createProjectReconciliationWorker> | null = null;
 let profileReconciliationWorker: ReturnType<typeof createProfileReconciliationWorker> | null = null;
 

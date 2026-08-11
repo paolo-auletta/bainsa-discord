@@ -50,6 +50,9 @@ function memberWithRoles(id, roleNames) {
         some(callback) {
           return roleNames.some((name) => callback({ name }));
         },
+        *values() {
+          for (const name of roleNames) yield { name };
+        },
       },
     },
   };
@@ -163,7 +166,8 @@ test('autocomplete only returns projects visible to the caller', async () => {
     choices.map((choice) => choice.value),
     ['1', '2'],
   );
-  assert.doesNotMatch(sql, /LIMIT 100/);
+  assert.match(sql, /LIMIT 25/);
+  assert.match(sql, /concat\(u\.name, ' - Head of ', d\.name\) = ANY/);
 });
 
 test('project-close autocomplete filters completed and archived projects', async () => {
@@ -521,6 +525,8 @@ test('project creation adds every active division Head as a supervisor without d
       if (transactionCount === 1) return work(client);
       return work({
         async query(text) {
+          if (text.includes('FROM projects p')) return { rowCount: 1, rows: [createdProject] };
+          if (text.includes('FROM project_people')) return { rows: persistedPeople };
           if (text.includes('SELECT desired_generation')) return { rowCount: 0, rows: [] };
           throw new Error(`Unexpected reconciliation query: ${text}`);
         },
@@ -737,6 +743,7 @@ test('project-close completes the project and moves the channel to history', asy
   };
   const people = [{ discord_user_id: 'member', role: 'member' }];
   let projectSelects = 0;
+  let lockedProjectSelects = 0;
   function reconciliationQuery(text) {
     if (text.includes('INSERT INTO project_reconciliation') || text.includes("SET status = 'succeeded'")) {
       return { rowCount: 1, rows: [{ desired_generation: 1 }] };
@@ -767,7 +774,8 @@ test('project-close completes the project and moves the channel to history', asy
           if (reconciliation) return reconciliation;
           if (text.includes('FROM projects p')) {
             if (text.includes('FOR UPDATE OF p')) {
-              return { rowCount: 1, rows: [project] };
+              lockedProjectSelects += 1;
+              return { rowCount: 1, rows: [lockedProjectSelects === 1 ? project : closedProject] };
             }
             projectSelects += 1;
             return { rowCount: 1, rows: [closedProject] };

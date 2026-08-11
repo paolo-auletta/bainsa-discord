@@ -162,7 +162,7 @@ test('records post-commit Discord failures, repairs them, and does not replay a 
   assert.equal(canonicalWrites, 2, 'durable retries create one canonical project record and workspace guide without replaying history');
 });
 
-test('serializes two workers and leaves a newer desired generation pending after an older completion', async () => {
+test('skips a second worker and leaves a newer desired generation pending while Discord work completes', async () => {
   const projectId = await seedProject();
   const entered = deferred();
   const release = deferred();
@@ -178,10 +178,10 @@ test('serializes two workers and leaves a newer desired generation pending after
   const second = await reconcileProject({ projectId, guild, db: database });
   assert.equal(second.status, 'skipped');
 
-  const newerMutation = database.transaction((client) => enqueueProjectReconciliation(client, projectId));
+  const newerGeneration = await database.transaction((client) => enqueueProjectReconciliation(client, projectId));
+  assert.equal(newerGeneration, '2');
   release.resolve();
-  assert.equal((await first).status, 'succeeded');
-  assert.equal(await newerMutation, '2');
+  assert.equal((await first).status, 'superseded');
   const state = await database.query('SELECT desired_generation, status FROM project_reconciliation WHERE project_id = $1', [projectId]);
   assert.deepEqual(state.rows[0], { desired_generation: '2', status: 'pending' });
   assert.equal(calls, 1);

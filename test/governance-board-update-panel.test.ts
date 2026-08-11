@@ -5,6 +5,7 @@ import { ButtonStyle, ComponentType, MessageFlags } from 'discord.js';
 
 import {
   BOARD_UPDATE_PANEL_ACTIONS,
+  BOARD_UPDATE_HANDOFF_CONCURRENCY,
   createBoardUpdatePanelService,
 } from '../src/services/governance/board-update-panel.js';
 
@@ -77,6 +78,7 @@ function service(overrides = {}) {
         roles: { cache: roleCache(['Researcher', 'Bocconi']) },
       },
       member: { status: 'active', university_name: 'Bocconi' },
+      divisions: [],
       boardRoles: user.id === ACTOR_ID
         ? [{
             role: testInteraction.member.roles.cache.some((role) => role.name === 'Bocconi - Vice President')
@@ -85,10 +87,11 @@ function service(overrides = {}) {
             university_name: 'Bocconi',
           }]
         : [],
+      projects: [],
     }),
     updateOperation: async () => assert.fail('unexpected board update'),
     formatActivity: () => ({ content: 'activity' }),
-    postActivity: async () => ({ status: 'posted' }),
+    postActivity: async () => ({ status: 'posted', channel: null }),
     sendHandoff: async () => undefined,
     ...overrides,
   });
@@ -223,6 +226,53 @@ test('board update shows current-to-new changes and saves co-Heads as one roster
     assignment.userId === SECOND_HEAD_ID && assignment.role === 'head' && assignment.divisionId === 'd3',
   ));
   assert.match(text(payload), /Board updated/);
+});
+
+test('board update bounds handoff DMs and reports only failed deliveries', async () => {
+  const changes = Array.from({ length: BOARD_UPDATE_HANDOFF_CONCURRENCY * 2 }, (_, index) => ({
+    target: { id: `handoff-${index}` },
+    before: [],
+    after: ['Head of Projects'],
+  }));
+  const attempted = [];
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const panel = service({
+    updateOperation: async () => ({
+      university: { name: 'Bocconi' },
+      positionChanges: [],
+      memberChanges: changes,
+    }),
+    sendHandoff: async (target) => {
+      attempted.push(target.id);
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setImmediate(resolve));
+      inFlight -= 1;
+      if (target.id === changes[0].target.id) throw new Error('controlled DM failure');
+    },
+  });
+  let payload = await startEditor(panel);
+
+  await panel.handleUserSelect({
+    ...interaction({ customId: action(payload, 'uv').custom_id }),
+    values: [VP_ID, HEAD_ID],
+    async update(next) { payload = next; },
+  });
+  await panel.handleButton({
+    ...interaction({ customId: action(payload, BOARD_UPDATE_PANEL_ACTIONS.REVIEW).custom_id }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
+  await panel.handleButton({
+    ...interaction({ customId: action(payload, BOARD_UPDATE_PANEL_ACTIONS.SAVE).custom_id }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
+
+  assert.equal(maxInFlight, BOARD_UPDATE_HANDOFF_CONCURRENCY);
+  assert.deepEqual(attempted.sort(), changes.map((change) => change.target.id).sort());
+  assert.match(text(payload), /1 affected member handoff\(s\) could not be delivered/);
 });
 
 test('board review places each leadership group roster on a new line', async () => {

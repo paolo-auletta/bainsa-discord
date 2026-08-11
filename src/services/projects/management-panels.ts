@@ -33,6 +33,7 @@ import {
   normalizeProjectName,
   validateExpectedEndUpdate,
 } from './validation.js';
+import { projectPeopleEqual } from './repository.js';
 
 const PREFIX = 'pm';
 
@@ -137,16 +138,6 @@ function peopleArray(session: ProjectUpdateSession): ProjectPerson[] {
     .sort((left, right) => left.role.localeCompare(right.role) || left.discord_user_id.localeCompare(right.discord_user_id));
 }
 
-function peopleSnapshot(people: ProjectPerson[]) {
-  return people.map((person) => `${person.discord_user_id}:${person.role}`).sort();
-}
-
-function samePeople(left: ProjectPerson[], right: ProjectPerson[]) {
-  const a = peopleSnapshot(left);
-  const b = peopleSnapshot(right);
-  return a.length === b.length && a.every((value, index) => value === b[index]);
-}
-
 function metadataChanges(session: ProjectUpdateSession) {
   if (!session.project) return [];
   return [
@@ -163,7 +154,7 @@ function metadataChanges(session: ProjectUpdateSession) {
 }
 
 function hasProjectChanges(session: ProjectUpdateSession) {
-  return metadataChanges(session).length > 0 || !samePeople(session.initialPeople, peopleArray(session));
+  return metadataChanges(session).length > 0 || !projectPeopleEqual(session.initialPeople, peopleArray(session));
 }
 
 function choiceControl(session: ProjectPanelSession, action: string) {

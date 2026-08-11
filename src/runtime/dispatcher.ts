@@ -5,7 +5,7 @@ import { assertCommandChannel, commandChannelScope } from './command-channels.js
 import { canDiscoverCommand } from './command-permissions.js';
 import { buildCommandMap, type CommandDefinition } from './command-registry.js';
 
-interface ComponentHandler {
+export interface ComponentHandler {
   canHandle: (customId: string) => boolean;
   handleButton?: (interaction: unknown) => unknown;
   handleStringSelect?: (interaction: unknown) => unknown;
@@ -14,7 +14,7 @@ interface ComponentHandler {
   handleComponent?: (interaction: unknown) => unknown;
 }
 
-interface InteractionDispatcherOptions {
+export interface InteractionDispatcherOptions {
   commands?: readonly CommandDefinition[];
   componentHandlers?: readonly ComponentHandler[];
   onboarding?: ComponentHandler;

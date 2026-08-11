@@ -5,10 +5,13 @@ import { UserFacingError } from '../src/errors.js';
 import { ONBOARDING_ACTIONS, onboardingId } from '../src/onboarding/custom-ids.js';
 import {
   createDraft,
+  getRequest,
+  getRequestForUser,
   getLatestRequestForUser,
   getUniversity,
   listDivisionsByIds,
   listRequestDivisionsByIds,
+  lockRequest,
   listUniversities,
   markReviewed,
   upsertActiveMember,
@@ -121,6 +124,32 @@ test('repository uses canonical onboarding and resource columns', async () => {
   assert.match(db.calls[3].sql, /reviewed_by = \$3/);
   assert.match(db.calls[3].sql, /review_reason = \$4/);
   assert.doesNotMatch(db.calls[3].sql, /reviewed_by_discord_user_id|rejection_reason/);
+});
+
+test('onboarding request ID predicates use bigint parameters without casting indexed columns', async () => {
+  const db = fakeDb(Array.from({ length: 6 }, () => ({ rows: [] })));
+
+  await getRequestForUser(db, '10', '100');
+  await getRequest(db, '10');
+  await lockRequest(db, '10');
+  await updateDraft(db, '10', '100', {});
+  await updateDraft(db, '10', '100', { full_name: 'Ada Lovelace' });
+  await markReviewed(db, '10', 'approved', '200');
+
+  for (const call of db.calls) {
+    assert.doesNotMatch(call.sql, /onboarding_requests[\s\S]*?id::text/);
+    assert.match(call.sql, /id = \$\d+::bigint/);
+    assert.equal(typeof call.values.find((value) => typeof value === 'bigint'), 'bigint');
+  }
+});
+
+test('malformed onboarding request IDs remain non-matches', async () => {
+  const db = fakeDb();
+
+  assert.equal(await getRequest(db, 'not-an-id'), null);
+  assert.equal(await updateDraft(db, 'not-an-id', '100', { full_name: 'Ada Lovelace' }), null);
+  assert.equal(await markReviewed(db, 'not-an-id', 'approved', '200'), null);
+  assert.equal(db.calls.length, 0);
 });
 
 test('getUniversity filters inactive legacy universities', async () => {

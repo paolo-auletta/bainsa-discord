@@ -76,6 +76,16 @@ test('command modules resolve every workflow and autocomplete handler through th
   }
 });
 
+test('service orchestration entrypoints delegate all SQL to repositories', async () => {
+  for (const path of [
+    '../src/services/governance/service.js',
+    '../src/services/projects/index.js',
+  ]) {
+    const source = await readFile(new URL(path, import.meta.url), 'utf8');
+    assert.doesNotMatch(source, /\.query\s*\(/);
+  }
+});
+
 test('repository modules stay free of Discord runtime objects and imports', async () => {
   for (const path of [
     '../src/services/governance/repository.js',

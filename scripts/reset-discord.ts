@@ -7,17 +7,24 @@ import {
   REST,
   Routes,
 } from 'discord.js';
-import { config } from '../src/config.js';
-
-const CONFIRMATION_FLAG = '--confirm-reset';
+import {
+  discordResetTarget,
+  hasResetConfirmation,
+  resetConfirmationToken,
+} from '../src/reset-confirmation.js';
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log(`Usage: npm run discord:reset -- ${CONFIRMATION_FLAG}`);
+  console.log('Usage: npm run discord:reset -- --confirm-reset=guild:<DISCORD_GUILD_ID>');
   process.exit(0);
 }
 
-if (!process.argv.includes(CONFIRMATION_FLAG)) {
-  console.error(`Refusing to reset Discord without ${CONFIRMATION_FLAG}.`);
+const { config } = await import('../src/config.js');
+const confirmationTarget = discordResetTarget(config.discordGuildId);
+const expectedConfirmation = resetConfirmationToken(confirmationTarget);
+
+if (!hasResetConfirmation(process.argv.slice(2), confirmationTarget)) {
+  console.error('Refusing to reset Discord without confirmation for the configured guild.');
+  console.error(`Re-run only after verifying the target: npm run discord:reset -- ${expectedConfirmation}`);
   process.exit(1);
 }
 

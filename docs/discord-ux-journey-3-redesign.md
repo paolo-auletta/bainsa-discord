@@ -52,7 +52,7 @@ The following commands may be run inside a private project channel:
 | Caller | Available behavior |
 | --- | --- |
 | Any project participant | `/project-info` |
-| Project supervisor | `/project-info`, `/project-update`, `/project-add-member`, `/project-remove-member`, `/project-close` |
+| Project supervisor | `/project-info`, `/project-update`, `/project-close` |
 | Scoped board role | The same management commands for projects in their authority scope |
 
 The `project` selector is optional inside a project channel and is inferred from the bot-managed

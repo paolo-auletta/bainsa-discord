@@ -26,6 +26,7 @@ import {
 
 const PREFIX = 'gbu';
 const POSITION_PAGE_SIZE = 8;
+export const BOARD_UPDATE_HANDOFF_CONCURRENCY = 5;
 
 const ACTIONS = Object.freeze({
   EDIT: 'e',
@@ -449,6 +450,34 @@ async function defaultSendHandoff(target, payload) {
   await target.send(payload);
 }
 
+async function sendBoardUpdateHandoffs(result, sendHandoff) {
+  const changes = result.memberChanges ?? [];
+  const handoffResults = new Array<boolean>(changes.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(BOARD_UPDATE_HANDOFF_CONCURRENCY, changes.length);
+
+  async function worker() {
+    while (nextIndex < changes.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const change = changes[index];
+      try {
+        await sendHandoff(change.target, formatBoardUpdateHandoff(result, change));
+        handoffResults[index] = true;
+      } catch (error) {
+        logger.warn('Board update handoff could not be delivered', {
+          userId: String(change.target?.id ?? ''),
+          error: error instanceof Error ? error.message : String(error),
+        });
+        handoffResults[index] = false;
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return handoffResults;
+}
+
 export function createBoardUpdatePanelService({
   loadUniversities = listUniversities,
   loadDivisions = listDivisions,
@@ -581,18 +610,7 @@ export function createBoardUpdatePanelService({
     store.remove(session);
     const activity = formatActivity('board-update', { actorId: interaction.user.id, result });
     const activityDelivery = await postActivity(interaction, activity);
-    const handoffResults = await Promise.all((result.memberChanges ?? []).map(async (change) => {
-      try {
-        await sendHandoff(change.target, formatBoardUpdateHandoff(result, change));
-        return true;
-      } catch (error) {
-        logger.warn('Board update handoff could not be delivered', {
-          userId: String(change.target?.id ?? ''),
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return false;
-      }
-    }));
+    const handoffResults = await sendBoardUpdateHandoffs(result, sendHandoff);
     const missedHandoffs = handoffResults.filter((sent) => !sent).length;
     const warnings = [
       activityDelivery.status !== 'posted' ? 'The governance activity card could not be posted.' : null,

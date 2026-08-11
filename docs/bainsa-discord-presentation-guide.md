@@ -545,7 +545,7 @@ This gives the person immediate feedback without flooding the channel, while sti
 
 ### Codebase in brief
 
-The bot is written in TypeScript, compiled to native Node.js 22 ESM JavaScript, and uses:
+The bot is written in TypeScript, compiled to native Node.js 22.13+ ESM JavaScript, and uses:
 
 - `discord.js` for Discord commands, roles, channels, components, and permissions.
 - PostgreSQL for members, universities, divisions, projects, onboarding, reconciliation, and audit history.
@@ -675,24 +675,6 @@ New members enter through onboarding. A board approval creates the member record
 - **Returns:** private confirmation that the project was created, or that its committed Discord state is pending automatic reconciliation.
 - **Rules:** members must be active Researchers in the division; supervisors must be active university members; dates use `YYYY-MM-DD`; one person cannot appear in both lists; maximum 994 participants.
 - **Activity:** project, team, timeline, and Discord state are posted; notes are omitted.
-
-#### `/project-add-member`
-
-- **Why:** add a participant or change their project function without manual permission editing.
-- **Who:** Project supervisors; Global Presidents; the project university’s President or Vice President; the project Division Head.
-- **Inputs:** `user`, `role` (`member`, `supervisor`, or `board_liaison`); `project` is optional in the project channel.
-- **Returns:** private confirmation after the participant record and channel overwrite are reconciled.
-- **Rules:** the person must meet the eligibility rule for the chosen role. Only active or paused projects can change.
-- **Activity:** person, project, and new project role are posted.
-
-#### `/project-remove-member`
-
-- **Why:** remove both the participant record and private channel access together.
-- **Who:** Project supervisors; Global Presidents; the project university’s President or Vice President; the project Division Head.
-- **Inputs:** `user`; optional `project` in its own channel and optional private `reason`.
-- **Returns:** private confirmation after access is reconciled.
-- **Rules:** only active or paused projects can change.
-- **Activity:** removal is posted without the reason.
 
 #### `/project-update`
 

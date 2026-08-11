@@ -89,7 +89,7 @@ function service(overrides = {}) {
     addDivisionMemberOperation: async () => assert.fail('unexpected division addition'),
     removeDivisionMemberOperation: async () => assert.fail('unexpected division removal'),
     formatActivity: (commandName) => ({ content: commandName }),
-    postActivity: async () => ({ status: 'posted' }),
+    postActivity: async () => ({ status: 'posted', channel: null }),
     sendHandoff: async () => undefined,
     ...overrides,
   });

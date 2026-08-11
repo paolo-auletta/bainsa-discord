@@ -171,7 +171,7 @@ test('transient Discord fetch failures stay retryable and never create a duplica
   assert.equal(creates, 0);
 });
 
-test('recovery scans every archived page before deciding to create', async () => {
+test('recovery scans subsequent archived pages before deciding to create', async () => {
   let archivedCalls = 0;
   let creates = 0;
   const recovered = {
@@ -204,6 +204,61 @@ test('recovery scans every archived page before deciding to create', async () =>
   assert.equal(identity.forumThreadId, 'recovered');
   assert.equal(archivedCalls, 2);
   assert.equal(creates, 0);
+});
+
+test('recovery stops at the archived-page ceiling without creating a possible duplicate', async () => {
+  let archivedCalls = 0;
+  let creates = 0;
+  const guild = forumWith({
+    async fetchActive() { return { threads: new Map() }; },
+    async fetchArchived() {
+      archivedCalls += 1;
+      return {
+        threads: new Map([[`unrelated-${archivedCalls}`, {
+          id: `unrelated-${archivedCalls}`,
+          async fetchStarterMessage() { return { author: { id: 'bot' }, content: 'another member' }; },
+        }]]),
+        hasMore: true,
+      };
+    },
+    async create() { creates += 1; },
+  });
+
+  await assert.rejects(
+    () => upsertProfileForumPost({ guild, ownerId: 'owner', post }),
+    /archived-thread scan limit/,
+  );
+  assert.equal(archivedCalls, 10);
+  assert.equal(creates, 0);
+});
+
+test('duplicate deletion is concurrency-bounded during unpublish cleanup', async () => {
+  let deleting = 0;
+  let maxDeleting = 0;
+  const deleted = [];
+  const threads = Array.from({ length: 12 }, (_, index) => {
+    const id = `duplicate-${index}`;
+    return {
+      id,
+      async fetchStarterMessage() { return { id, author: { id: 'bot' }, content: post.content }; },
+      async delete() {
+        deleting += 1;
+        maxDeleting = Math.max(maxDeleting, deleting);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        deleted.push(id);
+        deleting -= 1;
+      },
+    };
+  });
+  const guild = forumWith({
+    async fetchActive() { return { threads: new Map(threads.map((thread) => [thread.id, thread])) }; },
+    async fetchArchived() { return { threads: new Map(), hasMore: false }; },
+  });
+
+  const result = await deleteProfileForumPosts({ guild, ownerId: 'owner' });
+  assert.equal(maxDeleting, 5);
+  assert.deepEqual(result.deletedThreadIds.sort(), threads.map(({ id }) => id).sort());
+  assert.equal(deleted.length, threads.length);
 });
 
 test('unpublishing never deletes a stored thread that is not confidently owner-matched', async () => {

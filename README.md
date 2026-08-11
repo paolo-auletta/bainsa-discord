@@ -7,7 +7,7 @@ Cross-university projects are intentionally outside v1. Every project belongs to
 ## Technology
 
 - TypeScript 6 compiled as native Node.js ESM.
-- Node.js 22 and npm 10.
+- Node.js 22.13+ and npm 10.
 - discord.js 14.27 for Gateway, REST, commands, and interactions.
 - PostgreSQL through pg 8.22, with explicit migrations and transactions.
 - ESLint 10 with TypeScript-ESLint and Node's built-in test runner.
@@ -17,7 +17,7 @@ compiled JavaScript in `dist/`; source maps preserve TypeScript stack traces.
 
 ## Requirements
 
-- Node.js 22 (the supported runtime line; see `.nvmrc`).
+- Node.js 22.13+ (the supported runtime line; see `.nvmrc`).
 - npm 10.9.2 (pinned in `package.json`).
 - A Discord application installed with the `bot` and `applications.commands` scopes.
 - The privileged **Server Members Intent** enabled in the Discord Developer Portal.
@@ -61,14 +61,14 @@ When replacing an existing BAINSA installation, reset Discord and Postgres befor
 ```bash
 npm ci
 npm run build
-npm run discord:reset -- --confirm-reset
-npm run db:reset -- --confirm-reset
+npm run discord:reset -- --confirm-reset=guild:YOUR_DISCORD_GUILD_ID
+npm run db:reset -- --confirm-reset=db:YOUR_DATABASE_HOST:5432/YOUR_DATABASE_NAME
 npm run db:migrate
 npm run provision:dry-run
 npm run provision
 ```
 
-The Discord reset preserves the guild, its members, `@everyone`, and Discord-managed integration roles. It removes editable roles, channels, scheduled events, and guild commands. The database reset drops only the known BAINSA application tables and helper functions. Both commands refuse to run without the confirmation flag.
+The Discord reset preserves the guild, its members, `@everyone`, and Discord-managed integration roles. It removes editable roles, channels, scheduled events, and guild commands. The database reset drops only the known BAINSA application tables and helper functions. Both commands require a confirmation token bound to the configured target: `guild:<DISCORD_GUILD_ID>` for Discord, or the sanitized `db:<host>:<port>/<database>` parsed from `DATABASE_URL` for Postgres. A refusal prints the exact safe token required; database credentials and query parameters are never included.
 
 After clean provisioning, initial access can be restored to an existing guild member with explicit roles. Run provisioning once more afterward so the member and board assignments are reconciled into Postgres:
 
@@ -233,6 +233,7 @@ compiled bot when output changes. Do not edit `dist/`; it is generated and ignor
 npm ci
 npm run build
 npm run typecheck
+npm run typecheck:tests
 npm test
 npm run check
 npm run lint
@@ -242,8 +243,9 @@ npm run test:connections
 ```
 
 Use `npm ci` for all reproducible installs, including CI. `npm install` is reserved for intentionally updating dependencies and the lockfile.
-`npm run typecheck` validates production source and operational scripts. `npm test` compiles the
-complete project, uses inert local values, and does not require or read `.env`.
+`npm run typecheck` validates production source and operational scripts. `npm run typecheck:tests`
+rejects test-type diagnostics above the tracked baseline. `npm test` compiles the complete project,
+uses inert local values, and does not require or read `.env`.
 
 ### Disposable PostgreSQL integration tests
 
