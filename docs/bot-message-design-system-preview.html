@@ -1,0 +1,2425 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BAINSA Bot Message System — Visual Preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #111214;
+      --sidebar: #18191c;
+      --discord: #313338;
+      --discord-raised: #2b2d31;
+      --discord-soft: #383a40;
+      --discord-hover: #404249;
+      --border: #46484f;
+      --border-soft: #3f4148;
+      --text: #f2f3f5;
+      --text-secondary: #b5bac1;
+      --text-muted: #949ba4;
+      --link: #00a8fc;
+      --brand: #5865f2;
+      --success: #27ae60;
+      --warning: #f0b429;
+      --update: #f2994a;
+      --danger: #d7263d;
+      --neutral: #7a7a7a;
+      --focus: #b7c0ff;
+      --radius: 8px;
+      --content-max: 1180px;
+      --message-max: 860px;
+      --space-section: 88px;
+      --space-message: 28px;
+      --font: "gg sans", "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--page);
+    }
+
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.45;
+      text-rendering: optimizeLegibility;
+    }
+
+    body.compact {
+      --space-section: 64px;
+      --space-message: 18px;
+    }
+
+    ::selection {
+      background: #4650bd;
+      color: white;
+    }
+
+    :focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: 3px;
+    }
+
+    a {
+      color: var(--link);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    button {
+      font: inherit;
+    }
+
+    .app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 284px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 28px 22px;
+      border-right: 1px solid #292b30;
+      background: var(--sidebar);
+      overflow-y: auto;
+    }
+
+    .brand-lockup {
+      display: grid;
+      grid-template-columns: 42px 1fr;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 34px;
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: var(--brand);
+      color: white;
+      font-weight: 800;
+      font-size: 19px;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-lockup strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.2;
+    }
+
+    .brand-lockup span {
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .nav-label,
+    .token-label {
+      margin: 0 0 8px 10px;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .nav-list {
+      display: grid;
+      gap: 3px;
+      margin: 0 0 34px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .nav-list a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 40px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      color: var(--text-secondary);
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .nav-list a:hover {
+      background: #25272b;
+      color: var(--text);
+    }
+
+    .nav-index {
+      width: 20px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      font-size: 12px;
+    }
+
+    .token-stack {
+      display: grid;
+      gap: 9px;
+      padding: 4px 10px 0;
+    }
+
+    .token-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+
+    .token-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--tone);
+      box-shadow: 0 2px 5px rgb(0 0 0 / 22%);
+    }
+
+    .token-value {
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .main {
+      min-width: 0;
+      background: var(--discord);
+    }
+
+    .page-header {
+      min-height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 14px 32px;
+      border-bottom: 1px solid #26272b;
+      background: rgb(49 51 56 / 96%);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .page-title {
+      min-width: 0;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+
+    .page-title h1 {
+      margin: 0;
+      font-size: 17px;
+      line-height: 1.2;
+      letter-spacing: -0.015em;
+    }
+
+    .page-title span {
+      color: var(--text-muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .toolbar-button {
+      min-height: 34px;
+      padding: 7px 11px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--discord-raised);
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .toolbar-button:hover {
+      background: var(--discord-hover);
+      color: var(--text);
+    }
+
+    .toolbar-button[aria-pressed="true"] {
+      border-color: #737bf6;
+      background: #3c427c;
+      color: white;
+    }
+
+    .content {
+      width: min(100%, calc(var(--content-max) + 64px));
+      margin: 0 auto;
+      padding: 52px 32px 120px;
+    }
+
+    .intro {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr);
+      gap: 40px;
+      align-items: end;
+      padding-bottom: 52px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .intro h2 {
+      max-width: 780px;
+      margin: 0 0 18px;
+      font-size: clamp(34px, 4vw, 58px);
+      line-height: 1.02;
+      letter-spacing: -0.035em;
+    }
+
+    .intro p {
+      max-width: 66ch;
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 17px;
+      line-height: 1.6;
+    }
+
+    .decision-note {
+      padding: 20px 22px;
+      border-top: 1px solid var(--brand);
+      background: var(--discord-raised);
+    }
+
+    .decision-note strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .decision-note p {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .system-flow {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      margin-top: 24px;
+      background: var(--border-soft);
+      border: 1px solid var(--border-soft);
+    }
+
+    .flow-step {
+      min-height: 100px;
+      padding: 18px;
+      background: var(--discord-raised);
+    }
+
+    .flow-step strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    .flow-step span {
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .section {
+      scroll-margin-top: 96px;
+      padding-top: var(--space-section);
+    }
+
+    .section-heading {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 0.6fr);
+      gap: 40px;
+      align-items: end;
+      margin-bottom: 34px;
+    }
+
+    .section-heading h2 {
+      margin: 0 0 10px;
+      font-size: 28px;
+      line-height: 1.1;
+      letter-spacing: -0.025em;
+    }
+
+    .section-heading p,
+    .section-rule {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .section-rule {
+      padding-left: 18px;
+      border-left: 1px solid var(--border);
+    }
+
+    .specimen-stage {
+      border-top: 1px solid var(--border-soft);
+      background: #2e3035;
+    }
+
+    .stage-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      min-height: 42px;
+      padding: 10px 16px;
+      border-bottom: 1px solid #242529;
+      background: #292b2f;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .stage-label span:last-child {
+      font-weight: 500;
+    }
+
+    .discord-canvas {
+      min-height: 200px;
+      padding: 26px 22px 32px;
+      background: var(--discord);
+    }
+
+    .specimen-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .specimen-grid + .specimen-grid,
+    .specimen-stage + .specimen-stage {
+      margin-top: 24px;
+    }
+
+    .discord-message {
+      position: relative;
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr);
+      gap: 12px;
+      max-width: var(--message-max);
+      padding: 4px 0;
+    }
+
+    .discord-message + .discord-message {
+      margin-top: var(--space-message);
+    }
+
+    .avatar {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--brand);
+      color: white;
+      font-size: 15px;
+      font-weight: 800;
+      user-select: none;
+    }
+
+    .avatar.member {
+      background: #4d5259;
+      color: #dfe2e6;
+    }
+
+    .message-body {
+      min-width: 0;
+    }
+
+    .message-meta {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 22px;
+      margin-bottom: 3px;
+    }
+
+    .message-meta strong {
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.2;
+    }
+
+    .app-badge {
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: var(--brand);
+      color: white;
+      font-size: 10px;
+      font-weight: 800;
+      line-height: 1.45;
+    }
+
+    .timestamp {
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    .embed {
+      --tone: var(--brand);
+      position: relative;
+      width: min(100%, 520px);
+      margin-top: 6px;
+      padding: 16px 16px 15px 18px;
+      border-radius: 4px;
+      background: var(--discord-raised);
+      box-shadow: 0 8px 20px rgb(0 0 0 / 12%);
+      overflow: hidden;
+    }
+
+    .embed::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: var(--tone);
+    }
+
+    .tone-success { --tone: var(--success); }
+    .tone-info { --tone: var(--brand); }
+    .tone-warning { --tone: var(--warning); }
+    .tone-update { --tone: var(--update); }
+    .tone-danger { --tone: var(--danger); }
+    .tone-neutral { --tone: var(--neutral); }
+
+    .embed-title {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin: 0 0 14px;
+      font-size: 18px;
+      font-weight: 750;
+      line-height: 1.2;
+      letter-spacing: -0.015em;
+    }
+
+    .state-mark {
+      width: 13px;
+      height: 13px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--tone);
+      box-shadow: 0 1px 2px rgb(0 0 0 / 35%);
+    }
+
+    .embed-description {
+      margin: -3px 0 14px;
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.48;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px 20px;
+    }
+
+    .field.full { grid-column: 1 / -1; }
+
+    .field-label {
+      display: block;
+      margin-bottom: 2px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .field-value {
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .mention,
+    .channel,
+    .command {
+      display: inline;
+      padding: 0 3px;
+      border-radius: 3px;
+      background: #414675;
+      color: #c9cdfb;
+      font-weight: 650;
+    }
+
+    .command {
+      background: #202225;
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.93em;
+      font-weight: 550;
+    }
+
+    .embed-footer,
+    .quiet-footer {
+      margin-top: 14px;
+      color: var(--text-muted);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .embed.compact-card {
+      padding-top: 13px;
+      padding-bottom: 13px;
+    }
+
+    .compact-card .embed-title {
+      margin-bottom: 5px;
+      font-size: 15px;
+    }
+
+    .compact-card .embed-description {
+      margin: 0;
+      font-size: 13px;
+    }
+
+    .document-message {
+      max-width: 880px;
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.48;
+    }
+
+    .document-title {
+      margin: 0 0 18px;
+      color: var(--text);
+      font-size: 20px;
+      line-height: 1.2;
+      letter-spacing: -0.015em;
+    }
+
+    .metadata-list {
+      display: grid;
+      gap: 3px;
+      margin: 0 0 20px;
+    }
+
+    .metadata-row {
+      display: grid;
+      grid-template-columns: 122px minmax(0, 1fr);
+      gap: 8px;
+    }
+
+    .metadata-row dt {
+      color: var(--text);
+      font-weight: 750;
+    }
+
+    .metadata-row dd {
+      margin: 0;
+      color: var(--text-secondary);
+      overflow-wrap: anywhere;
+    }
+
+    .document-section + .document-section {
+      margin-top: 20px;
+    }
+
+    .document-section h4 {
+      margin: 0 0 4px;
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.3;
+    }
+
+    .document-section p {
+      max-width: 72ch;
+      margin: 0;
+      color: var(--text-secondary);
+    }
+
+    .document-section p + p {
+      margin-top: 8px;
+    }
+
+    .message-divider {
+      height: 1px;
+      margin: 26px 0;
+      background: var(--border-soft);
+    }
+
+    .guide-list {
+      display: grid;
+      gap: 9px;
+      margin: 14px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .guide-list li {
+      max-width: 76ch;
+      color: var(--text-secondary);
+    }
+
+    .guide-list strong { color: var(--text); }
+
+    .container-panel {
+      --tone: var(--brand);
+      position: relative;
+      width: min(100%, 600px);
+      padding: 18px;
+      border: 1px solid #44464d;
+      border-radius: 7px;
+      background: var(--discord-raised);
+      overflow: hidden;
+    }
+
+    .container-panel::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: var(--tone);
+    }
+
+    .panel-heading {
+      margin: 0;
+      color: var(--text);
+      font-size: 18px;
+      line-height: 1.25;
+      letter-spacing: -0.015em;
+    }
+
+    .panel-copy {
+      max-width: 68ch;
+      margin: 7px 0 0;
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
+    .panel-divider {
+      height: 1px;
+      margin: 16px 0;
+      background: var(--border-soft);
+    }
+
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .progress-track {
+      height: 3px;
+      border-radius: 2px;
+      background: #41434a;
+      overflow: hidden;
+    }
+
+    .progress-track span {
+      display: block;
+      width: var(--progress, 50%);
+      height: 100%;
+      background: var(--tone);
+    }
+
+    .select-control {
+      width: 100%;
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: 14px;
+      padding: 10px 12px;
+      border: 1px solid #222327;
+      border-radius: 4px;
+      background: #1e1f22;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .select-control svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+    }
+
+    .action-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .discord-button {
+      min-height: 36px;
+      padding: 8px 14px;
+      border: 0;
+      border-radius: 4px;
+      color: white;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .discord-button.primary { background: var(--brand); }
+    .discord-button.primary:hover { background: #4752c4; }
+    .discord-button.secondary { background: var(--discord-soft); }
+    .discord-button.secondary:hover { background: var(--discord-hover); }
+    .discord-button.danger { background: var(--danger); }
+    .discord-button.danger:hover { background: #a91e2b; }
+    .discord-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.46;
+    }
+
+    .review-list {
+      display: grid;
+      gap: 9px;
+      margin: 0;
+    }
+
+    .review-row {
+      display: grid;
+      grid-template-columns: 108px minmax(0, 1fr);
+      gap: 12px;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .review-row strong { color: var(--text); }
+
+    .pending-line {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #555862;
+      border-top-color: var(--tone);
+      border-radius: 50%;
+      animation: spin 800ms linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .spinner { animation: none; border-color: var(--tone); }
+    }
+
+    .handoff {
+      max-width: 660px;
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .handoff-title {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin: 0 0 4px;
+      color: var(--text);
+      font-size: 17px;
+      line-height: 1.3;
+    }
+
+    .handoff-context {
+      margin: 0 0 17px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    .handoff-block + .handoff-block { margin-top: 16px; }
+
+    .handoff-block strong {
+      display: block;
+      margin-bottom: 3px;
+      color: var(--text);
+    }
+
+    .handoff-block p {
+      margin: 0;
+      max-width: 70ch;
+    }
+
+    .steps {
+      display: grid;
+      gap: 7px;
+      margin: 5px 0 0;
+      padding-left: 21px;
+    }
+
+    .steps li::marker {
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .link-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .message-link {
+      display: inline-flex;
+      align-items: center;
+      min-height: 31px;
+      padding: 5px 9px;
+      border-radius: 4px;
+      background: #24262a;
+      color: var(--link);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .message-link:hover { background: #202225; }
+
+    .architecture {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px;
+      border: 1px solid var(--border-soft);
+      background: var(--border-soft);
+    }
+
+    .architecture-item {
+      min-height: 176px;
+      padding: 20px;
+      background: var(--discord-raised);
+    }
+
+    .architecture-item h3 {
+      margin: 0 0 9px;
+      font-size: 15px;
+    }
+
+    .architecture-item p {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .architecture-item code {
+      display: block;
+      margin-top: 15px;
+      color: #c9cdfb;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+
+    .coverage-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border-block: 1px solid var(--border-soft);
+    }
+
+    .coverage-stat {
+      min-width: 0;
+      padding: 20px 18px;
+      border-inline-end: 1px solid var(--border-soft);
+    }
+
+    .coverage-stat:last-child { border-inline-end: 0; }
+
+    .coverage-stat strong {
+      display: block;
+      color: var(--text);
+      font-size: 24px;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .coverage-stat span {
+      display: block;
+      margin-top: 7px;
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .coverage-note {
+      max-width: 78ch;
+      margin: 22px 0 0;
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .command-groups {
+      display: grid;
+      gap: 14px;
+    }
+
+    .command-group {
+      border-block: 1px solid var(--border-soft);
+      background: #2e3035;
+    }
+
+    .command-group summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      min-height: 54px;
+      padding: 13px 16px;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 750;
+      list-style: none;
+    }
+
+    .command-group summary::-webkit-details-marker { display: none; }
+
+    .command-group summary::after {
+      content: "+";
+      color: var(--text-muted);
+      font-size: 19px;
+      font-weight: 400;
+    }
+
+    .command-group[open] summary::after { content: "−"; }
+
+    .command-count {
+      margin-inline-start: auto;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .command-list {
+      border-top: 1px solid #242529;
+    }
+
+    .command-row {
+      display: grid;
+      grid-template-columns: minmax(180px, 0.48fr) minmax(0, 1.52fr);
+      gap: 24px;
+      padding: 18px 16px 20px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .command-row:last-child { border-bottom: 0; }
+
+    .command-name {
+      margin: 0;
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .command-name code {
+      color: #d8dbff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
+
+    .command-purpose {
+      margin: 7px 0 0;
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .outcome-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 22px;
+      margin: 0;
+    }
+
+    .outcome-line {
+      min-width: 0;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.52;
+    }
+
+    .outcome-line strong {
+      display: block;
+      margin-bottom: 2px;
+      color: var(--text);
+      font-size: 11px;
+      letter-spacing: 0.045em;
+      text-transform: uppercase;
+    }
+
+    .outcome-line[data-tone="success"] strong { color: #8bd7a9; }
+    .outcome-line[data-tone="warning"] strong { color: #f7cc66; }
+    .outcome-line[data-tone="danger"] strong { color: #ff919d; }
+    .outcome-line[data-tone="info"] strong { color: #aeb5ff; }
+
+    .flow-atlas {
+      display: grid;
+      gap: 30px;
+    }
+
+    .flow-family {
+      border-top: 1px solid var(--border-soft);
+      background: #2e3035;
+    }
+
+    .flow-family-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 20px;
+      align-items: start;
+      padding: 18px;
+      border-bottom: 1px solid #242529;
+      background: #292b2f;
+    }
+
+    .flow-family-header h3 {
+      margin: 0 0 5px;
+      font-size: 17px;
+    }
+
+    .flow-family-header p {
+      max-width: 72ch;
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .flow-family-header span {
+      color: var(--text-muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .flow-rail {
+      display: flex;
+      gap: 0;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border-soft);
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+
+    .flow-rail-step {
+      position: relative;
+      flex: 0 0 auto;
+      min-width: 118px;
+      padding: 0 22px 0 0;
+      color: var(--text-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .flow-rail-step::before {
+      content: "";
+      display: block;
+      width: 8px;
+      height: 8px;
+      margin-bottom: 7px;
+      border-radius: 50%;
+      background: var(--tone, var(--brand));
+    }
+
+    .flow-rail-step:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      inset: 3px 8px auto 13px;
+      height: 1px;
+      background: #555861;
+    }
+
+    .flow-state-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1px;
+      background: var(--border-soft);
+    }
+
+    .flow-state {
+      min-width: 0;
+      padding: 18px;
+      background: var(--discord);
+    }
+
+    .flow-state-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 11px;
+    }
+
+    .flow-state-header strong {
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .state-kind {
+      flex: 0 0 auto;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: #24262a;
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .flow-state-copy {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .flow-state-control {
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 13px;
+      padding: 8px 10px;
+      border: 1px solid #242529;
+      border-radius: 4px;
+      background: #1e1f22;
+      color: var(--text-secondary);
+      font-size: 11px;
+    }
+
+    .flow-state-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 13px;
+    }
+
+    .micro-action {
+      min-height: 29px;
+      padding: 6px 9px;
+      border: 0;
+      border-radius: 4px;
+      background: var(--discord-soft);
+      color: var(--text);
+      font: inherit;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .micro-action.primary { background: var(--brand); }
+    .micro-action.danger { background: var(--danger); }
+
+    .flow-branches {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      padding: 16px 18px 18px;
+    }
+
+    .branch-line {
+      padding-top: 11px;
+      border-top: 1px solid var(--border-soft);
+    }
+
+    .branch-line strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .branch-line p {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .outcome-library {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1px;
+      border: 1px solid var(--border-soft);
+      background: var(--border-soft);
+    }
+
+    .outcome-contract {
+      min-width: 0;
+      padding: 18px;
+      background: var(--discord-raised);
+    }
+
+    .outcome-contract h3 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 7px;
+      font-size: 14px;
+    }
+
+    .outcome-contract h3::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--tone, var(--brand));
+    }
+
+    .outcome-contract p {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .outcome-contract code {
+      display: block;
+      margin-top: 10px;
+      color: #c9cdfb;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      overflow-wrap: anywhere;
+    }
+
+    .annotation {
+      display: none;
+      margin: 10px 0 0;
+      padding: 7px 9px;
+      border: 1px dashed #62656d;
+      color: #c8cbd0;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    body.show-annotations .annotation { display: block; }
+
+    body.compact .discord-canvas { padding-top: 18px; padding-bottom: 22px; }
+    body.compact .embed { padding-top: 12px; padding-bottom: 12px; }
+    body.compact .embed-title { margin-bottom: 9px; }
+    body.compact .field-grid { gap: 8px 16px; }
+    body.compact .document-section + .document-section { margin-top: 15px; }
+    body.compact .container-panel { padding-top: 14px; padding-bottom: 14px; }
+
+    @media (max-width: 980px) {
+      .app-shell { grid-template-columns: 1fr; }
+      .sidebar {
+        position: static;
+        height: auto;
+        padding: 18px 20px;
+        border-right: 0;
+        border-bottom: 1px solid #292b30;
+      }
+      .brand-lockup { margin-bottom: 18px; }
+      .nav-label,
+      .token-label,
+      .token-stack { display: none; }
+      .nav-list {
+        display: flex;
+        gap: 6px;
+        margin: 0;
+        overflow-x: auto;
+        scrollbar-width: thin;
+      }
+      .nav-list a { white-space: nowrap; }
+      .intro,
+      .section-heading { grid-template-columns: 1fr; gap: 22px; }
+      .system-flow,
+      .architecture,
+      .flow-state-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 680px) {
+      .page-header {
+        position: static;
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 16px 18px;
+      }
+      .page-title { display: block; }
+      .page-title span { display: block; margin-top: 4px; }
+      .toolbar { width: 100%; }
+      .toolbar-button { flex: 1; }
+      .content { padding: 38px 16px 80px; }
+      .intro { padding-bottom: 38px; }
+      .intro h2 { font-size: 36px; }
+      .system-flow,
+      .architecture,
+      .specimen-grid,
+      .coverage-summary,
+      .flow-state-grid,
+      .flow-branches,
+      .outcome-library { grid-template-columns: 1fr; }
+      .coverage-stat { border-inline-end: 0; border-bottom: 1px solid var(--border-soft); }
+      .coverage-stat:last-child { border-bottom: 0; }
+      .command-row { grid-template-columns: 1fr; gap: 13px; }
+      .outcome-grid { grid-template-columns: 1fr; }
+      .flow-family-header { grid-template-columns: 1fr; gap: 8px; }
+      .flow-family-header span { white-space: normal; }
+      .section-heading { margin-bottom: 24px; }
+      .section-heading h2 { font-size: 25px; }
+      .section-rule { padding-left: 0; padding-top: 14px; border-left: 0; border-top: 1px solid var(--border); }
+      .discord-canvas { padding: 20px 12px 26px; }
+      .discord-message { grid-template-columns: 34px minmax(0, 1fr); gap: 9px; }
+      .avatar { width: 32px; height: 32px; font-size: 12px; }
+      .embed { padding-left: 16px; }
+      .field-grid { grid-template-columns: 1fr; }
+      .field.full { grid-column: auto; }
+      .metadata-row,
+      .review-row { grid-template-columns: 1fr; gap: 1px; }
+      .container-panel { padding: 16px 14px 16px 16px; }
+      .action-row { display: grid; grid-template-columns: 1fr; }
+      .discord-button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <!--
+    THESIS: Bot output is one coherent language with four purpose-built renderers; the preview refuses a single universal card treatment.
+    OWN-WORLD: Discord-native graphite surfaces, restrained semantic color, compact metadata, and message-level hierarchy with no invented product chrome.
+    STORY: The reviewer moves from shared rules to event, document, interaction, and handoff specimens, then sees the implementation boundary.
+    FIRST VIEWPORT: A Discord-like catalog shell presents the system thesis, four-part flow, semantic tokens, and density controls before the specimen stream.
+    FORM: Established-world extension; component specimen catalog; no direction roll required for this precisely specified prototype.
+    FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+  -->
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Preview navigation">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true">B</div>
+        <div>
+          <strong>BAINSA Codex</strong>
+          <span>Message system preview</span>
+        </div>
+      </div>
+
+      <p class="nav-label">Components</p>
+      <nav>
+        <ul class="nav-list">
+          <li><a href="#event-card"><span class="nav-index">01</span>Event card</a></li>
+          <li><a href="#workspace-document"><span class="nav-index">02</span>Workspace document</a></li>
+          <li><a href="#interaction-panel"><span class="nav-index">03</span>Interaction panel</a></li>
+          <li><a href="#handoff-message"><span class="nav-index">04</span>Handoff message</a></li>
+          <li><a href="#coverage"><span class="nav-index">05</span>Coverage map</a></li>
+          <li><a href="#commands"><span class="nav-index">06</span>Command atlas</a></li>
+          <li><a href="#onboarding-flow"><span class="nav-index">07</span>Onboarding flow</a></li>
+          <li><a href="#profile-flow"><span class="nav-index">08</span>Profile flow</a></li>
+          <li><a href="#project-flow"><span class="nav-index">09</span>Project flow</a></li>
+          <li><a href="#outcomes"><span class="nav-index">10</span>Outcome library</a></li>
+          <li><a href="#architecture"><span class="nav-index">11</span>Shared architecture</a></li>
+        </ul>
+      </nav>
+
+      <p class="token-label">Semantic tones</p>
+      <div class="token-stack" aria-label="Semantic color tokens">
+        <div class="token-row"><span class="token-name"><span class="swatch" style="--tone:var(--brand)"></span>Info</span><span class="token-value">#5865F2</span></div>
+        <div class="token-row"><span class="token-name"><span class="swatch" style="--tone:var(--success)"></span>Success</span><span class="token-value">#27AE60</span></div>
+        <div class="token-row"><span class="token-name"><span class="swatch" style="--tone:var(--warning)"></span>Pending</span><span class="token-value">#F0B429</span></div>
+        <div class="token-row"><span class="token-name"><span class="swatch" style="--tone:var(--update)"></span>Changed</span><span class="token-value">#F2994A</span></div>
+        <div class="token-row"><span class="token-name"><span class="swatch" style="--tone:var(--danger)"></span>Danger</span><span class="token-value">#D7263D</span></div>
+        <div class="token-row"><span class="token-name"><span class="swatch" style="--tone:var(--neutral)"></span>Neutral</span><span class="token-value">#7A7A7A</span></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="page-header">
+        <div class="page-title">
+          <h1>BAINSA bot message system</h1>
+          <span>Visual prototype · illustrative content</span>
+        </div>
+        <div class="toolbar" aria-label="Preview controls">
+          <button class="toolbar-button" id="density-toggle" type="button" aria-pressed="false">Compact density</button>
+          <button class="toolbar-button" id="annotation-toggle" type="button" aria-pressed="false">Show anatomy</button>
+        </div>
+      </header>
+
+      <div class="content">
+        <section class="intro" aria-labelledby="intro-title">
+          <div>
+            <h2 id="intro-title">One language. Four message purposes.</h2>
+            <p>Every bot response chooses its renderer from the job it performs. Semantic tone communicates state; the renderer communicates how the message should be read and how long it should live.</p>
+            <div class="system-flow" aria-label="Message rendering flow">
+              <div class="flow-step"><strong>1. Purpose</strong><span>Event, document, interaction, or handoff.</span></div>
+              <div class="flow-step"><strong>2. State</strong><span>Info, success, pending, changed, danger, or neutral.</span></div>
+              <div class="flow-step"><strong>3. Content</strong><span>Subject, scope, facts, actions, privacy, and provenance.</span></div>
+              <div class="flow-step"><strong>4. Renderer</strong><span>One shared payload contract produces the Discord message.</span></div>
+            </div>
+          </div>
+          <aside class="decision-note">
+            <strong>Design decision</strong>
+            <p>Colored cards remain for chronological events. Plain documents carry maintained truth. Panels own interaction. Direct messages stay linear and action-oriented.</p>
+          </aside>
+        </section>
+
+        <section class="section" id="event-card" aria-labelledby="event-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="event-title">Event card</h2>
+              <p>A scannable append-only record of something that happened. Color and the state mark reinforce meaning; the words remain sufficient on their own.</p>
+            </div>
+            <p class="section-rule">Order: event → subject → scope → change or result → resulting state → actor.</p>
+          </div>
+
+          <div class="specimen-stage">
+            <div class="stage-label"><span>Full cards · semantic variants</span><span>Board-visible activity</span></div>
+            <div class="discord-canvas">
+              <div class="specimen-grid">
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Today at 18:19</span></div>
+                    <div class="embed tone-success">
+                      <h3 class="embed-title"><span class="state-mark"></span>Board role assigned</h3>
+                      <div class="field-grid">
+                        <div class="field"><span class="field-label">Member</span><span class="field-value">Paolo <span class="mention">@paolo</span></span></div>
+                        <div class="field"><span class="field-label">Scope</span><span class="field-value">Bocconi › Analysis</span></div>
+                        <div class="field"><span class="field-label">Role</span><span class="field-value">Head of Analysis</span></div>
+                        <div class="field"><span class="field-label">Performed by</span><span class="field-value"><span class="mention">@lorenzo</span></span></div>
+                      </div>
+                      <div class="annotation">Success tone · compact facts · no instructions · no private appointment notes</div>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Today at 18:22</span></div>
+                    <div class="embed tone-info">
+                      <h3 class="embed-title"><span class="state-mark"></span>Project closed</h3>
+                      <div class="field-grid">
+                        <div class="field"><span class="field-label">Project</span><span class="field-value">Open Research Atlas</span></div>
+                        <div class="field"><span class="field-label">Scope</span><span class="field-value">Bocconi › Analysis</span></div>
+                        <div class="field full"><span class="field-label">Outcome</span><span class="field-value">Published the first verified dataset and documented the next research questions.</span></div>
+                        <div class="field full"><span class="field-label">Discord state</span><span class="field-value">Completed and moved to <span class="channel">#project-6-atlas</span></span></div>
+                        <div class="field"><span class="field-label">Performed by</span><span class="field-value"><span class="mention">@paolo</span></span></div>
+                      </div>
+                      <div class="annotation">Info/closed tone · outcome is human-readable · resulting Discord state remains explicit</div>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Today at 18:25</span></div>
+                    <div class="embed tone-update">
+                      <h3 class="embed-title"><span class="state-mark"></span>Member updated</h3>
+                      <div class="field-grid">
+                        <div class="field"><span class="field-label">Member</span><span class="field-value">Michaïl <span class="mention">@michail</span></span></div>
+                        <div class="field"><span class="field-label">Scope</span><span class="field-value">Bocconi</span></div>
+                        <div class="field full"><span class="field-label">Changes</span><span class="field-value">Member type: Researcher → Alumni<br>Divisions: Analysis → Not required</span></div>
+                        <div class="field"><span class="field-label">Performed by</span><span class="field-value"><span class="mention">@paolo</span></span></div>
+                      </div>
+                      <div class="annotation">Changed tone · before/after copy · empty division uses intentional language</div>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Today at 18:31</span></div>
+                    <div class="embed tone-danger">
+                      <h3 class="embed-title"><span class="state-mark"></span>Board role removed</h3>
+                      <div class="field-grid">
+                        <div class="field"><span class="field-label">Member</span><span class="field-value">Paolo <span class="mention">@paolo</span></span></div>
+                        <div class="field"><span class="field-label">Scope</span><span class="field-value">Bocconi › Analysis</span></div>
+                        <div class="field"><span class="field-label">Role</span><span class="field-value">Head of Analysis</span></div>
+                        <div class="field"><span class="field-label">Performed by</span><span class="field-value"><span class="mention">@lorenzo</span></span></div>
+                      </div>
+                      <div class="annotation">Danger tone · direct event label · private removal reason intentionally absent</div>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+
+          <div class="specimen-stage">
+            <div class="stage-label"><span>Compact cards</span><span>Ephemeral feedback and pending work</span></div>
+            <div class="discord-canvas">
+              <div class="specimen-grid">
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Only you can see this</span></div>
+                    <div class="embed compact-card tone-warning">
+                      <h3 class="embed-title"><span class="state-mark"></span>Discord update pending</h3>
+                      <p class="embed-description">The project change was saved. Discord reconciliation will retry automatically.</p>
+                      <div class="annotation">Compact EventCard · warning/pending · committed state and recovery are explicit</div>
+                    </div>
+                  </div>
+                </article>
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Only you can see this</span></div>
+                    <div class="embed compact-card tone-neutral">
+                      <h3 class="embed-title"><span class="state-mark"></span>Nothing changed</h3>
+                      <p class="embed-description">Paolo already has the selected project role. No access or database record was changed.</p>
+                      <div class="annotation">Compact EventCard · neutral · safe no-op explanation</div>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="workspace-document" aria-labelledby="document-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="document-title">Workspace document</h2>
+              <p>A maintained source of truth that is meant to be revisited. Plain text keeps long-lived records and guidance cleaner than a large embed.</p>
+            </div>
+            <p class="section-rule">Order: title → metadata → content sections → ownership or instructions → quiet provenance.</p>
+          </div>
+
+          <div class="specimen-stage">
+            <div class="stage-label"><span>Canonical project record</span><span>Edited in place · pinned</span></div>
+            <div class="discord-canvas">
+              <article class="discord-message">
+                <div class="avatar">B</div>
+                <div class="message-body">
+                  <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Today at 22:33</span></div>
+                  <div class="document-message">
+                    <h3 class="document-title">Open Research Atlas</h3>
+                    <dl class="metadata-list">
+                      <div class="metadata-row"><dt>University</dt><dd>Bocconi</dd></div>
+                      <div class="metadata-row"><dt>Status</dt><dd>Active</dd></div>
+                      <div class="metadata-row"><dt>Division</dt><dd>🟥 Analysis</dd></div>
+                      <div class="metadata-row"><dt>Timeline</dt><dd>10 Aug 2026 → 20 Dec 2026</dd></div>
+                      <div class="metadata-row"><dt>Workspace</dt><dd><span class="channel">#project-6-atlas</span></dd></div>
+                      <div class="metadata-row"><dt>Shareable record</dt><dd><span class="channel">Atlas</span></dd></div>
+                    </dl>
+                    <div class="document-section">
+                      <h4>Summary</h4>
+                      <p>Build a reviewed map of reusable public datasets and the research questions each source can support.</p>
+                    </div>
+                    <div class="document-section">
+                      <h4>Team</h4>
+                      <p><strong>Members:</strong> <span class="mention">@michail</span>, <span class="mention">@sara</span></p>
+                      <p><strong>Supervisors:</strong> Lorenzo Caputi, <span class="mention">@paolo</span></p>
+                    </div>
+                    <div class="document-section">
+                      <h4>Internal working notes</h4>
+                      <p>Validate source licences before adding files to the shared research package.</p>
+                    </div>
+                    <div class="quiet-footer">Project #6 · Pinned project record · Updates automatically</div>
+                    <div class="annotation">WorkspaceDocument · metadata is compact · sections breathe · provenance is subordinate</div>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </div>
+
+          <div class="specimen-stage">
+            <div class="stage-label"><span>Workspace guide and shareable record</span><span>Same atoms · different content contract</span></div>
+            <div class="discord-canvas">
+              <div class="specimen-grid">
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Today at 22:33</span></div>
+                    <div class="document-message">
+                      <h3 class="document-title">How to use this space</h3>
+                      <p>Keep discussion, drafts, decisions, and internal files in this private workspace.</p>
+                      <ul class="guide-list">
+                        <li><strong>Everyone</strong> · Run <span class="command">/project-info</span> for the current record, then use this channel for day-to-day work.</li>
+                        <li><strong>Supervisors &amp; scoped board</strong> · Use project commands here to update the project, manage participants, or close it.</li>
+                        <li><strong>Shareable work</strong> · Post progress, materials, questions, and expressions of interest in the showcase record.</li>
+                      </ul>
+                      <div class="quiet-footer">Project #6 · Pinned workspace guide</div>
+                      <div class="annotation">WorkspaceDocument guide variant · actions lead with audience · no card boundary</div>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Today at 22:34</span></div>
+                    <div class="document-message">
+                      <h3 class="document-title">Open Research Atlas</h3>
+                      <dl class="metadata-list">
+                        <div class="metadata-row"><dt>Status</dt><dd>Active</dd></div>
+                        <div class="metadata-row"><dt>Division</dt><dd>🟥 Analysis</dd></div>
+                        <div class="metadata-row"><dt>Timeline</dt><dd>10 Aug → 20 Dec 2026</dd></div>
+                      </dl>
+                      <div class="document-section">
+                        <h4>What the team is working on</h4>
+                        <p>A reviewed map of reusable public datasets and the research questions each source can support.</p>
+                      </div>
+                      <div class="document-section">
+                        <h4>Follow or contribute</h4>
+                        <p>Reply with a relevant source, a question, or a concrete contribution idea. Contact <span class="mention">@paolo</span> for project access.</p>
+                      </div>
+                      <div class="quiet-footer">BAINSA Bocconi · Project #6 · Shareable project record</div>
+                      <div class="annotation">WorkspaceDocument public variant · private notes absent by contract</div>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="interaction-panel" aria-labelledby="panel-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="panel-title">Interaction panel</h2>
+              <p>A protected task surface for choosing, reviewing, confirming, waiting, and recovering. Components V2 carries the interaction while the same semantic tokens carry state.</p>
+            </div>
+            <p class="section-rule">Order: task and progress → current instruction → control → explanation → primary, back, cancel.</p>
+          </div>
+
+          <div class="specimen-stage">
+            <div class="stage-label"><span>Interactive states</span><span>Private response · Components V2</span></div>
+            <div class="discord-canvas">
+              <div class="specimen-grid">
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Only you can see this</span></div>
+                    <div class="container-panel tone-info">
+                      <div class="progress-label"><span>Membership application</span><span>Step 3 of 4</span></div>
+                      <div class="progress-track" style="--progress:75%"><span></span></div>
+                      <div class="panel-divider"></div>
+                      <h3 class="panel-heading">Choose your university</h3>
+                      <p class="panel-copy">Select the university you currently belong to, or the one you were part of as an Alumni.</p>
+                      <div class="select-control">Bocconi University
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+                      </div>
+                      <div class="panel-divider"></div>
+                      <div class="action-row">
+                        <button class="discord-button primary" type="button">Continue to division</button>
+                        <button class="discord-button secondary" type="button">Back to path</button>
+                        <button class="discord-button danger" type="button">Cancel</button>
+                      </div>
+                      <div class="annotation">InteractionPanel default · progress is visible · actions keep a fixed order</div>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Only you can see this</span></div>
+                    <div class="container-panel tone-danger">
+                      <h3 class="panel-heading">Remove board role?</h3>
+                      <p class="panel-copy">Review the exact scope and impact before changing this member’s authority.</p>
+                      <div class="panel-divider"></div>
+                      <div class="review-list">
+                        <div class="review-row"><strong>Member</strong><span>Paolo <span class="mention">@paolo</span></span></div>
+                        <div class="review-row"><strong>Role</strong><span>Head of Analysis</span></div>
+                        <div class="review-row"><strong>Scope</strong><span>Bocconi › Analysis</span></div>
+                        <div class="review-row"><strong>Effect</strong><span>Board channels and project-management authority for this division will be removed.</span></div>
+                      </div>
+                      <div class="panel-divider"></div>
+                      <div class="action-row">
+                        <button class="discord-button danger" type="button">Remove board role</button>
+                        <button class="discord-button secondary" type="button">Cancel</button>
+                      </div>
+                      <div class="annotation">InteractionPanel destructive review · subject, scope, effect, and escape route are explicit</div>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Only you can see this</span></div>
+                    <div class="container-panel tone-warning">
+                      <h3 class="panel-heading">Saving the project</h3>
+                      <p class="panel-copy">The database change is being committed before Discord creates the private workspace and showcase record.</p>
+                      <div class="panel-divider"></div>
+                      <div class="pending-line"><span class="spinner" aria-hidden="true"></span><span>Please keep this message open. It will update when the durable state is known.</span></div>
+                      <div class="panel-divider"></div>
+                      <div class="action-row">
+                        <button class="discord-button secondary" type="button" disabled>Creating project…</button>
+                      </div>
+                      <div class="annotation">InteractionPanel pending · describes sequence and preserves useful reduced-motion state</div>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Only you can see this</span></div>
+                    <div class="container-panel tone-danger">
+                      <h3 class="panel-heading">Project not created</h3>
+                      <p class="panel-copy">Nothing was saved and no Discord access changed. The selected timeline ended before the start date.</p>
+                      <div class="panel-divider"></div>
+                      <div class="action-row">
+                        <button class="discord-button primary" type="button">Fix timeline</button>
+                        <button class="discord-button secondary" type="button">Back to review</button>
+                        <button class="discord-button danger" type="button">Cancel</button>
+                      </div>
+                      <div class="annotation">InteractionPanel error · preserved state, exact problem, and recovery action</div>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="handoff-message" aria-labelledby="handoff-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="handoff-title">Handoff message</h2>
+              <p>A direct message for a person whose access, responsibility, or next step just changed. It stays linear and readable on mobile.</p>
+            </div>
+            <p class="section-rule">Order: what changed → personal scope → first actions → durable links → help or recovery.</p>
+          </div>
+
+          <div class="specimen-stage">
+            <div class="stage-label"><span>Direct-message variants</span><span>No embed · no activity-feed language</span></div>
+            <div class="discord-canvas">
+              <div class="specimen-grid">
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Today at 09:12</span></div>
+                    <div class="handoff tone-success">
+                      <h3 class="handoff-title"><span class="state-mark"></span>Your BAINSA access is ready</h3>
+                      <p class="handoff-context">Researcher · Bocconi · Analysis</p>
+                      <div class="handoff-block">
+                        <strong>Start here</strong>
+                        <ol class="steps">
+                          <li>Open the spaces that now belong to you.</li>
+                          <li>Read the pinned purpose message in your division.</li>
+                          <li>Introduce yourself in the smallest relevant workspace.</li>
+                        </ol>
+                      </div>
+                      <div class="link-row"><a class="message-link" href="#">Global general</a><a class="message-link" href="#">Bocconi general</a><a class="message-link" href="#">Analysis</a></div>
+                      <div class="handoff-block"><p>You can return to <span class="channel">#welcome</span> and choose <strong>Find my spaces</strong> at any time.</p></div>
+                      <div class="annotation">HandoffMessage approval · identity first · three actions · durable recovery route</div>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Today at 14:40</span></div>
+                    <div class="handoff tone-info">
+                      <h3 class="handoff-title"><span class="state-mark"></span>You joined Open Research Atlas</h3>
+                      <p class="handoff-context">Bocconi · Analysis · Project member</p>
+                      <div class="handoff-block">
+                        <strong>Your first actions</strong>
+                        <ol class="steps">
+                          <li>Open the private project workspace.</li>
+                          <li>Read the pinned project record and workspace guide.</li>
+                          <li>Introduce yourself and follow the latest decisions and files.</li>
+                        </ol>
+                      </div>
+                      <div class="link-row"><a class="message-link" href="#">Open workspace</a><a class="message-link" href="#">View shareable record</a></div>
+                      <div class="annotation">HandoffMessage assignment · role and scope stay visible · links arrive after the next actions</div>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Today at 16:03</span></div>
+                    <div class="handoff tone-danger">
+                      <h3 class="handoff-title"><span class="state-mark"></span>Your project access changed</h3>
+                      <p class="handoff-context">Open Research Atlas · Bocconi › Analysis</p>
+                      <div class="handoff-block">
+                        <strong>What changed</strong>
+                        <p>You are no longer assigned to this project, so its private workspace is no longer visible to you.</p>
+                      </div>
+                      <div class="handoff-block">
+                        <strong>What remains available</strong>
+                        <p>The shareable university project record and its public discussion remain visible.</p>
+                      </div>
+                      <div class="link-row"><a class="message-link" href="#">View shareable record</a></div>
+                      <div class="annotation">HandoffMessage removal · consequence and remaining access · no private board notes</div>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="discord-message">
+                  <div class="avatar">B</div>
+                  <div class="message-body">
+                    <div class="message-meta"><strong>BAINSA Codex</strong><span class="app-badge">APP</span><span class="timestamp">Today at 16:12</span></div>
+                    <div class="handoff tone-warning">
+                      <h3 class="handoff-title"><span class="state-mark"></span>Your application is waiting for review</h3>
+                      <p class="handoff-context">Alumni · Bocconi</p>
+                      <div class="handoff-block">
+                        <strong>What happens next</strong>
+                        <p>The Bocconi board will review your application. BAINSA will try to send the decision by DM.</p>
+                      </div>
+                      <div class="handoff-block">
+                        <strong>If you do not receive a DM</strong>
+                        <p>Return to <span class="channel">#onboarding</span> and choose <strong>Check application status</strong>. The in-server status is the reliable source.</p>
+                      </div>
+                      <div class="annotation">HandoffMessage pending · expectation, fallback, and reliable source</div>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="coverage" aria-labelledby="coverage-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="coverage-title">Complete product coverage</h2>
+              <p>The component language is now tested against the entire implemented Discord surface: every slash command, every durable document, each creation flow, and each distinct user-facing outcome contract.</p>
+            </div>
+            <p class="section-rule">Coverage is counted by distinct user-visible state, not by every backend exception string that shares the same recovery treatment.</p>
+          </div>
+          <div class="coverage-summary" aria-label="Coverage totals">
+            <div class="coverage-stat"><strong>17</strong><span>Slash commands, including the role-aware guide</span></div>
+            <div class="coverage-stat"><strong>3</strong><span>Complete creation and editing flows</span></div>
+            <div class="coverage-stat"><strong>15</strong><span>Shared terminal and recovery contracts</span></div>
+            <div class="coverage-stat"><strong>4</strong><span>Purpose-built message primitives</span></div>
+          </div>
+          <p class="coverage-note">The three flow sections include all screens, alternate branches, terminal states, ownership/expiry protections, and downstream messages. The command atlas covers every successful mutation, lookup, no-op, private-only change, reconciliation state, notification handoff, and failure family.</p>
+        </section>
+
+        <section class="section" id="commands" aria-labelledby="commands-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="commands-title">Every bot command</h2>
+              <p>A command-by-command contract for what the actor sees, what the board sees, what the affected member receives, and how failures recover.</p>
+            </div>
+            <p class="section-rule">Open a group to inspect its complete output map. Private reasons and notes never cross into board-visible activity.</p>
+          </div>
+          <div class="command-groups" id="command-atlas"></div>
+        </section>
+
+        <section class="section" id="onboarding-flow" aria-labelledby="onboarding-flow-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="onboarding-flow-title">Onboarding and access lifecycle</h2>
+              <p>The complete applicant, reviewer, resolution, and arrival experience for both Researcher and Alumni paths.</p>
+            </div>
+            <p class="section-rule">Applicant controls remain private. Review history stays in the university board space. The decision and useful next step reach the applicant directly.</p>
+          </div>
+          <div class="flow-atlas" id="onboarding-atlas"></div>
+        </section>
+
+        <section class="section" id="profile-flow" aria-labelledby="profile-flow-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="profile-flow-title">People profile lifecycle</h2>
+              <p>Creation, editing, publication, directory synchronization, retry, cancellation, and unpublishing in one actor-bound Components V2 flow.</p>
+            </div>
+            <p class="section-rule">Draft content stays private and in memory. Only confirmed publication crosses the database boundary and creates or updates the canonical forum post.</p>
+          </div>
+          <div class="flow-atlas" id="profile-atlas"></div>
+        </section>
+
+        <section class="section" id="project-flow" aria-labelledby="project-flow-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="project-flow-title">Project creation lifecycle</h2>
+              <p>The complete five-step setup, validation model, durable commit boundary, Discord reconciliation, board activity, canonical documents, and team handoff.</p>
+            </div>
+            <p class="section-rule">Before commit, retry preserves the draft. After commit, no setup retry is offered: Discord work reconciles automatically to prevent duplicate projects.</p>
+          </div>
+          <div class="flow-atlas" id="project-atlas"></div>
+        </section>
+
+        <section class="section" id="outcomes" aria-labelledby="outcomes-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="outcomes-title">Shared outcome library</h2>
+              <p>Every command and flow resolves through one of these reusable terminal or recovery contracts. Domain-specific copy changes; message anatomy does not.</p>
+            </div>
+            <p class="section-rule">Each outcome names committed state, Discord state, privacy, and the next safe action. Color supports the words rather than replacing them.</p>
+          </div>
+          <div class="outcome-library" id="outcome-library"></div>
+        </section>
+
+        <section class="section" id="architecture" aria-labelledby="architecture-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="architecture-title">Shared architecture</h2>
+              <p>Domain formatters describe meaning. The design-system layer owns presentation, Discord limits, safe mentions, and consistent empty states.</p>
+            </div>
+            <p class="section-rule">No service should construct raw embed fields, Markdown spacing, or semantic colors independently.</p>
+          </div>
+          <div class="architecture">
+            <article class="architecture-item"><h3>EventCardSpec</h3><p>Past-tense event, semantic tone, subject, scope, facts, resulting state, and actor.</p><code>renderEventCard(spec)</code></article>
+            <article class="architecture-item"><h3>WorkspaceDocumentSpec</h3><p>Title, metadata rows, bounded sections, visibility contract, and provenance.</p><code>renderWorkspaceDocument(spec)</code></article>
+            <article class="architecture-item"><h3>InteractionPanelSpec</h3><p>Progress, current task, controls, actions, busy state, error recovery, and ownership.</p><code>renderInteractionPanel(spec)</code></article>
+            <article class="architecture-item"><h3>HandoffMessageSpec</h3><p>Personal change, scope, next actions, links, remaining access, and recovery route.</p><code>renderHandoffMessage(spec)</code></article>
+            <article class="architecture-item"><h3>OutcomeContract</h3><p>Committed state, Discord state, activity delivery, privacy, retry safety, and the next valid action.</p><code>resolveOutcome(domainResult)</code></article>
+            <article class="architecture-item"><h3>DeliveryContext</h3><p>Actor-only response, board activity, durable channel document, affected-member DM, or best-effort fallback.</p><code>deliver(spec, context)</code></article>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const commandGroups = [
+      {
+        label: 'Private guide',
+        commands: [
+          {
+            name: '/guide',
+            purpose: 'Role-aware command discovery for board members in a valid bot-log.',
+            success: 'Interaction panel: home → available topic → command detail → rules. Every view states the caller’s effective scope.',
+            private: 'Always ephemeral. Navigation edits the same response and never creates activity.',
+            alternate: 'Union of multiple board roles; Head-only labels; Global, President, Vice President, and Head rule variants.',
+            recovery: 'Wrong channel, no current board access, stale selection, expired component, or another member’s guide → private error with “Run /guide again”.',
+          },
+        ],
+      },
+      {
+        label: 'Members',
+        commands: [
+          {
+            name: '/member-update',
+            purpose: 'Change member type, university, divisions, or internal notes.',
+            success: 'Event card lists only changed public fields: member type, university, and divisions.',
+            private: 'A notes-only update returns “Update saved. No board-visible fields changed.” Notes never enter activity.',
+            alternate: 'Researcher → Alumni clears divisions unless replacements are supplied; Global President university move; Discord reconciliation/compensation warning.',
+            recovery: 'No changed input, incompatible board role, active-project eligibility conflict, wrong university, inactive target, or Bot target → private actionable error.',
+          },
+          {
+            name: '/member-remove',
+            purpose: 'Remove a member and clean memberships, authority, and project access.',
+            success: 'Danger event card confirms removal. The affected member is no longer in the server.',
+            private: 'Optional reason remains in audit/kick context. It is omitted from board activity.',
+            alternate: 'Cleanup complete; or member removed with a warning that some project overwrite cleanup needs review.',
+            recovery: 'Self-removal, protected President, Bot target, missing active record, or insufficient scope → no mutation and private explanation.',
+          },
+          {
+            name: '/member-info',
+            purpose: 'Inspect a member’s canonical identity, affiliation, authority, and active projects.',
+            success: 'Private lookup card with bounded lists and explicit empty values for divisions, board roles, and projects.',
+            private: 'No board activity. Internal member data is shown only inside the caller’s authorized university scope.',
+            alternate: 'Explicit target or supported self lookup; long role/project lists end with “+N more”.',
+            recovery: 'Missing record, member outside scope, stale Discord target, or unresolved server context → private error.',
+          },
+        ],
+      },
+      {
+        label: 'Divisions',
+        commands: [
+          {
+            name: '/division-create',
+            purpose: 'Create the division record, managed roles, initial Head, and selected channels.',
+            success: 'Success event card shows division, university, initial Head, and the exact text/voice channels created.',
+            private: 'Provisioning details and internal compensation remain private/audited.',
+            alternate: 'Text and voice; text only; voice only; or neither channel, while the roles and Head assignment still exist.',
+            recovery: 'Duplicate name, invalid Head, missing roles/category, university scope failure, or Discord creation failure → preserved prior state and explicit next step.',
+          },
+          {
+            name: '/division-update',
+            purpose: 'Rename or recolor a division and reconcile roles and channels.',
+            success: 'Changed event card shows old → new name and/or old → new semantic color.',
+            private: 'Compensation details stay in the audit trail if Discord rejects a rename or color update.',
+            alternate: 'Name only, color only, or both. No actual difference produces a validation response instead of activity.',
+            recovery: 'Duplicate new name, missing managed role/channel, or failed compensation → private failure naming what remained unchanged or requires review.',
+          },
+          {
+            name: '/division-add-member',
+            purpose: 'Add an eligible Researcher to a university division.',
+            success: 'Success event card names the member and university › division scope.',
+            private: 'Eligibility diagnostics remain visible only to the actor.',
+            alternate: 'Existing university membership is preserved; the required university/division Discord roles are reconciled.',
+            recovery: 'Alumni/inactive member, wrong university, Bot target, missing managed role, or authority outside division → private correction.',
+          },
+          {
+            name: '/division-remove-member',
+            purpose: 'Remove division access while preserving university membership.',
+            success: 'Danger event card names the member and removed university › division scope.',
+            private: 'Optional removal reason stays private and in the audit record.',
+            alternate: 'The member retains base university access and unrelated divisions.',
+            recovery: 'Active project still requires this division, target is not a division member, or caller lacks scope → no removal and a private blocking explanation.',
+          },
+        ],
+      },
+      {
+        label: 'Board authority',
+        commands: [
+          {
+            name: '/board-assign',
+            purpose: 'Assign Head, Vice President, or President authority.',
+            success: 'Success event card names member, role, university, and division when relevant; affected member receives an authority handoff.',
+            private: 'No private appointment note is copied into activity or the handoff.',
+            alternate: 'Head moves the member into exactly one selected division; executive roles have university scope; co-Presidents are supported.',
+            recovery: 'Head missing division, executive with division, Vice President attempting President assignment, incompatible member type, or wrong scope → private error.',
+          },
+          {
+            name: '/board-remove',
+            purpose: 'Remove scoped authority while retaining base membership.',
+            success: 'Danger event card names the removed role and scope; affected member receives what changed and what remains.',
+            private: 'Optional reason is shared only where policy permits and never appears in board activity.',
+            alternate: 'One Head division, every Head role in a university, or an executive role. Researcher/university access remains.',
+            recovery: 'Vice President attempting President removal, invalid role/division shape, protected scope, or missing assignment → private explanation.',
+          },
+          {
+            name: '/board-info',
+            purpose: 'Inspect a university board roster and Discord synchronization health.',
+            success: 'Private workspace document lists active appointments grouped by role.',
+            private: 'Lookup only; nothing is posted in bot-log.',
+            alternate: 'Empty roster message; complete roster; or roster rows with missing Discord role/member warnings.',
+            recovery: 'University outside scope, inactive university, or unavailable member context → private error.',
+          },
+        ],
+      },
+      {
+        label: 'Projects',
+        commands: [
+          {
+            name: '/project-create',
+            purpose: 'Open the private five-step project setup and commit a scoped project.',
+            success: 'Interaction terminal confirms project ID; board event records team/timeline; canonical documents and handoff DMs follow.',
+            private: 'Internal working notes remain only in the private project record. The wizard is actor-bound and ephemeral.',
+            alternate: 'Discord ready; committed with reconciliation pending; committed but activity post failed; confirmation fallback after delivery failure.',
+            recovery: 'Validation failure preserves the draft and offers retry/back. Cancel creates nothing. Expired/foreign/busy sessions return dedicated private errors.',
+          },
+          {
+            name: '/project-add-member',
+            purpose: 'Add a participant or change an existing participant’s project role.',
+            success: 'Event card distinguishes added from role changed; canonical records update; affected person receives a role-aware handoff.',
+            private: 'Eligibility details and any failed-DM logging stay private.',
+            alternate: 'New member, supervisor, board liaison, role transition, identical role no-op, or Discord reconciliation pending.',
+            recovery: 'Closed project, ineligible member, cross-role conflict, Bot, capacity limit, missing member, or insufficient management authority → private error.',
+          },
+          {
+            name: '/project-remove-member',
+            purpose: 'Remove a participant and their direct private-channel access.',
+            success: 'Danger event card records the participant removal; affected person receives remaining-access guidance.',
+            private: 'Optional reason is sent only to the affected person and audit log, never to board activity.',
+            alternate: 'DM delivered or unavailable; canonical project record repaired; reconciliation pending when Discord access removal must retry.',
+            recovery: 'Person is not assigned, project is completed, explicit project mismatches current channel, or caller lacks authority → no mutation.',
+          },
+          {
+            name: '/project-update',
+            purpose: 'Update project identity, end date, public summary, private notes, or active/paused state.',
+            success: 'Changed event card lists public changes; project channel gets one compact transition; canonical records update in place.',
+            private: 'Notes-only update returns a private saved/no-visible-change response and never appends history.',
+            alternate: 'Rename, date, summary, pause/resume, combined update, notes-only, no-op, or reconciliation pending.',
+            recovery: 'No fields, invalid date order, completed project, invalid status, project mismatch, or permission failure → private correction.',
+          },
+          {
+            name: '/project-close',
+            purpose: 'Complete a project, publish its conclusion, retain private handover, lock history, and archive its channel.',
+            success: 'Info event card shows public outcome and final Discord state; canonical workspace/showcase documents switch to completed.',
+            private: 'Internal handover notes remain only in the private project record and lookup.',
+            alternate: 'Archive complete or committed with reconciliation pending. Participant history stays readable while sending is locked.',
+            recovery: 'Already completed, missing outcome/final notes, invalid project scope, or reconciliation failure → either no commit or explicit committed/pending state.',
+          },
+          {
+            name: '/project-info',
+            purpose: 'Read the maintained private project record.',
+            success: 'Private workspace document includes scope, status, timeline, links, brief, team, conclusion, and permitted internal notes.',
+            private: 'Lookup only. Participants can use it in their project channel; scoped board can use bot-log or the project channel.',
+            alternate: 'Project inferred from channel or selected by autocomplete; active, paused, or completed record.',
+            recovery: 'No visible project, explicit project/channel mismatch, stale topic, invalid selection, or insufficient view permission → private error.',
+          },
+        ],
+      },
+    ];
+
+    const onboardingFamilies = [
+      {
+        title: 'Applicant path',
+        description: 'One private response moves from identity to a corrected, reviewable application. Alumni skip the division screen deliberately.',
+        rail: ['Entry', 'Name', 'Path', 'University', 'Division*', 'Review', 'Submit'],
+        states: [
+          { title: 'Start here', kind: 'entry', copy: 'Welcome explains board review and keeps both start and status recovery visible.', control: 'Begin onboarding · Check application status', actions: ['Begin onboarding', 'Check status'] },
+          { title: 'Your full name', kind: 'modal', copy: 'Required, 2–120 characters. The saved value returns when the applicant goes back.', control: 'Paolo Auletta', actions: ['Save name'] },
+          { title: 'Choose your path', kind: 'select', copy: 'Researcher explains active university participation; Alumni explains continued community access.', control: 'Researcher / Alumni', actions: ['Continue', 'Back', 'Cancel'] },
+          { title: 'Choose university', kind: 'select', copy: 'Paginated active universities. The current selection remains visible across pages.', control: 'Bocconi University', actions: ['Continue', 'Previous', 'Next', 'Back'] },
+          { title: 'Choose division', kind: 'researcher', copy: 'Researchers choose exactly one active division. Alumni skip directly to review.', control: '🟥 Analysis', actions: ['Continue to review', 'Back'] },
+          { title: 'Review application', kind: 'review', copy: 'Applicant, path, university, and division appear together before anything is submitted.', control: 'Paolo · Researcher · Bocconi · Analysis', actions: ['Submit application', 'Back'] },
+        ],
+        branches: [
+          { title: 'Researcher branch', copy: 'University → one division → review. Approval unlocks Global, university, and division spaces.' },
+          { title: 'Alumni branch', copy: 'University → review. The resolution explicitly explains why no division is required and surfaces mentorship, resources, projects, and directory participation.' },
+          { title: 'Back and edit', copy: 'Every step returns to the previous decision without losing later compatible values. Changing university clears incompatible division choices.' },
+          { title: 'Cancel', copy: 'Terminal neutral panel: “Application cancelled. Nothing was submitted.” A fresh application remains available.' },
+        ],
+      },
+      {
+        title: 'Submission and board review',
+        description: 'The applicant gets a durable pending contract while the board receives a focused event card with a protected decision action.',
+        rail: ['Submitting', 'Pending', 'Board review', 'Decision', 'Resolution'],
+        states: [
+          { title: 'Submitting application', kind: 'pending', copy: 'States that the board message is being delivered and that this response will update when safely recorded.', actions: ['Submitting…'] },
+          { title: 'Application sent', kind: 'pending', copy: 'Names the reviewing board, expected DM, reliable status fallback, and what the applicant can do while waiting.', control: 'Bocconi board · Pending review' },
+          { title: 'New access request', kind: 'event card', copy: 'Board-only card shows applicant, path, scope, reapplication warning, and Pending review status.', actions: ['Approve', 'Reject'] },
+          { title: 'Approving access', kind: 'pending', copy: 'Explains that the durable member record, nickname, and Discord roles are being updated.', actions: ['Approving…'] },
+          { title: 'Decline reason', kind: 'modal', copy: 'A reason is required because the applicant must be able to understand or correct the decision.', control: 'Clear, member-facing reason', actions: ['Decline application'] },
+          { title: 'Review complete', kind: 'event card', copy: 'Card becomes immutable with approved/declined state, reviewer, and reason only in the protected review channel.' },
+        ],
+        branches: [
+          { title: 'Submission failed', copy: 'Nothing was sent; all draft fields remain visible with Try again and Back. If status already advanced, show the canonical current status instead.' },
+          { title: 'Decision failed', copy: 'No decision was recorded and access did not change. Restore the live review card and offer the same decision again.' },
+          { title: 'Already reviewed', copy: 'Stale reviewer click resolves to the final immutable status instead of replaying a mutation.' },
+          { title: 'Reapplication', copy: 'The board card carries a visible previously-removed warning without exposing unrelated audit detail.' },
+        ],
+      },
+      {
+        title: 'Applicant resolution and arrival',
+        description: 'A DM is helpful but never the only reliable source. The in-server status and Find my spaces entry remain available.',
+        rail: ['Approved / declined', 'DM', 'Find my spaces', 'Profile invitation'],
+        states: [
+          { title: 'Access approved', kind: 'success', copy: 'Researcher handoff names university and division, shows three first spaces, and recommends one first action.', actions: ['Open my spaces', 'Create my profile'] },
+          { title: 'Alumni access ready', kind: 'success', copy: 'Explains that no division is expected, then surfaces discussion, mentorship, resources, project supervision, and the directory.', actions: ['Find my spaces'] },
+          { title: 'Application declined', kind: 'danger', copy: 'Shares the reviewer reason, explains that access did not change, and offers a corrected reapplication path.', actions: ['Start new application'] },
+          { title: 'Application status', kind: 'lookup', copy: 'No application, draft, pending, approved, declined, and cancelled each have a dedicated private status treatment.' },
+          { title: 'Find your place', kind: 'document', copy: 'Role-aware map links Global, university, division, resources, projects showcase, and people database.', actions: ['Create my profile'] },
+          { title: 'DM unavailable', kind: 'fallback', copy: 'No alarming failure: the status panel says the in-server result is authoritative and tells the member exactly where to retrieve it.' },
+        ],
+        branches: [
+          { title: 'Nickname not manageable', copy: 'Approval can still succeed. Do not imply failure; mention the access state accurately and log the nickname exception for operators.' },
+          { title: 'No application yet', copy: 'Friendly empty state with one action: Begin onboarding.' },
+          { title: 'Draft found', copy: 'Continue application returns to the last valid step with existing values.' },
+          { title: 'Unavailable university/division', copy: 'Explain the selection is no longer available, keep earlier answers, and return to the affected selector.' },
+        ],
+      },
+    ];
+
+    const profileFamilies = [
+      {
+        title: 'Create or edit profile',
+        description: 'One actor-bound private draft collects only publishable directory content and previews the canonical result throughout.',
+        rail: ['Current', 'Exploration', 'Tags', 'Contact', 'Review', 'Publish'],
+        states: [
+          { title: 'Where you are now', kind: 'modal', copy: 'Headline and current role are required; organisation and location are optional.', control: 'Headline · Role · Organisation · Location', actions: ['Continue'] },
+          { title: 'What you want to explore', kind: 'modal', copy: 'Goals and about text are required and bounded. The summary above the panel updates after saving.', control: 'Goals · About', actions: ['Continue to tags', 'Back', 'Cancel'] },
+          { title: 'Choose your tags', kind: 'select', copy: 'Select one to four managed taxonomy tags; university tags are derived instead of manually chosen.', control: 'AI · Sustainability · Policy', actions: ['Continue to contact', 'Back'] },
+          { title: 'How members can reach you', kind: 'modal', copy: 'Email, LinkedIn, and research profile are optional because Discord DM is always the baseline route.', control: 'Email · LinkedIn · Research profile', actions: ['Continue to review', 'Back'] },
+          { title: 'Ready to publish?', kind: 'review', copy: 'The exact directory profile is shown with the visibility consequence before the durable write.', actions: ['Publish profile', 'Back', 'Cancel'] },
+          { title: 'Publishing profile', kind: 'pending', copy: 'Locks duplicate submission while the database commit and forum synchronization run.', actions: ['Publishing…'] },
+        ],
+        branches: [
+          { title: 'Create vs edit', copy: 'The same flow pre-fills an existing profile. Publishing updates the same canonical forum thread instead of creating duplicates.' },
+          { title: 'Validation', copy: 'Missing required text, invalid email/URL, non-HTTPS LinkedIn, no tags, or too many tags returns to the relevant screen with the draft intact.' },
+          { title: 'Cancelled', copy: 'Neutral terminal state confirms nothing was changed.' },
+          { title: 'Session safety', copy: 'Expired, another member’s control, another server, inactive member, and double publish each produce a specific private recovery message.' },
+        ],
+      },
+      {
+        title: 'Publication and visibility',
+        description: 'The database owns desired visibility. Discord’s forum post is a reconciled projection that may complete immediately or later.',
+        rail: ['Committed', 'Reconciled', 'Directory post', 'Unpublish'],
+        states: [
+          { title: 'Profile published', kind: 'success', copy: 'Confirms visibility and links directly to the canonical directory thread.', actions: ['View profile'] },
+          { title: 'Saved · sync pending', kind: 'pending', copy: 'States that the profile is durably saved and Discord synchronization will retry automatically.', actions: ['Done'] },
+          { title: 'Directory record', kind: 'document', copy: 'One canonical forum post contains identity, work, goals, tags, optional contacts, and a quiet ownership footer.' },
+          { title: 'Update failed', kind: 'danger', copy: 'Before commit: profile unchanged, draft preserved, exact validation or service problem shown.', actions: ['Try again', 'Cancel'] },
+          { title: 'Unpublish profile?', kind: 'confirmation', copy: 'Explains that the directory post will be hidden/deleted and that republishing remains possible.', actions: ['Unpublish profile', 'Cancel'] },
+          { title: 'Profile unpublished', kind: 'neutral', copy: 'Confirms hidden desired state; Discord cleanup retries automatically if the forum action is pending.' },
+        ],
+        branches: [
+          { title: 'Already hidden', copy: 'Idempotent neutral result: “Your profile is already unpublished.”' },
+          { title: 'Unpublishing failed', copy: 'Visibility remains unchanged, the session stays valid, and Try again returns to the protected mutation.' },
+          { title: 'Forum unavailable', copy: 'If the database committed, never say publication failed; use the pending synchronization contract.' },
+          { title: 'Privacy boundary', copy: 'Drafts, email omitted by the user, and hidden profiles never leak through activity cards or board tools.' },
+        ],
+      },
+    ];
+
+    const projectFamilies = [
+      {
+        title: 'Five-step private setup',
+        description: 'The project name persists at the top while the actor moves through scope, people, details, and a complete final review.',
+        rail: ['Name', 'Scope', 'People', 'Details', 'Review'],
+        states: [
+          { title: 'Name the project', kind: 'modal', copy: 'Required normalized project name. Starting a new setup replaces the actor’s older uncommitted session.', control: 'Open Research Atlas', actions: ['Save name'] },
+          { title: 'Choose scope', kind: 'select', copy: 'University first, then a division inside it. Both selectors paginate up to 25 options per page.', control: 'Bocconi · 🟥 Analysis', actions: ['Continue to people', 'Edit name', 'Cancel'] },
+          { title: 'Choose participants', kind: 'user select', copy: 'At least one member and supervisor. Native user search uses Discord nickname/username and excludes Bots.', control: 'Members: @michail · Supervisors: @paolo', actions: ['Continue to details', 'Back'] },
+          { title: 'Project details', kind: 'modals', copy: 'Strict start/end dates, required public summary, and optional private working notes.', control: '10 Aug → 20 Dec · Summary · Notes', actions: ['Continue to review', 'Back'] },
+          { title: 'Review project', kind: 'review', copy: 'Name, scope, team, timeline, public summary, and visibly marked private notes appear before commit.', actions: ['Create project', 'Back to details', 'Cancel'] },
+          { title: 'Creating project', kind: 'pending', copy: 'Explains eligibility check, database save, Discord preparation, and why the actor must not submit again.', actions: ['Creating…'] },
+        ],
+        branches: [
+          { title: 'Back/edit', copy: 'Every screen preserves the draft. Changing university clears the division and participant selections that may no longer be eligible.' },
+          { title: 'Empty options', copy: 'No universities or no divisions is a dedicated blocked state naming the missing prerequisite rather than an empty selector.' },
+          { title: 'Participant validation', copy: 'Overlap, ineligible role, inactive member, Bot, not in server, zero members/supervisors, and the 994-person cap each point back to People.' },
+          { title: 'Date/content validation', copy: 'Invalid ISO date, end before start, missing summary, or Discord length limit points back to Details with values preserved.' },
+        ],
+      },
+      {
+        title: 'Commit, reconcile, and hand off',
+        description: 'The database transaction is the irreversible boundary. Every later surface reports whether Discord is ready or safely pending.',
+        rail: ['Database commit', 'Board activity', 'Discord records', 'Team DMs', 'Ready / retrying'],
+        states: [
+          { title: 'Project created', kind: 'success', copy: 'Shows project name and ID, activity destination, and whether the Discord workspace is ready.', actions: ['Done'] },
+          { title: 'Board activity', kind: 'event card', copy: 'Project, scope, members, supervisors, timeline, Discord state, and actor. Private notes are omitted.' },
+          { title: 'Pinned project record', kind: 'document', copy: 'Canonical private truth: status, scope, timeline, workspace/showcase links, brief, team, and private notes.' },
+          { title: 'Workspace guide', kind: 'document', copy: 'Pinned instructions separate day-to-day work, project management, and shareable showcase activity.' },
+          { title: 'Showcase record', kind: 'document', copy: 'Canonical public summary, tags, contributors, supervisors, and a concrete contribution route—never private notes.' },
+          { title: 'Assignment handoff', kind: 'dm', copy: 'Each participant receives role, scope, first three actions, workspace link, and shareable-record link.' },
+        ],
+        branches: [
+          { title: 'Creation failed before commit', copy: 'Nothing saved. Show exact reason, full draft summary, Try creating project, and Back to details.' },
+          { title: 'Discord reconciliation pending', copy: 'Project is saved. Workspace, pins, forum post, permissions, or tags will retry automatically; never offer Create again.' },
+          { title: 'Activity post failed', copy: 'Project remains created. Confirmation says the board activity could not be posted and names the manual notification route.' },
+          { title: 'Confirmation delivery failed', copy: 'Fallback ephemeral message confirms the project ID and committed state. Operators get the delivery diagnostic.' },
+          { title: 'DM unavailable', copy: 'Project access still succeeds. The private workspace and pinned guide are the durable discovery route.' },
+          { title: 'Expired / foreign / busy', copy: 'Run /project-create again; only the starter can act; or wait because creation is already in progress.' },
+        ],
+      },
+    ];
+
+    const outcomeContracts = [
+      { title: 'Shared mutation succeeded', tone: 'success', copy: 'Actor receives a private acknowledgement; the owning bot-log receives one event card; affected people receive a handoff when their access changed.', contract: 'success · committed=true · activity=posted' },
+      { title: 'Private lookup succeeded', tone: 'info', copy: 'Return a bounded document or card only to the actor. Do not create activity for guide, member-info, board-info, or project-info.', contract: 'success · visibility=ephemeral · activity=none' },
+      { title: 'No board-visible change', tone: 'neutral', copy: 'Confirm the durable private change or no-op without manufacturing an activity event. Used for notes-only updates and identical assignments.', contract: 'success · publicDiff=false · activity=none' },
+      { title: 'Cancelled before commit', tone: 'neutral', copy: 'Say exactly that nothing was created or changed. Remove active session state and expose the normal fresh-start route.', contract: 'cancelled · committed=false · retry=freshStart' },
+      { title: 'Validation blocked', tone: 'danger', copy: 'Name the invalid field or relationship, state that nothing changed, preserve the draft where possible, and route back to the affected decision.', contract: 'error=validation · committed=false · recovery=edit' },
+      { title: 'Permission or scope blocked', tone: 'danger', copy: 'Explain the allowed scope without exposing private target data. No activity, DM, or durable mutation occurs.', contract: 'error=forbidden · committed=false' },
+      { title: 'Wrong channel or context', tone: 'danger', copy: 'Name where the command can run. Project-channel mismatches explain that the current workspace already determines the project.', contract: 'error=context · recovery=navigate' },
+      { title: 'Autocomplete empty or unavailable', tone: 'neutral', copy: 'Return zero safe suggestions without exposing out-of-scope records. Keep the typed value editable so the member can narrow the search or restore valid context.', contract: 'autocomplete=empty · mutation=none' },
+      { title: 'Expired or stale control', tone: 'warning', copy: 'Never silently fail. Explain that the session or guide is no longer current and provide the exact command or entry point to reopen it.', contract: 'error=stale · recovery=restart' },
+      { title: 'Operation already running', tone: 'warning', copy: 'Disable duplicate submission and state that the existing operation is still in progress. Do not create a second durable intent.', contract: 'busy=true · duplicateBlocked=true' },
+      { title: 'Committed · Discord pending', tone: 'warning', copy: 'Lead with what is safely saved, then name which Discord projection is retrying automatically. Never invite a duplicate mutation.', contract: 'committed=true · reconciliation=pending' },
+      { title: 'Committed · activity failed', tone: 'warning', copy: 'Confirm the change, say the human-readable board entry failed, and ask the actor to notify the correct President or bot-log.', contract: 'committed=true · activity=failed' },
+      { title: 'Direct message unavailable', tone: 'neutral', copy: 'Do not downgrade the underlying success. Keep an in-server retrieval path: status, Find my spaces, project workspace, or canonical record.', contract: 'committed=true · dm=bestEffortFailed' },
+      { title: 'Dependency unavailable before commit', tone: 'danger', copy: 'State that nothing was changed, preserve any private draft, and offer a safe retry. Never expose database, Discord API, or transport internals.', contract: 'committed=false · dependency=unavailable · recovery=retry' },
+      { title: 'Unexpected failure', tone: 'danger', copy: 'Before commit: “The action was not completed.” After a known commit: report committed state and recovery accurately. Log technical detail privately.', contract: 'error=unexpected · disclose=safeSummary' },
+    ];
+
+    const escapeHtml = (value) => String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+
+    function renderCommandAtlas() {
+      const root = document.querySelector('#command-atlas');
+      root.innerHTML = commandGroups.map((group) => `
+        <details class="command-group" open>
+          <summary>${escapeHtml(group.label)}<span class="command-count">${group.commands.length} command${group.commands.length === 1 ? '' : 's'}</span></summary>
+          <div class="command-list">
+            ${group.commands.map((command) => `
+              <article class="command-row">
+                <div>
+                  <h3 class="command-name"><code>${escapeHtml(command.name)}</code></h3>
+                  <p class="command-purpose">${escapeHtml(command.purpose)}</p>
+                </div>
+                <div class="outcome-grid">
+                  <div class="outcome-line" data-tone="success"><strong>Success</strong>${escapeHtml(command.success)}</div>
+                  <div class="outcome-line" data-tone="info"><strong>Private boundary</strong>${escapeHtml(command.private)}</div>
+                  <div class="outcome-line" data-tone="warning"><strong>Variants</strong>${escapeHtml(command.alternate)}</div>
+                  <div class="outcome-line" data-tone="danger"><strong>Blocked or failed</strong>${escapeHtml(command.recovery)}</div>
+                </div>
+              </article>`).join('')}
+          </div>
+        </details>`).join('');
+    }
+
+    const toneForKind = (kind) => {
+      const normalized = String(kind).toLowerCase();
+      if (normalized.includes('success') || normalized.includes('approved')) return 'var(--success)';
+      if (normalized.includes('danger') || normalized.includes('failed')) return 'var(--danger)';
+      if (normalized.includes('pending') || normalized.includes('fallback')) return 'var(--warning)';
+      if (normalized.includes('neutral') || normalized.includes('cancel')) return 'var(--neutral)';
+      return 'var(--brand)';
+    };
+
+    function renderFlowFamily(family) {
+      return `
+        <article class="flow-family">
+          <header class="flow-family-header">
+            <div><h3>${escapeHtml(family.title)}</h3><p>${escapeHtml(family.description)}</p></div>
+            <span>${family.states.length} specimen states · ${family.branches.length} edge branches</span>
+          </header>
+          <div class="flow-rail" aria-label="${escapeHtml(family.title)} sequence">
+            ${family.rail.map((step) => `<div class="flow-rail-step">${escapeHtml(step)}</div>`).join('')}
+          </div>
+          <div class="flow-state-grid">
+            ${family.states.map((state) => `
+              <section class="flow-state" style="--tone:${toneForKind(state.kind)}">
+                <div class="flow-state-header"><strong>${escapeHtml(state.title)}</strong><span class="state-kind">${escapeHtml(state.kind)}</span></div>
+                <p class="flow-state-copy">${escapeHtml(state.copy)}</p>
+                ${state.control ? `<div class="flow-state-control"><span>${escapeHtml(state.control)}</span><span aria-hidden="true">⌄</span></div>` : ''}
+                ${state.actions?.length ? `<div class="flow-state-actions">${state.actions.map((action, index) => {
+                  const danger = /cancel|decline|unpublish/i.test(action);
+                  return `<button class="micro-action ${danger ? 'danger' : index === 0 ? 'primary' : ''}" type="button">${escapeHtml(action)}</button>`;
+                }).join('')}</div>` : ''}
+              </section>`).join('')}
+          </div>
+          <div class="flow-branches">
+            ${family.branches.map((branch) => `<div class="branch-line"><strong>${escapeHtml(branch.title)}</strong><p>${escapeHtml(branch.copy)}</p></div>`).join('')}
+          </div>
+        </article>`;
+    }
+
+    function renderFlowAtlas(selector, families) {
+      document.querySelector(selector).innerHTML = families.map(renderFlowFamily).join('');
+    }
+
+    function renderOutcomeLibrary() {
+      document.querySelector('#outcome-library').innerHTML = outcomeContracts.map((outcome) => `
+        <article class="outcome-contract tone-${escapeHtml(outcome.tone)}" style="--tone:${toneForKind(outcome.tone)}">
+          <h3>${escapeHtml(outcome.title)}</h3>
+          <p>${escapeHtml(outcome.copy)}</p>
+          <code>${escapeHtml(outcome.contract)}</code>
+        </article>`).join('');
+    }
+
+    renderCommandAtlas();
+    renderFlowAtlas('#onboarding-atlas', onboardingFamilies);
+    renderFlowAtlas('#profile-atlas', profileFamilies);
+    renderFlowAtlas('#project-atlas', projectFamilies);
+    renderOutcomeLibrary();
+
+    const densityToggle = document.querySelector('#density-toggle');
+    const annotationToggle = document.querySelector('#annotation-toggle');
+
+    densityToggle.addEventListener('click', () => {
+      const active = document.body.classList.toggle('compact');
+      densityToggle.setAttribute('aria-pressed', String(active));
+      densityToggle.textContent = active ? 'Comfortable density' : 'Compact density';
+    });
+
+    annotationToggle.addEventListener('click', () => {
+      const active = document.body.classList.toggle('show-annotations');
+      annotationToggle.setAttribute('aria-pressed', String(active));
+      annotationToggle.textContent = active ? 'Hide anatomy' : 'Show anatomy';
+    });
+  </script>
+</body>
+</html>

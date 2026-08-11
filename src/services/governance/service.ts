@@ -13,7 +13,6 @@ import {
   divisionColorDetails,
   DIVISION_COLORS,
   MEMBER_TYPES,
-  PROJECT_PERSON_ROLES,
   PROJECT_STATUSES,
   ROLE_NAMES,
   universityRoleColor,
@@ -43,6 +42,7 @@ import {
 } from './policy.js';
 import {
   assertMemberProjectAssignmentEligibility,
+  isEligibleForProjectPerson,
   lockDivisionHeadEligibilityRows,
   lockMemberEligibilityRows,
 } from '../projects/eligibility.js';
@@ -347,25 +347,13 @@ async function assertNoActiveProjectAccessLoss(db, userId, division) {
 }
 
 function projectEligibilityFailure(project, memberType, universityId, divisionIds, universityBoardMember) {
-  const sameUniversity = String(project.university_id) === String(universityId);
-
-  if (project.role === PROJECT_PERSON_ROLES.MEMBER) {
-    if (sameUniversity && universityBoardMember) return false;
-    return (
-      memberType !== MEMBER_TYPES.RESEARCHER ||
-      !sameUniversity ||
-      !divisionIds.has(String(project.division_id))
-    );
-  }
-
-  if (
-    project.role === PROJECT_PERSON_ROLES.SUPERVISOR ||
-    project.role === PROJECT_PERSON_ROLES.BOARD_LIAISON
-  ) {
-    return !sameUniversity;
-  }
-
-  return true;
+  return !isEligibleForProjectPerson({
+    member_type: memberType,
+    university_id: universityId,
+    status: 'active',
+    divisionIds,
+    isUniversityBoardMember: universityBoardMember,
+  }, project, project.role);
 }
 
 async function assertActiveProjectUpdateEligibility(

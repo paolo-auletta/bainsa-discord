@@ -1,13 +1,13 @@
 import {
   BOARD_ROLES,
   MEMBER_TYPES,
-  PROJECT_PERSON_ROLES,
   ROLE_NAMES,
 } from '../constants.js';
 import { assertUser } from '../errors.js';
 import { divisionHeadRoleName, divisionRoleName } from '../naming.js';
 import {
   ACTIVE_PROJECT_STATUSES,
+  isEligibleForProjectPerson,
   lockMemberEligibilityRows,
 } from '../services/projects/eligibility.js';
 
@@ -15,6 +15,11 @@ import {
 // this deliberately small; callers can lower it for constrained guilds/tests.
 export const MEMBER_RECONCILIATION_DISCORD_CONCURRENCY = 3;
 const DATABASE_WRITE_BATCH_SIZE = 1_000;
+const UNIVERSITY_BOARD_PROJECT_ROLES = new Set([
+  BOARD_ROLES.HEAD,
+  BOARD_ROLES.VICE_PRESIDENT,
+  BOARD_ROLES.PRESIDENT,
+]);
 
 export async function reconcileExistingMembers({
   guild,
@@ -351,11 +356,18 @@ async function assertRecognizedMembersProjectEligibility(q, records) {
 
   for (const record of records) {
     const allowedDivisions = new Set(record.divisionIds.map((divisionId) => String(divisionId)));
+    const boardUniversityIds = new Set(record.boardAssignments
+      .filter((assignment) => UNIVERSITY_BOARD_PROJECT_ROLES.has(assignment.role))
+      .map((assignment) => String(assignment.universityId)));
     const incompatible = (projectsByUser.get(record.discordUserId) ?? []).filter((project) => {
-      if (String(project.university_id) !== String(record.universityId)) return true;
-      if (project.role !== PROJECT_PERSON_ROLES.MEMBER) return false;
-      return record.memberType !== MEMBER_TYPES.RESEARCHER
-        || !allowedDivisions.has(String(project.division_id));
+      const desiredMember = {
+        member_type: record.memberType,
+        university_id: record.universityId,
+        status: 'active',
+        divisionIds: allowedDivisions,
+        isUniversityBoardMember: boardUniversityIds.has(String(project.university_id)),
+      };
+      return !isEligibleForProjectPerson(desiredMember, project, project.role);
     });
     assertUser(
       incompatible.length === 0,

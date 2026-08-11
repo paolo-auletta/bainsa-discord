@@ -89,7 +89,11 @@ function membershipIndex(rows) {
   return members;
 }
 
-function isEligibleForProjectPerson(member, project, role) {
+// Keep this predicate as the single semantic definition of project-person
+// eligibility. Callers may load the member state from PostgreSQL or construct
+// the desired state they are about to persist, but they must not duplicate the
+// role/division/board exception rules.
+export function isEligibleForProjectPerson(member, project, role) {
   if (!member || member.status !== 'active' || String(member.university_id) !== String(project.university_id)) {
     return false;
   }
@@ -157,13 +161,15 @@ export async function assertMemberProjectAssignmentEligibility(q, {
     additionalBoardUniversityIds.map((candidate) => String(candidate)),
   );
   const incompatible = result.rows.filter((project) => {
-    if (String(project.university_id) !== String(universityId)) return true;
-    if (project.role !== PROJECT_PERSON_ROLES.MEMBER) return false;
-    if (
-      project.is_university_board_member === true ||
-      additionalBoardUniversities.has(String(project.university_id))
-    ) return false;
-    return memberType !== MEMBER_TYPES.RESEARCHER || !allowedDivisions.has(String(project.division_id));
+    const desiredMember = {
+      member_type: memberType,
+      university_id: universityId,
+      status: 'active',
+      divisionIds: allowedDivisions,
+      isUniversityBoardMember: project.is_university_board_member === true ||
+        additionalBoardUniversities.has(String(project.university_id)),
+    };
+    return !isEligibleForProjectPerson(desiredMember, project, project.role);
   });
 
   assertUser(
