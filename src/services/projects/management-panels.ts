@@ -309,13 +309,7 @@ function projectUpdateSummary(session: ProjectUpdateSession) {
     return `**${label}:** ${changedValue(current, next)}`;
   };
 
-  const linkLabels = ['Workspace', 'Shareable record'];
-  const links = linkLabels
-    .filter((label) => beforeMetadata.has(label) || afterMetadata.has(label))
-    .map((label) => `**${label}:** ${changedValue(
-      String(beforeMetadata.get(label) ?? 'Not provided'),
-      String(afterMetadata.get(label) ?? 'Not provided'),
-    )}`);
+  const links = [changedSectionLine('Workspace links')];
 
   const roles = [
     [PROJECT_PERSON_ROLES.MEMBER, 'Members'],
@@ -334,10 +328,9 @@ function projectUpdateSummary(session: ProjectUpdateSession) {
     });
 
   const narrative = [
-    changedSectionLine('Internal notes', 'Internal working notes'),
     changedSectionLine('Summary'),
   ];
-  for (const heading of ['Conclusion', 'Internal handover notes']) {
+  for (const heading of ['Conclusion', 'Authorized internal context']) {
     if (!beforeSections.has(heading) && !afterSections.has(heading)) continue;
     const current = sectionValue(beforeSections, heading);
     const next = sectionValue(afterSections, heading);

@@ -354,9 +354,9 @@ test('member update is member-first, preserves current defaults, and rechecks vi
   assert.match(panelText(payload), /Test Researcher/);
   assert.match(panelText(payload), new RegExp(`Test Researcher \\(<@${TARGET_ID}>\\)`));
   assert.doesNotMatch(panelText(payload), /\[object Object\]/);
-  assert.match(panelText(payload), /Affiliation:[\s\S]*Bocconi[\s\S]*Research/);
+  assert.match(panelText(payload), /University:[\s\S]*Bocconi[\s\S]*Divisions:[\s\S]*Research/);
   assert.match(panelText(payload), /Board roles:[\s\S]*Head of Research/);
-  assert.match(panelText(payload), /Projects:[\s\S]*Signals/);
+  assert.match(panelText(payload), /Active projects:[\s\S]*Signals/);
   assert.match(panelText(payload), /\*\*Member:\*\*[^\n]+\n\*\*Type:\*\*/);
   assert.match(panelText(payload), /\*\*Private notes\*\*/);
   assertLabelImmediatelyBefore(payload, GOVERNANCE_PANEL_ACTIONS.MEMBER_UPDATE_TYPE, 'Type');
@@ -397,7 +397,7 @@ test('member update is member-first, preserves current defaults, and rechecks vi
     async update(next) { payload = next; },
   });
   assert.match(panelText(payload), /Type[\s\S]*Researcher → Alumni/);
-  assert.match(panelText(payload), /Affiliation[\s\S]*Bocconi[\s\S]*Research[\s\S]*→[\s\S]*Bocconi/);
+  assert.match(panelText(payload), /Divisions:[\s\S]*Research → Not applicable to Alumni/);
 
   let notesModal;
   await panels.handleButton({

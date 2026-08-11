@@ -1718,7 +1718,20 @@ export async function getBoardInfo(interaction, options, deps: GovernanceDepende
     `Only ${university.name} board members can view board info.`,
   );
 
-  const result = await listBoardInfoAssignments(db, university.id);
+  const [result, divisions] = await Promise.all([
+    listBoardInfoAssignments(db, university.id),
+    listActiveDivisionsForBoard(db, university.id),
+  ]);
+  const managedBoardRoleNames = [
+    universityBoardRoleName(university.name, 'President'),
+    universityBoardRoleName(university.name, 'Vice President'),
+    ...divisions.map((division) => divisionHeadRoleName(university.name, division.name)),
+  ];
+  const assignmentsByMember = new Map();
+  for (const row of result) {
+    const userId = String(row.discord_user_id);
+    assignmentsByMember.set(userId, [...(assignmentsByMember.get(userId) ?? []), row]);
+  }
 
   const rows = [];
   for (const row of result) {
@@ -1732,10 +1745,18 @@ export async function getBoardInfo(interaction, options, deps: GovernanceDepende
     const missingRoles = member
       ? expectedRoles.filter((roleName) => !hasRole(member, roleName))
       : ['member not in server'];
-    rows.push({ ...row, missingRoles });
+    const expectedManagedRoles = new Set((assignmentsByMember.get(String(row.discord_user_id)) ?? []).map((assignment) =>
+      assignment.role === BOARD_ROLES.HEAD && assignment.division_name
+        ? divisionHeadRoleName(university.name, assignment.division_name)
+        : universityBoardRoleName(university.name, boardRoleLabel(assignment.role)),
+    ));
+    const unexpectedRoles = member
+      ? managedBoardRoleNames.filter((roleName) => hasRole(member, roleName) && !expectedManagedRoles.has(roleName))
+      : [];
+    rows.push({ ...row, missingRoles, unexpectedRoles });
   }
 
-  return { university, rows };
+  return { university, divisions, rows };
 }
 
 export {

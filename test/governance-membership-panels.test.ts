@@ -130,7 +130,7 @@ test('division removal shows all memberships, scopes the selector, and previews 
   let payload = await loadMember(panel, panel.startDivisionRemoveMember, options);
   assert.match(panelText(payload), /Analysis[\s\S]*Outside your scope/);
   assert.match(panelText(payload), /Projects[\s\S]*Can remove/);
-  assert.match(panelText(payload), /\*\*Projects:\*\*[\s\S]*\n\n\*\*Current division memberships:\*\*\n•/);
+  assert.match(panelText(payload), /\*\*Active projects:\*\*[\s\S]*\n\n\*\*Current division memberships:\*\*\n•/);
   const selector = action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.DIVISION);
   assert.deepEqual(selector.options.map((option) => option.value), ['d-projects']);
 
@@ -139,7 +139,7 @@ test('division removal shows all memberships, scopes the selector, and previews 
     values: ['d-projects'],
     async update(next) { payload = next; },
   });
-  assert.match(panelText(payload), /Affiliation:[\s\S]*Projects → Bocconi[^\n]*Analysis/);
+  assert.match(panelText(payload), /\*\*Divisions:\*\*[^\n]*Analysis[^\n]*Projects →[^\n]*Analysis/);
   await panel.handleButton({
     ...baseInteraction({ ...options, customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.REVIEW).custom_id }),
     async update(next) { payload = next; },
@@ -176,7 +176,7 @@ test('division addition previews the new affiliation and saves only after review
     values: ['d-culture'],
     async update(next) { payload = next; },
   });
-  assert.match(panelText(payload), /Affiliation:[\s\S]*Analysis → Bocconi[^\n]*Analysis[^\n]*Culture/);
+  assert.match(panelText(payload), /\*\*Divisions:\*\*[^\n]*Analysis →[^\n]*Analysis[^\n]*Culture/);
   assert.doesNotMatch(panelText(payload), /Current division memberships/);
   assert.equal(operationInput, undefined);
   await panel.handleButton({

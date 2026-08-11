@@ -212,7 +212,7 @@ test('board update shows current-to-new changes and saves co-Heads as one roster
     async editReply(next) { payload = next; },
   });
   assert.match(text(payload), /Positions changing[\s\S]*1/);
-  assert.match(text(payload), /Head of .*Projects/);
+  assert.match(text(payload), /\*\*🟦 Projects:\*\*/);
   assert.equal(action(payload, BOARD_UPDATE_PANEL_ACTIONS.CANCEL).style, ButtonStyle.Danger);
 
   await panel.handleButton({
@@ -290,8 +290,8 @@ test('board review places each leadership group roster on a new line', async () 
     async editReply(next) { payload = next; },
   });
 
-  assert.match(text(payload), /\*\*University leadership:\*\*\n• \*\*Vice President:/);
-  assert.match(text(payload), /\*\*Division leadership:\*\*\n• \*\*Head of .*Projects:/);
+  assert.match(text(payload), /\*\*University leadership:\*\*\n• \*\*Vice Presidents:/);
+  assert.match(text(payload), /\*\*Division leadership:\*\*\n• \*\*🟦 Projects:/);
 });
 
 test('a Vice President sees Presidents read-only while all manageable seats stay multi-select', async () => {

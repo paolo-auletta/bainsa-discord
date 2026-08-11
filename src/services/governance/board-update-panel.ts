@@ -15,7 +15,7 @@ import {
 } from '../../messages/index.js';
 import type { InteractionActionSpec, InteractionControlSpec } from '../../messages/types.js';
 import { botCommandChannelScope } from '../../runtime/command-channels.js';
-import { formatBoardUpdateHandoff } from './formatters.js';
+import { boardRecordSummary, formatBoardUpdateHandoff } from './formatters.js';
 import {
   getBoardInfo,
   getMemberInfo,
@@ -53,6 +53,7 @@ interface DivisionRow {
 
 interface BoardAssignmentRow {
   discord_user_id: string;
+  full_name?: string | null;
   role: string;
   division_id?: unknown;
   division_name?: string | null;
@@ -181,27 +182,39 @@ function sameIds(left: string[], right: string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function memberList(userIds: string[]) {
-  return userIds.length ? userIds.map((userId) => `<@${userId}>`).join(', ') : 'Vacant';
-}
-
 function changedValue(current: string, next: string, changed: boolean) {
   return changed ? `${current} → ${next}` : current;
 }
 
-function positionValue(session: BoardUpdateSession, position: BoardPosition) {
-  const current = currentIds(session, position);
-  const next = selectedIds(session, position);
-  return changedValue(memberList(current), memberList(next), !sameIds(current, next));
+function selectedAssignments(session: BoardUpdateSession): BoardAssignmentRow[] {
+  return positions(session).flatMap((position) => selectedIds(session, position).map((userId) => ({
+    discord_user_id: userId,
+    full_name: session.currentAssignments.find((row) => String(row.discord_user_id) === userId)?.full_name ?? null,
+    role: position.role,
+    division_id: position.division?.id ?? null,
+    division_name: position.division?.name ?? null,
+  })));
+}
+
+function canonicalBoardSummary(session: BoardUpdateSession, assignments: BoardAssignmentRow[]) {
+  return boardRecordSummary({
+    university: session.university,
+    divisions: session.divisions,
+    rows: assignments,
+  });
 }
 
 function summaryLines(session: BoardUpdateSession, group: BoardPosition['group'], changedOnly = false) {
-  const relevant = positions(session).filter((position) =>
-    position.group === group
-    && (!changedOnly || !sameIds(currentIds(session, position), selectedIds(session, position))),
-  );
-  if (relevant.length === 0) return 'No changes';
-  return relevant.map((position) => `• **${position.label}:** ${positionValue(session, position)}`).join('\n');
+  const before = canonicalBoardSummary(session, session.currentAssignments);
+  const after = canonicalBoardSummary(session, selectedAssignments(session));
+  const beforeFields = group === 'University leadership' ? before.leadership : before.divisions;
+  const afterFields = group === 'University leadership' ? after.leadership : after.divisions;
+  const lines = beforeFields.flatMap((field, index) => {
+    const next = afterFields[index]?.value ?? field.value;
+    if (changedOnly && field.value === next) return [];
+    return [`• **${field.label}:** ${changedValue(field.value, next, field.value !== next)}`];
+  });
+  return lines.length ? lines.join('\n') : 'No changes';
 }
 
 function boardSections(session: BoardUpdateSession, changedOnly = false) {

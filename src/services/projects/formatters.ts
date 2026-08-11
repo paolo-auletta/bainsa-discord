@@ -14,7 +14,7 @@ import {
 } from '../../messages/index.js';
 
 const DISCORD_AUTOCOMPLETE_CHOICE_LIMIT = 100;
-const PEOPLE_LINE_LIMIT = 400;
+const PEOPLE_LINE_LIMIT = 150;
 const EMBED_FIELD_LIMIT = 1_024;
 
 export function projectStatusLabel(status) {
@@ -100,20 +100,20 @@ function projectHomeMarker(project) {
   return `Project #${project.id} · Pinned project record · Updates automatically`;
 }
 
-function projectMetadata(project, { includeLinks = true } = {}) {
-  const rows = [
+function projectPrimaryMetadata(project) {
+  return [
     { label: 'University', value: projectText(project.university_name) },
     { label: 'Status', value: projectStatusLabel(project.status) },
     { label: 'Division', value: projectText(divisionLabel(project.division_name, project.division_color)) },
     { label: 'Timeline', value: projectTimeline(project) },
   ];
-  if (includeLinks) {
-    rows.push(
-      { label: 'Workspace', value: channelReference(project.discord_channel_id) },
-      { label: 'Shareable record', value: channelReference(project.showcase_thread_id, 'Pending') },
-    );
-  }
-  return rows;
+}
+
+function projectLinkLines(project) {
+  return [
+    `**Private workspace:** ${channelReference(project.discord_channel_id, 'Channel unavailable')}`,
+    `**Shareable record:** ${channelReference(project.showcase_thread_id, 'Not published yet')}`,
+  ];
 }
 
 export function projectTeamSummaryLines(people) {
@@ -130,23 +130,33 @@ export function projectTeamSummaryLines(people) {
 
 function privateProjectSections(project, people) {
   const sections = [
+    { heading: 'Workspace links', body: projectLinkLines(project) },
+    { heading: 'Team', body: projectTeamSummaryLines(people) },
     {
       heading: 'Summary',
-      body: projectText(project.summary, 'No public project summary has been added yet.').slice(0, 1_024),
+      body: projectText(project.summary, 'No public project summary has been added yet.').slice(0, 300),
     },
-    { heading: 'Team', body: projectTeamSummaryLines(people) },
   ];
-  if (project.notes) sections.push({ heading: 'Internal working notes', body: projectText(embedFieldValue(project.notes)) });
-  if (project.outcome) sections.push({ heading: 'Conclusion', body: projectText(embedFieldValue(project.outcome)) });
-  if (project.final_notes) sections.push({ heading: 'Internal handover notes', body: projectText(embedFieldValue(project.final_notes)) });
+  if (project.outcome) {
+    sections.push({ heading: 'Conclusion', body: projectText(embedFieldValue(project.outcome)).slice(0, 250) });
+  }
+  const internalContext = [
+    ...(project.notes ? [`**Working notes**\n${projectText(embedFieldValue(project.notes)).slice(0, 220)}`] : []),
+    ...(project.final_notes ? [`**Handover notes**\n${projectText(embedFieldValue(project.final_notes)).slice(0, 220)}`] : []),
+  ];
+  if (internalContext.length) {
+    sections.push({ heading: 'Authorized internal context', body: internalContext });
+  }
   return sections;
 }
 
 export function projectRecordSummary(project, people, { includeLinks = true } = {}) {
   return {
     title: projectText(project.name, 'Unnamed project'),
-    metadata: projectMetadata(project, { includeLinks }),
-    sections: privateProjectSections(project, people),
+    metadata: projectPrimaryMetadata(project),
+    sections: includeLinks
+      ? privateProjectSections(project, people)
+      : privateProjectSections(project, people).filter((section) => section.heading !== 'Workspace links'),
   };
 }
 
@@ -188,19 +198,20 @@ export function showcasePostPayload(project, people) {
   const completed = project.status === PROJECT_STATUSES.COMPLETED || project.status === PROJECT_STATUSES.ARCHIVED;
   const sections = [
     {
+      heading: 'Team',
+      body: [
+        `**Contributors:** ${formatPeopleLine(people, PROJECT_PERSON_ROLES.MEMBER, PEOPLE_LINE_LIMIT)}`,
+        `**Supervisors:** ${formatPeopleLine(people, PROJECT_PERSON_ROLES.SUPERVISOR, PEOPLE_LINE_LIMIT)}`,
+      ],
+    },
+    {
       heading: 'Summary',
-      body: projectText(project.summary, 'The project team has not added a public summary yet.').slice(0, 1_024),
-    },
-    {
-      heading: 'Contributors',
-      body: formatPeopleLine(people, PROJECT_PERSON_ROLES.MEMBER, EMBED_FIELD_LIMIT),
-    },
-    {
-      heading: 'Supervisors',
-      body: formatPeopleLine(people, PROJECT_PERSON_ROLES.SUPERVISOR, EMBED_FIELD_LIMIT),
+      body: projectText(project.summary, 'The project team has not added a public summary yet.').slice(0, 300),
     },
   ];
-  if (project.outcome) sections.push({ heading: 'Conclusion', body: projectText(embedFieldValue(project.outcome)) });
+  if (project.outcome) {
+    sections.push({ heading: 'Conclusion', body: projectText(embedFieldValue(project.outcome)).slice(0, 250) });
+  }
   sections.push({
     heading: completed ? 'Project record' : 'Follow or contribute',
     body: completed
@@ -210,7 +221,7 @@ export function showcasePostPayload(project, people) {
   return renderWorkspaceDocument({
     kind: 'workspace-document',
     title: projectText(project.name, 'Unnamed project'),
-    metadata: projectMetadata(project, { includeLinks: false }),
+    metadata: projectPrimaryMetadata(project),
     sections,
     provenance: `BAINSA ${project.university_name} · Project #${project.id} · Shareable project record`,
     audience: 'university',
@@ -222,7 +233,7 @@ export function projectInfoMessage(project, people) {
   return renderWorkspaceDocument({
     kind: 'workspace-document',
     ...record,
-    provenance: `Project #${project.id} · Private project record`,
+    provenance: `Project #${project.id} · Private project record · Current database state`,
     audience: 'actor',
   });
 }

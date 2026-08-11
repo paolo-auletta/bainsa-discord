@@ -321,8 +321,11 @@ export async function hasActiveBoardAssignment(db, userId, universityId) {
 
 export async function listBoardInfoAssignments(db, universityId) {
   const result = await db.query(
-    `SELECT br.discord_user_id, br.role, br.division_id, d.name AS division_name, d.color AS division_color
-       FROM board_assignments br LEFT JOIN divisions d ON d.id = br.division_id AND d.active = true
+    `SELECT br.discord_user_id, m.full_name, br.role, br.division_id,
+            d.name AS division_name, d.color AS division_color
+       FROM board_assignments br
+       LEFT JOIN members m ON m.discord_user_id = br.discord_user_id
+       LEFT JOIN divisions d ON d.id = br.division_id AND d.active = true
       WHERE br.university_id = $1 AND br.active = true
         AND (br.division_id IS NULL OR d.id IS NOT NULL)
       ORDER BY br.role, d.name, br.discord_user_id`,

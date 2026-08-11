@@ -194,7 +194,7 @@ test('project update confirms selection, replaces the complete team, and saves o
   assert.ok(action(payload, PROJECT_MANAGEMENT_ACTIONS.UPDATE_BACK_SELECT));
   assert.match(
     panelText(payload),
-    /\*\*Project:\*\* Signals[\s\S]*\*\*Timeline:\*\* 2026-08-01 → 2026-09-01\n\n\*\*Workspace:\*\* <#workspace>\n\*\*Shareable record:\*\* Pending\n\n\*\*Members:\*\* <@200000000000000003>\n\*\*Supervisors:\*\* <@200000000000000002>\n\n\*\*Internal notes:\*\* Private context\n\*\*Summary:\*\* Original summary/,
+    /\*\*Project:\*\* Signals[\s\S]*\*\*Timeline:\*\* 2026-08-01 → 2026-09-01\n\n\*\*Workspace links:\*\* \*\*Private workspace:\*\* <#workspace>\n\*\*Shareable record:\*\* Not published yet\n\n\*\*Members:\*\* <@200000000000000003>\n\*\*Supervisors:\*\* <@200000000000000002>\n\n\*\*Summary:\*\* Original summary\n\*\*Authorized internal context:\*\* \*\*Working notes\*\*\nPrivate context/,
   );
   assert.doesNotMatch(panelText(payload), /\*\*Team:?\*\*/);
   assert.equal(savedInput, undefined);

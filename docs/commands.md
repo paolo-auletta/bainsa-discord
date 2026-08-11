@@ -120,7 +120,18 @@ The bot validates authority, immediately kicks the member from Discord, deactiva
 | --- | --- | --- |
 | `user` | No | Member to inspect; when omitted, the command uses the command actor where supported |
 
-The bot privately shows the recorded full name, member type, university, divisions, board roles, and active project assignments.
+The bot privately shows a compact card in a stable two-row identity layout: Member with Type,
+then University with Divisions, followed by board roles and active project assignments. Empty
+assignment groups state that no active assignment exists instead of leaving the result ambiguous.
+
+```text
+Member                  Type
+Ada Lovelace (@ada)     Researcher
+University              Divisions
+Bocconi                 🟨 Robotics, 🟧 Analysis
+Board roles             Head of 🟨 Robotics
+Active projects         Signals — Supervisor · Active
+```
 
 ## Division Commands
 
@@ -184,7 +195,24 @@ Removing a Head title preserves the member’s ordinary division membership and 
 | --- | --- | --- |
 | `university` | Yes | University board to inspect |
 
-The bot privately returns the active board roster and reports missing Discord roles or members so the caller can identify synchronization problems.
+The bot privately returns the canonical board roster with Presidents and Vice Presidents grouped
+above a single leadership-to-divisions separator. Every active division appears once with all of
+its current Heads or an explicit empty seat; individual division rows are not separated. Discord
+role or membership drift appears in a separate consistency card so it cannot be mistaken for a
+database roster problem.
+
+```text
+Bocconi board
+Presidents: @maria, @luca
+Vice Presidents: @sofia
+────────────────────
+Division Heads
+🟧 Analysis · @ada
+🟨 Robotics · No active Head
+
+Discord consistency · 1 issue
+@luca · Missing Bocconi President role · Open /board-update and save again
+```
 
 ## Project Commands
 
@@ -251,7 +279,21 @@ is no separate archive command in v1, and closing a project does not set the dat
 | --- | --- | --- |
 | `project` | Outside project channel | Project selected through autocomplete; inferred inside its project channel |
 
-The bot privately shows the maintained project record: scope, status, timeline, workspace, showcase, project brief, team, public conclusion when complete, and internal handover notes when present.
+The bot privately shows the maintained project record in the same hierarchy as the pinned project
+home: scope and status, workspace links, team, public summary, public conclusion when complete, and
+an explicitly labelled authorized-internal section for working or handover notes. The university
+showcase starter uses the same scope, team, summary, and conclusion hierarchy but structurally
+omits workspace links and every internal field.
+
+```text
+Signals
+University · Status · Division · Timeline
+Workspace links
+Team
+Summary
+Conclusion (when complete)
+Authorized internal context (private record only)
+```
 
 ### University showcase replies
 

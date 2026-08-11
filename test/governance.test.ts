@@ -27,6 +27,7 @@ import {
   createDivision,
   findDivisions,
   findUniversities,
+  formatBoardInfo,
   formatMemberInfo,
   memberRemovalCleanupPlan,
   projectChannelCleanupTargets,
@@ -1695,12 +1696,15 @@ test('member-info renders a compact informational card from a direct Discord use
   const embed = embedJson(payload.embeds[0]);
   assert.equal(embed.title, '🔵 Member information');
   assert.equal(embed.color, 0x5865f2);
+  assert.equal(embed.description, 'Current canonical membership and active assignments');
   assert.deepEqual(embed.fields, [
-    { name: 'Member', value: 'Ada Lovelace (<@100>)', inline: false },
-    { name: 'Type', value: 'Researcher', inline: false },
-    { name: 'Affiliation', value: 'Bocconi › 🟨 Robotics', inline: false },
+    { name: 'Member', value: 'Ada Lovelace (<@100>)', inline: true },
+    { name: 'Type', value: 'Researcher', inline: true },
+    { name: '\u200b', value: '\u200b', inline: false },
+    { name: 'University', value: 'Bocconi', inline: true },
+    { name: 'Divisions', value: '🟨 Robotics', inline: true },
     { name: 'Board roles', value: 'Global President', inline: false },
-    { name: 'Projects', value: 'Research sprint — Member, Active', inline: false },
+    { name: 'Active projects', value: 'Research sprint — Member · Active', inline: false },
   ]);
   assert.equal(embed.footer.text, 'Member record · Current database state');
 });
@@ -1716,9 +1720,137 @@ test('member-info keeps empty assignments compact and readable', () => {
   const fields = embedJson(payload.embeds[0]).fields;
   assert.equal(fields.find((field) => field.name === 'Member').value, 'Greek (<@100>)');
   assert.equal(fields.find((field) => field.name === 'Type').value, 'Alumni');
-  assert.equal(fields.find((field) => field.name === 'Affiliation').value, 'Not assigned');
-  assert.equal(fields.find((field) => field.name === 'Board roles').value, 'None');
-  assert.equal(fields.find((field) => field.name === 'Projects').value, 'None');
+  assert.equal(fields.find((field) => field.name === 'University').value, 'Not assigned');
+  assert.equal(fields.find((field) => field.name === 'Divisions').value, 'Not applicable to Alumni');
+  assert.equal(fields.find((field) => field.name === 'Board roles').value, 'No active board roles');
+  assert.equal(fields.find((field) => field.name === 'Active projects').value, 'No active project assignments');
+});
+
+test('board-info groups leadership above one empty line and keeps divisions in one roster field', () => {
+  const payload = formatBoardInfo({
+    university: { name: 'Bocconi' },
+    divisions: [
+      { id: 10, name: 'Analysis', color: 'orange' },
+      { id: 11, name: 'Robotics', color: 'yellow' },
+    ],
+    rows: [
+      { discord_user_id: 'president', role: BOARD_ROLES.PRESIDENT, division_id: null, missingRoles: [] },
+      { discord_user_id: 'co-president', role: BOARD_ROLES.PRESIDENT, division_id: null, missingRoles: [] },
+      { discord_user_id: 'vice', role: BOARD_ROLES.VICE_PRESIDENT, division_id: null, missingRoles: [] },
+      {
+        discord_user_id: 'head', role: BOARD_ROLES.HEAD, division_id: 10,
+        division_name: 'Analysis', division_color: 'orange', missingRoles: [],
+      },
+    ],
+  });
+  assert.equal(payload.embeds.length, 1);
+  const roster = embedJson(payload.embeds[0]);
+  assert.equal(roster.title, '🔵 Bocconi board');
+  assert.equal(roster.description, '2 Presidents · 1 Vice President · 1 of 2 divisions headed');
+  assert.equal(roster.fields[0].value, '<@president>, <@co-president>');
+  assert.deepEqual(roster.fields.map((field) => field.name), [
+    'Presidents', 'Vice Presidents', '\u200b', 'Division Heads',
+  ]);
+  assert.equal(roster.fields[2].value, '\u200b');
+  assert.equal(roster.fields[3].value, '**🟧 Analysis** · <@head>\n**🟨 Robotics** · *No active Head*');
+  assert.equal((roster.fields[3].value.match(/━/g) ?? []).length, 0);
+  assert.equal(roster.footer, undefined);
+  assert.deepEqual(payload.allowedMentions, { parse: [] });
+});
+
+test('board-info reports Discord consistency issues separately from the canonical roster', () => {
+  const payload = formatBoardInfo({
+    university: { name: 'Bocconi' },
+    divisions: [{ id: 10, name: 'Analysis', color: 'orange' }],
+    rows: [{
+      discord_user_id: 'president', role: BOARD_ROLES.PRESIDENT, division_id: null,
+      missingRoles: ['Bocconi President'],
+    }],
+  });
+  const health = embedJson(payload.embeds[1]);
+  assert.equal(health.title, '🟡 Discord consistency · 1 issue');
+  assert.match(health.description, /canonical board assignments are valid/);
+  assert.match(health.fields[0].value, /Missing Bocconi President/);
+  assert.match(health.fields[0].value, /`\/board-update`/);
+});
+
+test('board-info identifies stale managed Discord roles as health drift', () => {
+  const payload = formatBoardInfo({
+    university: { name: 'Bocconi' },
+    divisions: [],
+    rows: [{
+      discord_user_id: 'president', role: BOARD_ROLES.PRESIDENT, division_id: null,
+      missingRoles: [], unexpectedRoles: ['Bocconi Vice President'],
+    }],
+  });
+  const health = embedJson(payload.embeds[1]);
+  assert.equal(health.title, '🟡 Discord consistency · 1 issue');
+  assert.match(health.fields[0].value, /Unexpected Bocconi Vice President/);
+  assert.match(health.fields[0].value, /`\/board-update`/);
+});
+
+test('board-info keeps an empty board and every unheaded division explicit', () => {
+  const payload = formatBoardInfo({
+    university: { name: 'Sciences Po' },
+    divisions: [
+      { id: 10, name: 'Research', color: 'blue' },
+      { id: 11, name: 'Partnerships', color: 'purple' },
+    ],
+    rows: [],
+  });
+  assert.equal(payload.embeds.length, 1);
+  const roster = embedJson(payload.embeds[0]);
+  assert.equal(roster.title, '🟡 Sciences Po board');
+  assert.equal(roster.description, 'No active leadership assignments are recorded');
+  assert.equal(roster.fields[0].value, 'No active President');
+  assert.equal(roster.fields[1].value, 'No active Vice Presidents');
+  assert.match(roster.fields[3].value, /\*\*🟦 Research\*\* · \*No active Head\*/);
+  assert.match(roster.fields[3].value, /\*\*[^\n]+ Partnerships\*\* · \*No active Head\*/);
+});
+
+test('board-info retains a database name when the Discord member is unresolved', () => {
+  const payload = formatBoardInfo({
+    university: { name: 'Bocconi' },
+    divisions: [],
+    rows: [{
+      discord_user_id: 'missing-member', full_name: 'Grace Hopper', role: BOARD_ROLES.PRESIDENT,
+      division_id: null, missingRoles: ['member not in server'],
+    }],
+  });
+  const roster = embedJson(payload.embeds[0]);
+  const health = embedJson(payload.embeds[1]);
+  assert.equal(roster.fields[0].value, 'Grace Hopper (<@missing-member>)');
+  assert.match(health.fields[0].value, /Grace Hopper \(<@missing-member>\)/);
+  assert.match(health.fields[0].value, /Member is no longer in Discord/);
+});
+
+test('board-info keeps a large roster inside Discord limits without losing university context', () => {
+  const divisions = Array.from({ length: 100 }, (_, index) => ({
+    id: index + 1,
+    name: `Division ${index + 1}`,
+    color: 'blue',
+  }));
+  const payload = formatBoardInfo({
+    university: { name: 'A Very Long University Name' },
+    divisions,
+    rows: divisions.map((division, index) => ({
+      discord_user_id: `head-${index}`,
+      role: BOARD_ROLES.HEAD,
+      division_id: division.id,
+      division_name: division.name,
+      division_color: division.color,
+      missingRoles: [],
+    })),
+  });
+  const roster = embedJson(payload.embeds[0]);
+  const characterCount = roster.title.length
+    + roster.description.length
+    + roster.fields.reduce((total, field) => total + field.name.length + field.value.length, 0);
+  assert.ok(characterCount <= 6_000);
+  assert.ok(roster.fields.every((field) => field.value.length <= 1_024));
+  assert.match(roster.fields.find((field) => field.name === 'Division Heads').value, /more/);
+  assert.match(roster.title, /A Very Long University Name board/);
+  assert.equal(roster.footer, undefined);
 });
 
 test('member-info uses a readable fallback when the Discord user cannot be resolved', () => {

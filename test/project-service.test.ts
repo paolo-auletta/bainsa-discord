@@ -685,12 +685,61 @@ test('project home keeps project-info data in a scannable plain-message hierarch
   const home = projectHomePayload(project, people).content;
   assert.match(home, /^## Signals/);
   assert.match(home, /\*\*University:\*\* Bocconi\n\*\*Status:\*\* Active\n\*\*Division:\*\* 🟧 Analysis/);
-  assert.match(home, /\*\*Timeline:\*\* 2026-07-01 → 2026-08-01\n\*\*Workspace:\*\* <#workspace>\n\*\*Shareable record:\*\* <#showcase>/);
+  assert.match(home, /\*\*Timeline:\*\* 2026-07-01 → 2026-08-01\n\n\*\*Workspace links\*\*\n\*\*Private workspace:\*\* <#workspace>\n\*\*Shareable record:\*\* <#showcase>/);
   assert.match(home, /\*\*Members:\*\* None yet/);
   assert.match(home, /\*\*Supervisors:\*\* <@supervisor>/);
-  assert.match(info, /\*\*Workspace:\*\* <#workspace>/);
+  assert.match(info, /\*\*Private workspace:\*\* <#workspace>/);
   assert.match(info, /\*\*Shareable record:\*\* <#showcase>/);
+  assert.ok(info.indexOf('**Workspace links**') < info.indexOf('**Team**'));
+  assert.ok(info.indexOf('**Team**') < info.indexOf('**Summary**'));
+  assert.match(info, /Private project record · Current database state$/);
   assert.match(home, /Pinned project record · Updates automatically$/);
+});
+
+test('project info and the pinned project home share one private record hierarchy', () => {
+  const project = {
+    id: 42,
+    name: 'Signals',
+    university_name: 'Bocconi',
+    division_name: 'Analysis',
+    division_color: 'orange',
+    status: 'completed',
+    start_date: '2026-07-01',
+    expected_end: '2026-08-01',
+    discord_channel_id: 'workspace',
+    showcase_thread_id: 'showcase',
+    summary: 'Public summary',
+    notes: 'Private working note',
+    outcome: 'Public conclusion',
+    final_notes: 'Private handover note',
+  };
+  const people = [{ discord_user_id: 'supervisor', role: PROJECT_PERSON_ROLES.SUPERVISOR }];
+  const stripProvenance = (content) => content.replace(/-# Project #42 · .+$/, '');
+  const info = projectInfoMessage(project, people).content;
+  const home = projectHomePayload(project, people).content;
+  assert.equal(stripProvenance(info), stripProvenance(home));
+  assert.match(info, /\*\*Authorized internal context\*\*[\s\S]*\*\*Working notes\*\*[\s\S]*Private working note/);
+  assert.match(info, /\*\*Handover notes\*\*[\s\S]*Private handover note/);
+});
+
+test('the showcase uses the project hierarchy without exposing internal context', () => {
+  const payload = showcasePostPayload({
+    id: 42,
+    name: 'Signals',
+    university_name: 'Bocconi',
+    division_name: 'Analysis',
+    division_color: 'orange',
+    status: 'active',
+    start_date: '2026-07-01',
+    expected_end: '2026-08-01',
+    summary: 'Public summary',
+    notes: 'Private working note',
+    outcome: null,
+    final_notes: 'Private handover note',
+  }, [{ discord_user_id: 'supervisor', role: PROJECT_PERSON_ROLES.SUPERVISOR }]);
+  assert.ok(payload.content.indexOf('**Team**') < payload.content.indexOf('**Summary**'));
+  assert.doesNotMatch(payload.content, /Private working note|Private handover note|Authorized internal context/);
+  assert.doesNotMatch(payload.content, /Workspace links|Private workspace/);
 });
 
 test('project assignment DM has a compact desktop-first hierarchy', () => {
@@ -876,7 +925,7 @@ test('project-close completes the project and moves the channel to history', asy
   assert.deepEqual(channel.parentOptions, { lockPermissions: false });
   assert.equal(channel.overwriteReason, 'Reconcile project 42 access');
   assert.match(messages[0].content, /\*\*Conclusion\*\*\nCompleted successfully/);
-  assert.match(messages[0].content, /\*\*Internal handover notes\*\*\nReady for handover/);
+  assert.match(messages[0].content, /\*\*Authorized internal context\*\*[\s\S]*\*\*Handover notes\*\*\nReady for handover/);
   assert.match(messages[1].content, /^## How to use this space/);
   assert.equal(JSON.stringify(messages[1]).includes('Ready for handover'), false);
   assert.equal(JSON.stringify(messages[2]).includes('Ready for handover'), false);

@@ -5,7 +5,6 @@ import {
   normalizeUserReference,
   renderEventCard,
   renderHandoffMessage,
-  renderWorkspaceDocument,
   userReference,
 } from '../../messages/index.js';
 import { divisionHeadRoleName, divisionRoleName, normalizeDisplayName } from '../../naming.js';
@@ -84,7 +83,7 @@ function titleCase(value, fallback) {
 }
 
 function formatProject(project) {
-  return `${safeText(project.name, 'Unnamed project')} — ${titleCase(project.role, 'Unknown role')}, ${titleCase(project.status, 'Unknown status')}`;
+  return `${safeText(project.name, 'Unnamed project')} — ${titleCase(project.role, 'Unknown role')} · ${titleCase(project.status, 'Unknown status')}`;
 }
 
 function formatBoundedLines(lines, limit, separator = '\n') {
@@ -116,13 +115,8 @@ function memberDisplay(info) {
   return userReference(target.id, name);
 }
 
-function affiliationDisplay(info, divisions) {
-  const university = safeText(info.member.university_name, 'Not assigned');
-  return divisions === 'None' ? university : `${university} › ${divisions}`;
-}
-
-function infoField(label, value) {
-  return { label, value: truncateText(value), inline: false };
+function infoField(label, value, inline = false) {
+  return { label, value: truncateText(value), inline };
 }
 
 function summaryBody(body) {
@@ -135,16 +129,18 @@ export function memberRecordSummary(info) {
     .map((division) => safeText(division)), DIVISION_LIST_LIMIT, ', ');
   const board = formatBoundedLines(info.boardRoles.map(formatBoardRole), BOARD_LIST_LIMIT, ', ');
   const projects = formatProjectList(info.projects);
+  const memberType = memberTypeDisplay(info.member.member_type);
   return {
     title: 'Member information',
     metadata: [
       infoField('Member', memberDisplay(info)),
-      infoField('Type', memberTypeDisplay(info.member.member_type)),
-      infoField('Affiliation', affiliationDisplay(info, divisions)),
+      infoField('Type', memberType),
+      infoField('University', safeText(info.member.university_name, 'Not assigned')),
+      infoField('Divisions', divisions === 'None' && memberType === 'Alumni' ? 'Not applicable to Alumni' : divisions),
     ],
     sections: [
-      { heading: 'Board roles', body: board },
-      { heading: 'Projects', body: projects },
+      { heading: 'Board roles', body: board === 'None' ? 'No active board roles' : board },
+      { heading: 'Active projects', body: projects === 'None' ? 'No active project assignments' : projects },
     ],
   };
 }
@@ -155,9 +151,13 @@ export function formatMemberInfo(info) {
     kind: 'event-card',
     tone: 'brand',
     title: summary.title,
-    subject: summary.metadata[0],
+    description: 'Current canonical membership and active assignments',
+    subject: { ...summary.metadata[0], inline: true },
     details: [
-      ...summary.metadata.slice(1),
+      { ...summary.metadata[1], inline: true },
+      { label: '\u200b', value: '\u200b', inline: false },
+      { ...summary.metadata[2], inline: true },
+      { ...summary.metadata[3], inline: true },
       ...summary.sections.map((section) => infoField(section.heading, summaryBody(section.body))),
     ],
     footer: 'Member record · Current database state',
@@ -165,26 +165,120 @@ export function formatMemberInfo(info) {
   });
 }
 
+export function boardRecordSummary(info) {
+  const presidents = info.rows.filter((row) => row.role === BOARD_ROLES.PRESIDENT);
+  const vicePresidents = info.rows.filter((row) => row.role === BOARD_ROLES.VICE_PRESIDENT);
+  const divisions = info.divisions ?? [...new Map(
+    info.rows
+      .filter((row) => row.role === BOARD_ROLES.HEAD && row.division_name)
+      .map((row) => [String(row.division_id ?? row.division_name), {
+        id: row.division_id,
+        name: row.division_name,
+        color: row.division_color,
+      }]),
+  ).values()];
+  const headRows = divisions.map((division) => ({
+    division,
+    assignments: info.rows.filter((row) =>
+      row.role === BOARD_ROLES.HEAD
+      && (
+        String(row.division_id ?? '') === String(division.id ?? '')
+        || (!row.division_id && row.division_name === division.name)
+      )),
+  }));
+  const headedDivisionCount = headRows.filter((entry) => entry.assignments.length > 0).length;
+  const memberList = (rows, empty) => rows.length
+    ? formatBoundedLines(rows.map((row) => userReference(row.discord_user_id, row.full_name)), BOARD_LIST_LIMIT, ', ')
+    : empty;
+  const countLabel = (count, singular, plural = `${singular}s`) => `${count} ${count === 1 ? singular : plural}`;
+  const description = info.rows.length
+    ? [
+        countLabel(presidents.length, 'President'),
+        countLabel(vicePresidents.length, 'Vice President'),
+        `${headedDivisionCount} of ${headRows.length} divisions headed`,
+      ].join(' · ')
+    : 'No active leadership assignments are recorded';
+  return {
+    title: `${safeText(info.university.name)} board`,
+    description,
+    leadership: [
+      infoField('Presidents', memberList(presidents, 'No active President')),
+      infoField('Vice Presidents', memberList(vicePresidents, 'No active Vice Presidents')),
+    ],
+    divisions: headRows.map(({ division, assignments }) => infoField(
+      safeText(divisionLabel(division.name, division.color)),
+      memberList(assignments, 'No active Head'),
+    )),
+  };
+}
+
 export function formatBoardInfo(info) {
-  const assignments = !info.rows.length
-    ? `No board roles are recorded for ${info.university.name}.`
-    : info.rows
-    .map((row) => {
-      const role =
-        row.role === BOARD_ROLES.HEAD
-          ? `Head of ${row.division_name ? divisionLabel(row.division_name, row.division_color) : 'unknown division'}`
-          : boardRoleLabel(row.role);
-      const missing = row.missingRoles.length ? ` Missing: ${row.missingRoles.join(', ')}` : '';
-      return `<@${row.discord_user_id}> - ${role}.${missing}`;
-    })
-    .join('\n');
-  return renderWorkspaceDocument({
-    kind: 'workspace-document',
-    title: `${info.university.name} board`,
-    sections: [{ heading: 'Assignments', body: assignments }],
-    provenance: `${info.university.name} · Current board record`,
+  const summary = boardRecordSummary(info);
+  const divisionLines = summary.divisions.length
+    ? summary.divisions.map((field) => `**${field.label}** · ${field.value === 'No active Head' ? '*No active Head*' : field.value}`)
+    : ['No active divisions are recorded.'];
+  const roster = renderEventCard({
+    kind: 'event-card',
+    tone: info.rows.length ? 'brand' : 'warning',
+    title: summary.title,
+    description: summary.description,
+    subject: summary.leadership[0],
+    details: [
+      summary.leadership[1],
+      infoField('\u200b', '\u200b'),
+      infoField('Division Heads', formatBoundedLines(divisionLines, FIELD_VALUE_LIMIT)),
+    ],
     audience: 'university',
   });
+
+  if (!info.rows.length) return roster;
+
+  const issues = [...new Map(info.rows
+    .filter((row) => row.missingRoles.length > 0 || (row.unexpectedRoles?.length ?? 0) > 0)
+    .map((row) => [
+      [
+        row.discord_user_id,
+        [...row.missingRoles].sort().join(','),
+        [...(row.unexpectedRoles ?? [])].sort().join(','),
+      ].join('|'),
+      row,
+    ])).values()];
+  const issueField = (row) => {
+    const absentMember = row.missingRoles.includes('member not in server');
+    const position = row.role === BOARD_ROLES.HEAD
+      ? `Head of ${safeText(divisionLabel(row.division_name, row.division_color), 'unknown division')}`
+      : safeText(boardRoleLabel(row.role));
+    return infoField(
+      'Member',
+      [
+        userReference(row.discord_user_id, row.full_name),
+        `**Board position:** ${position}`,
+        `**Observed:** ${absentMember
+          ? 'Member is no longer in Discord'
+          : [
+              ...(row.missingRoles.length ? [`Missing ${row.missingRoles.map((role) => safeText(role)).join(', ')}`] : []),
+              ...(row.unexpectedRoles?.length ? [`Unexpected ${row.unexpectedRoles.map((role) => safeText(role)).join(', ')}`] : []),
+            ].join(' · ')}`,
+        `**Recovery:** ${absentMember ? 'Confirm membership, then update the board.' : 'Open `/board-update` and save the roster again.'}`,
+      ].join('\n'),
+    );
+  };
+  if (!issues.length) return roster;
+
+  const health = renderEventCard({
+    kind: 'event-card',
+    tone: 'warning',
+    title: `Discord consistency · ${issues.length} ${issues.length === 1 ? 'issue' : 'issues'}`,
+    description: 'The canonical board assignments are valid; these Discord access problems need recovery.',
+    subject: issueField(issues[0]),
+    details: issues.slice(1).map(issueField),
+    footer: 'Discord check · Roster was not changed',
+    audience: 'university',
+  });
+  return {
+    ...roster,
+    embeds: [...(roster.embeds ?? []), ...(health.embeds ?? [])],
+  };
 }
 
 function boardAccessLabel(result) {

@@ -66,16 +66,18 @@ Use one card for one event or one compact transient lookup. The renderer always 
 6. Performed by.
 
 Do not put instructions, long explanations, internal notes, or private removal reasons in an event
-card. Event cards omit inapplicable event fields. Compact lookup cards may use an explicit empty
-value for a requested collection so the result is unambiguous; `/member-info` uses `None` for empty
-board-role and project lists.
+card. Event cards omit inapplicable event fields. `/member-info` pairs Member with Type and
+University with Divisions, then gives board roles and active projects full-width rows. Empty
+assignment groups use an explicit `No active…` value so the result is unambiguous.
 
 ### Workspace document
 
-Use a document for canonical project records, showcase starters, guides, and durable workspace
-instructions. A transient private lookup is not a workspace document. Canonical records are edited
-in place; chronological transitions remain separate event cards. End every document with provenance
-such as:
+Use a document for canonical project records, their private `/project-info` projection, showcase
+starters, guides, and durable workspace instructions. Project documents keep scope above workspace
+links, team, public narrative, and explicitly labelled authorized internal context. Showcase
+projections omit private links and internal context at the formatter boundary. Other transient
+private lookups are not workspace documents. Canonical records are edited in place; chronological
+transitions remain separate event cards. End every document with provenance such as:
 
 ```text
 -# Project #42 · Pinned project record · Updates automatically
