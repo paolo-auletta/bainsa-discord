@@ -56,7 +56,7 @@ test('board update is visible to university Vice Presidents', () => {
   assert.equal(canDiscoverCommand({ commandName: 'board-update', member: vicePresident, channelScope: scope }), true);
 });
 
-test('local membership panels stay out of global scope until the #70 workflow exists', () => {
+test('global Presidents can discover every membership and board panel', () => {
   const globalPresident = memberWithRoles(['Global President']);
   const scope = { kind: 'global' };
 
@@ -65,7 +65,7 @@ test('local membership panels stay out of global scope until the #70 workflow ex
     'division-add-member',
     'division-remove-member',
   ]) {
-    assert.equal(canDiscoverCommand({ commandName, member: globalPresident, channelScope: scope }), false);
+    assert.equal(canDiscoverCommand({ commandName, member: globalPresident, channelScope: scope }), true);
   }
 
   const boardPermissions = buildCommandPermissionOverwrites({
@@ -73,7 +73,7 @@ test('local membership panels stay out of global scope until the #70 workflow ex
     guildId: 'guild',
     roles,
   });
-  assert.equal(boardPermissions.some((permission) => permission.id === 'global'), false);
+  assert.equal(boardPermissions.some((permission) => permission.id === 'global' && permission.permission), true);
 });
 
 test('only project-scoped commands are discoverable inside a project channel', () => {

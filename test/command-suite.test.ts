@@ -15,7 +15,7 @@ const EXPECTED_COMMANDS = {
   'division-add-member': [],
   'division-remove-member': [],
   'board-update': [],
-  'board-info': ['university'],
+  'board-info': [],
   'project-create': [],
   'project-update': [],
   'project-close': [],
@@ -26,6 +26,7 @@ const PANEL_GOVERNANCE_COMMANDS = [
   'division-add-member',
   'division-remove-member',
   'board-update',
+  'board-info',
 ];
 
 test('every v1 command is registered with a complete slash-command contract', () => {

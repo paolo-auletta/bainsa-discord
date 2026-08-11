@@ -57,7 +57,6 @@ import {
   globalBoardOverwrites,
   globalGeneralOverwrites,
   globalVoiceOverwrites,
-  globalReadOnlyOverwrites,
   logsOverwrites,
   memberForumOverwrites,
   peopleDirectoryForumOverwrites,
@@ -104,25 +103,28 @@ const START_CHANNEL_POSITIONS = Object.freeze({ welcome: 0, onboarding: 1 });
 
 const GLOBAL_CHANNEL_POSITIONS = Object.freeze({
   general: 0,
-  voice: 1,
-  announcements: 2,
+  announcements: 1,
+  board: 2,
   showcase: 3,
   resources: 4,
   peopleDirectory: 5,
   channelProposals: 6,
-  anonymousFeedback: 7,
-  board: 8,
+  voice: 0,
 });
 
 const UNIVERSITY_CHANNEL_POSITIONS = Object.freeze({
   general: 0,
-  voice: 1,
-  announcements: 2,
-  showcase: 3,
-  divisions: 4,
-  board: 90,
-  botLog: 91,
-  onboardingReview: 92,
+  announcements: 1,
+  showcase: 2,
+  board: 3,
+  botLog: 4,
+  onboardingReview: 5,
+  divisions: 6,
+});
+
+const UNIVERSITY_VOICE_CHANNEL_POSITIONS = Object.freeze({
+  general: 0,
+  divisions: 1,
 });
 
 type ForumProvisionOptions = Omit<ChannelProvisionOptions, 'type'>;
@@ -135,6 +137,61 @@ type SeedMessageOptions = {
   legacyKeys?: readonly string[];
   legacyHeadings?: readonly string[];
 };
+
+type PositionedChannel = {
+  id?: string;
+  name?: string;
+  position?: number;
+  setPosition?: (position: number, options?: unknown) => unknown;
+};
+
+type UniversityChannelPositionInput = {
+  general: PositionedChannel;
+  announcements: PositionedChannel;
+  showcase: PositionedChannel;
+  board: PositionedChannel;
+  botLog: PositionedChannel;
+  onboardingReview: PositionedChannel;
+  divisionTextChannels: PositionedChannel[];
+  projectChannels: PositionedChannel[];
+  voice: PositionedChannel;
+  divisionVoiceChannels: PositionedChannel[];
+};
+
+/**
+ * Discord renders text-like channels above voice channels, regardless of their
+ * raw position. Keep the two sequences explicit so a provision run restores
+ * the intended sidebar layout without interleaving rooms with text channels.
+ */
+export function universityChannelPositions({
+  general,
+  announcements,
+  showcase,
+  board,
+  botLog,
+  onboardingReview,
+  divisionTextChannels,
+  projectChannels,
+  voice,
+  divisionVoiceChannels,
+}: UniversityChannelPositionInput) {
+  const textChannels = [
+    general,
+    announcements,
+    showcase,
+    board,
+    botLog,
+    onboardingReview,
+    ...divisionTextChannels,
+    ...projectChannels,
+  ];
+  const voiceChannels = [voice, ...divisionVoiceChannels];
+
+  return [
+    ...textChannels.map((channel, position) => ({ channel, position })),
+    ...voiceChannels.map((channel, position) => ({ channel, position })),
+  ];
+}
 
 export function createProvisionClient() {
   return new Client({
@@ -452,9 +509,7 @@ export class DiscordProvisioner {
   async ensureStructure(guild, roleIds) {
     const startSeeds = startHereSeeds();
     const startTopics = startHereTopics();
-    const globalSeedContent = globalSeeds({
-      anonymousFeedbackUrl: this.config.anonymousFeedbackUrl,
-    });
+    const globalSeedContent = globalSeeds();
     const globalChannelTopics = globalTopics();
     const resources = { universities: [] };
 
@@ -554,12 +609,6 @@ export class DiscordProvisioner {
       topic: globalChannelTopics.channelProposals,
       position: GLOBAL_CHANNEL_POSITIONS.channelProposals,
     });
-    const feedback = await this.ensureTextChannel(guild, GLOBAL_CHANNELS.ANONYMOUS_FEEDBACK, {
-      parent: globalCategory,
-      overwrites: globalReadOnlyOverwrites(roleIds),
-      topic: globalChannelTopics.anonymousFeedback,
-      position: GLOBAL_CHANNEL_POSITIONS.anonymousFeedback,
-    });
     await this.seedMessage(globalGeneral, 'global:general', globalSeedContent.general, { pin: true });
     await this.seedMessage(globalAnnouncements, 'global:announcements', globalSeedContent.announcements, { pin: true });
     await this.seedMessage(globalBoard, 'global:board', globalSeedContent.board, { pin: true });
@@ -580,7 +629,7 @@ export class DiscordProvisioner {
         legacyHeadings: ['# Topic Proposals'],
       },
     );
-    await this.seedMessage(feedback, 'global:anonymous-feedback', globalSeedContent.anonymousFeedback, { pin: true });
+    await this.retireRemovedGlobalChannels(guild, globalCategory);
 
     for (const university of this.plan.universities) {
       const universityRecord = await this.ensureUniversity(guild, roleIds, university);
@@ -629,7 +678,7 @@ export class DiscordProvisioner {
     const voice = await this.ensureVoiceChannel(guild, UNIVERSITY_CHANNELS.VOICE, {
       parent: category,
       overwrites: universityVoiceOverwrites(roleIds, university),
-      position: UNIVERSITY_CHANNEL_POSITIONS.voice,
+      position: UNIVERSITY_VOICE_CHANNEL_POSITIONS.general,
     });
     const announcements = await this.ensureTextChannel(guild, UNIVERSITY_CHANNELS.ANNOUNCEMENTS, {
       parent: category,
@@ -685,6 +734,8 @@ export class DiscordProvisioner {
     );
 
     const divisionRecords = [];
+    const divisionTextChannels = [];
+    const divisionVoiceChannels = [];
     for (const [divisionIndex, division] of university.divisions.entries()) {
       const textChannel = await this.ensureTextChannel(guild, divisionTextChannelName(division.name, division.color), {
         parent: category,
@@ -697,7 +748,7 @@ export class DiscordProvisioner {
         parent: category,
         aliases: legacyDivisionVoiceAliases(university, division),
         overwrites: divisionVoiceOverwrites(roleIds, university, division),
-        position: UNIVERSITY_CHANNEL_POSITIONS.divisions + divisionIndex * 2 + 1,
+        position: UNIVERSITY_VOICE_CHANNEL_POSITIONS.divisions + divisionIndex,
       });
       await this.seedMessage(
         textChannel,
@@ -716,7 +767,21 @@ export class DiscordProvisioner {
         textChannelId: textChannel.id,
         voiceChannelId: voiceChannel.id,
       });
+      divisionTextChannels.push(textChannel);
+      divisionVoiceChannels.push(voiceChannel);
     }
+
+    await this.reconcileUniversityChannelOrder(guild, category, {
+      general,
+      announcements,
+      showcase,
+      board,
+      botLog,
+      onboardingReview,
+      divisionTextChannels,
+      voice,
+      divisionVoiceChannels,
+    });
 
     return {
       name: university.name,
@@ -731,6 +796,39 @@ export class DiscordProvisioner {
       onboardingReviewChannelId: onboardingReview.id,
       divisions: divisionRecords,
     };
+  }
+
+  async reconcileUniversityChannelOrder(guild, category, channels) {
+    const managedIds = new Set([
+      channels.general,
+      channels.announcements,
+      channels.showcase,
+      channels.board,
+      channels.botLog,
+      channels.onboardingReview,
+      ...channels.divisionTextChannels,
+      channels.voice,
+      ...channels.divisionVoiceChannels,
+    ].map((channel) => channel?.id).filter(Boolean));
+    const projectChannels = [...guild.channels.cache.values()]
+      .filter((channel) => isPrivateProjectChannel(channel, category.id, managedIds))
+      .sort(comparePrivateProjectChannels);
+    const positions = universityChannelPositions({ ...channels, projectChannels });
+    const changes = positions.filter(({ channel, position }) => (
+      channel?.id && channel.position !== position
+    ));
+
+    if (changes.length === 0) return;
+    for (const { channel } of changes) this.record('channels', 'updated', `channel:${channel.name}:position`);
+    if (this.dryRun) return;
+
+    if (typeof guild.channels.setPositions === 'function') {
+      await guild.channels.setPositions(changes);
+      return;
+    }
+    for (const { channel, position } of changes) {
+      await channel.setPosition?.(position, { reason: 'BAINSA university channel order reconciliation' });
+    }
   }
 
   async ensureCategory(
@@ -793,6 +891,20 @@ export class DiscordProvisioner {
       if (!this.dryRun) {
         await channel.delete('BAINSA member guidance was consolidated into #welcome');
       }
+    }
+  }
+
+  async retireRemovedGlobalChannels(guild, globalCategory) {
+    const retiredChannels = [...guild.channels.cache.values()].filter(
+      (channel) =>
+        channel.type === ChannelType.GuildText
+        && channel.parentId === globalCategory.id
+        && channel.name === 'anonymous-feedback',
+    );
+
+    for (const channel of retiredChannels) {
+      this.record('channels', 'deleted', `channel:${channel.name}`);
+      if (!this.dryRun) await channel.delete('BAINSA anonymous feedback channel was retired');
     }
   }
 
@@ -1228,6 +1340,34 @@ function findChannel(guild, { name, type, parent, aliases = [] }) {
 
 function channelTypeMatches(actualType, desiredType) {
   return actualType === desiredType;
+}
+
+function isPrivateProjectChannel(channel, categoryId, managedIds) {
+  if (
+    channel?.type !== ChannelType.GuildText
+    || channel.parentId !== categoryId
+    || managedIds.has(channel.id)
+  ) return false;
+
+  return /^project-\d+-/u.test(channel.name ?? '')
+    || /\bBAINSA project \d+\b/iu.test(channel.topic ?? '');
+}
+
+function privateProjectSortKey(channel) {
+  const id = /^project-(\d+)-/u.exec(channel.name ?? '')?.[1]
+    ?? /\bBAINSA project (\d+)\b/iu.exec(channel.topic ?? '')?.[1]
+    ?? '';
+  return [id.padStart(20, '0'), channel.name ?? '', channel.id ?? ''];
+}
+
+function comparePrivateProjectChannels(left, right) {
+  const leftKey = privateProjectSortKey(left);
+  const rightKey = privateProjectSortKey(right);
+  for (const [index, value] of leftKey.entries()) {
+    const comparison = value.localeCompare(rightKey[index], 'en');
+    if (comparison !== 0) return comparison;
+  }
+  return 0;
 }
 
 function oldestMessage(messages) {

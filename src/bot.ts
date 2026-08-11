@@ -15,6 +15,7 @@ import { createProfileService } from './profiles/index.js';
 import { createProfileReconciliationWorker } from './profiles/reconciliation.js';
 import { governanceMembershipPanels } from './services/governance/membership-panels.js';
 import { boardUpdatePanel } from './services/governance/board-update-panel.js';
+import { boardInfoPanel } from './services/governance/board-info-panel.js';
 import { governanceCommandPanels } from './services/governance/panels.js';
 import { hideDepartedMemberProfile, warmGovernanceAutocompleteCache } from './services/governance/service.js';
 import { projectCreateSetup, warmProjectAutocompleteCache } from './services/projects/index.js';
@@ -29,6 +30,7 @@ const dispatchInteraction = createInteractionDispatcher(composeInteractionDispat
   governanceCommandPanels,
   governanceMembershipPanels,
   boardUpdatePanel,
+  boardInfoPanel,
   projectManagementPanels,
   onboarding,
   guide: guideInteractions,

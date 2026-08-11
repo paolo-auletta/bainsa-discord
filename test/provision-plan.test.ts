@@ -16,7 +16,6 @@ import {
   globalGeneralOverwrites,
   globalVoiceOverwrites,
   globalAnnouncementOverwrites,
-  globalReadOnlyOverwrites,
   peopleDirectoryForumOverwrites,
   peopleDirectoryForumTags,
   legacyDivisionTextAliases,
@@ -35,6 +34,7 @@ import {
   universityBotLogOverwrites,
   universityVoiceOverwrites,
   universityBoardOverwrites,
+  universityChannelPositions,
 } from '../src/provision/index.js';
 
 const samplePlan = {
@@ -212,6 +212,163 @@ test('approved channel constants do not include a separate university projects c
   assert.equal(UNIVERSITY_CHANNELS.BOT_LOG, 'bot-log');
 });
 
+test('global channels use the requested deterministic order', async () => {
+  const calls = [];
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: {},
+    db: null,
+    dryRun: true,
+    plan: { universities: [] },
+    logger: {},
+  });
+  provisioner.ensureCategory = async (_guild, name) => ({ id: name, name });
+  provisioner.ensureTextChannel = async (_guild, name, options) => {
+    calls.push({ name, position: options.position });
+    return { id: name, name };
+  };
+  provisioner.ensureForumChannel = async (_guild, name, options) => {
+    calls.push({ name, position: options.position });
+    return { id: name, name };
+  };
+  provisioner.ensureVoiceChannel = async (_guild, name, options) => {
+    calls.push({ name, position: options.position });
+    return { id: name, name };
+  };
+  provisioner.seedMessage = async () => {};
+  provisioner.seedForumGuide = async () => {};
+  provisioner.retireStartHereChannels = async () => {};
+
+  await provisioner.ensureStructure(
+    { channels: { cache: { values: () => [] } } },
+    {
+      everyone: 'everyone',
+      bot: 'bot',
+      researcher: 'researcher',
+      alumni: 'alumni',
+      globalPresident: 'global-president',
+      universityPresidents: [],
+      universityHeadRoleIds: new Map(),
+      roles: new Map(),
+    },
+  );
+
+  assert.deepEqual(
+    calls.filter(({ name }) => [
+      'bainsa-general',
+      'bainsa-announcements',
+      'bainsa-board',
+      'projects-showcase',
+      'resources',
+      'people-database',
+      'channel-proposals',
+    ].includes(name)),
+    [
+      { name: 'bainsa-general', position: 0 },
+      { name: 'bainsa-announcements', position: 1 },
+      { name: 'bainsa-board', position: 2 },
+      { name: 'projects-showcase', position: 3 },
+      { name: 'resources', position: 4 },
+      { name: 'people-database', position: 5 },
+      { name: 'channel-proposals', position: 6 },
+    ],
+  );
+  assert.deepEqual(
+    calls.find(({ name }) => name === 'bainsa-general-room'),
+    { name: 'bainsa-general-room', position: 0 },
+  );
+});
+
+test('university channel positions keep public text, divisions, projects, and voice rooms in order', () => {
+  const channel = (name) => ({ id: name, name });
+  const positions = universityChannelPositions({
+    general: channel('general'),
+    announcements: channel('announcements'),
+    showcase: channel('projects-showcase'),
+    board: channel('board'),
+    botLog: channel('bot-log'),
+    onboardingReview: channel('onboarding-review'),
+    divisionTextChannels: [channel('🟦-projects'), channel('🟧-analysis')],
+    projectChannels: [channel('project-7-atlas')],
+    voice: channel('general-room'),
+    divisionVoiceChannels: [channel('🟦-projects-room'), channel('🟧-analysis-room')],
+  });
+
+  assert.deepEqual(
+    positions.map(({ channel: candidate, position }) => [candidate.name, position]),
+    [
+      ['general', 0],
+      ['announcements', 1],
+      ['projects-showcase', 2],
+      ['board', 3],
+      ['bot-log', 4],
+      ['onboarding-review', 5],
+      ['🟦-projects', 6],
+      ['🟧-analysis', 7],
+      ['project-7-atlas', 8],
+      ['general-room', 0],
+      ['🟦-projects-room', 1],
+      ['🟧-analysis-room', 2],
+    ],
+  );
+});
+
+test('provisioning places all private project workspaces after division text channels', async () => {
+  const channel = (id, name, type, position, parentId = 'bocconi-category', topic = '') => ({
+    id,
+    name,
+    type,
+    position,
+    parentId,
+    topic,
+  });
+  const general = channel('general', 'general', ChannelType.GuildText, 0);
+  const announcements = channel('announcements', 'announcements', ChannelType.GuildText, 1);
+  const showcase = channel('showcase', 'projects-showcase', ChannelType.GuildForum, 2);
+  const board = channel('board', 'board', ChannelType.GuildText, 3);
+  const botLog = channel('bot-log', 'bot-log', ChannelType.GuildText, 4);
+  const onboardingReview = channel('onboarding', 'onboarding-review', ChannelType.GuildText, 5);
+  const projects = channel('division-projects', '🟦-projects', ChannelType.GuildText, 6);
+  const analysis = channel('division-analysis', '🟧-analysis', ChannelType.GuildText, 7);
+  const voice = channel('voice', 'general-room', ChannelType.GuildVoice, 0);
+  const projectsRoom = channel('projects-room', '🟦-projects-room', ChannelType.GuildVoice, 1);
+  const analysisRoom = channel('analysis-room', '🟧-analysis-room', ChannelType.GuildVoice, 2);
+  const projectTen = channel('project-ten', 'project-10-ten', ChannelType.GuildText, 11);
+  const projectTwo = channel('project-two', 'project-2-two', ChannelType.GuildText, 10);
+  const setPositionsCalls = [];
+  const guild = {
+    channels: {
+      cache: { values: () => [projectTen, projectTwo] },
+      async setPositions(changes) { setPositionsCalls.push(changes); },
+    },
+  };
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: {},
+    db: null,
+    dryRun: false,
+    plan: samplePlan,
+    logger: {},
+  });
+
+  await provisioner.reconcileUniversityChannelOrder(guild, { id: 'bocconi-category' }, {
+    general,
+    announcements,
+    showcase,
+    board,
+    botLog,
+    onboardingReview,
+    divisionTextChannels: [projects, analysis],
+    voice,
+    divisionVoiceChannels: [projectsRoom, analysisRoom],
+  });
+
+  assert.deepEqual(
+    setPositionsCalls[0].map(({ channel: candidate, position }) => [candidate.name, position]),
+    [['project-2-two', 8], ['project-10-ten', 9]],
+  );
+});
+
 test('global channel proposals use clear plural naming in the channel and guide', () => {
   const seeds = globalSeeds();
 
@@ -379,22 +536,31 @@ test('application commands are permitted only in global or university bot logs',
   );
 });
 
-test('anonymous feedback is read-only for normal member roles', () => {
-  const overwrites = globalReadOnlyOverwrites({
-    everyone: 'everyone',
-    bot: 'bot',
-    researcher: 'researcher',
-    alumni: 'alumni',
-    globalPresident: 'global',
-    universityPresidents: ['president'],
+test('provisioning retires the removed anonymous feedback channel', async () => {
+  const deletions = [];
+  const feedback = {
+    id: 'feedback',
+    name: 'anonymous-feedback',
+    type: ChannelType.GuildText,
+    parentId: 'global-category',
+    async delete(reason) { deletions.push(reason); },
+  };
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: {},
+    db: null,
+    dryRun: false,
+    plan: samplePlan,
+    logger: {},
   });
-  for (const id of ['researcher', 'alumni']) {
-    const entry = overwrites.find((overwrite) => overwrite.id === id);
-    assert.ok(entry.allow.includes(PermissionFlagsBits.ViewChannel));
-    assert.ok(entry.deny.includes(PermissionFlagsBits.SendMessages));
-    assert.ok(entry.deny.includes(PermissionFlagsBits.CreatePublicThreads));
-    assert.ok(entry.deny.includes(PermissionFlagsBits.SendMessagesInThreads));
-  }
+
+  await provisioner.retireRemovedGlobalChannels(
+    { channels: { cache: { values: () => [feedback] } } },
+    { id: 'global-category' },
+  );
+
+  assert.deepEqual(deletions, ['BAINSA anonymous feedback channel was retired']);
+  assert.equal(provisioner.summary.channels.deleted, 1);
 });
 
 test('onboarding review is visible to every university board role', () => {

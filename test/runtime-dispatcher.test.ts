@@ -11,6 +11,7 @@ import { assertUniqueCommandNames, buildCommandMap, serializeCommands } from '..
 import { composeInteractionDispatcher } from '../src/runtime/dispatcher-composition.js';
 import { createInteractionDispatcher, routeInteraction } from '../src/runtime/dispatcher.js';
 import { boardUpdatePanel } from '../src/services/governance/board-update-panel.js';
+import { boardInfoPanel } from '../src/services/governance/board-info-panel.js';
 import { governanceMembershipPanels } from '../src/services/governance/membership-panels.js';
 import { governanceCommandPanels } from '../src/services/governance/panels.js';
 import { projectCreateSetup } from '../src/services/projects/index.js';
@@ -35,6 +36,7 @@ test('production dispatcher composition includes every handler in dispatch order
     governanceCommandPanels,
     governanceMembershipPanels,
     boardUpdatePanel,
+    boardInfoPanel,
     projectManagementPanels,
     onboarding,
     guide: guideInteractions,
@@ -46,6 +48,7 @@ test('production dispatcher composition includes every handler in dispatch order
     governanceCommandPanels,
     governanceMembershipPanels,
     boardUpdatePanel,
+    boardInfoPanel,
     projectManagementPanels,
   ]);
   assert.equal(composition.commands, commands);
@@ -61,6 +64,7 @@ test('production dispatcher composition includes every handler in dispatch order
     'gm:session:dcu',
     'gmm:session:t',
     'gbu:session:e',
+    'gbi:session:u',
     'pm:session:up',
     'ob:start',
     'guide:v1:user:topic:projects',

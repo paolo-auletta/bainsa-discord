@@ -1,5 +1,7 @@
 import { ApplicationCommandPermissionType } from 'discord.js';
 
+import { hasGlobalAuthority } from '../authorization.js';
+
 const DISCORD_API_URL = 'https://discord.com/api/v10';
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_REQUEST_ATTEMPTS = 8;
@@ -35,15 +37,6 @@ export const COMMAND_VISIBILITY = Object.freeze({
   'project-info': 'project',
 });
 
-// Their replacement global-President workflow is deliberately deferred to #70.
-// Until then these commands infer one university from a university bot-log and
-// must not advertise an unusable global-scope path.
-export const UNIVERSITY_ONLY_MEMBERSHIP_COMMANDS = Object.freeze(new Set([
-  'division-add-member',
-  'division-remove-member',
-  'board-update',
-]));
-
 function memberRoleNames(member) {
   const cache = member?.roles?.cache;
   if (!cache?.some) return [];
@@ -54,11 +47,6 @@ function memberRoleNames(member) {
     return false;
   });
   return names;
-}
-
-function hasRole(member, roleName) {
-  const expected = roleName.toLowerCase();
-  return memberRoleNames(member).includes(expected);
 }
 
 function hasScopedBoardRole(member, universityName, visibility) {
@@ -88,8 +76,8 @@ export function canDiscoverCommand({ commandName, member, channelScope }) {
   // Global authority is exercised from the dedicated global bot log. Keeping
   // this boundary here makes command discovery and execution agree even when
   // a university channel overwrite is accidentally broadened.
-  if (hasRole(member, 'Global President')) {
-    return channelScope.kind === 'global' && !UNIVERSITY_ONLY_MEMBERSHIP_COMMANDS.has(commandName);
+  if (hasGlobalAuthority(member)) {
+    return channelScope.kind === 'global';
   }
   if (channelScope.kind !== 'university' || !channelScope.universityName) return false;
   return hasScopedBoardRole(member, channelScope.universityName, visibility);
@@ -114,21 +102,13 @@ export function visibleRoleIds(visibility, roles) {
 export function buildCommandPermissionOverwrites({ commandName, guildId, roles }) {
   const visibility = COMMAND_VISIBILITY[commandName];
   if (!visibility) throw new Error(`No command visibility policy is defined for ${commandName}.`);
-  const globalRoleIds = new Set(
-    roles.filter((role) => role.name === 'Global President').map((role) => String(role.id)),
-  );
-
   return [
     {
       id: String(guildId),
       type: ApplicationCommandPermissionType.Role,
       permission: false,
     },
-    ...visibleRoleIds(visibility, roles)
-      .filter((id) =>
-        !UNIVERSITY_ONLY_MEMBERSHIP_COMMANDS.has(commandName) || !globalRoleIds.has(id),
-      )
-      .map((id) => ({
+    ...visibleRoleIds(visibility, roles).map((id) => ({
       id,
       type: ApplicationCommandPermissionType.Role,
       permission: true,

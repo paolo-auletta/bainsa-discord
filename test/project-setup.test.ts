@@ -115,6 +115,12 @@ async function chooseScope(service, initialPayload) {
     update: async (next) => { payload = next; },
   });
 
+  await service.handleButton({
+    ...baseInteraction(componentForAction(payload, PROJECT_SETUP_ACTIONS.UNIVERSITY_CONTINUE).custom_id),
+    update: async () => undefined,
+    editReply: async (next) => { payload = next; },
+  });
+
   await service.handleStringSelect({
     ...baseInteraction(componentForAction(payload, PROJECT_SETUP_ACTIONS.DIVISION).custom_id),
     values: ['0'],
@@ -225,12 +231,12 @@ test('project setup renders a polished five-step wizard and creates only from re
   assert.equal(scope.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2);
   assertConsistentSummary(scope, result.name);
   assert.match(allText(scope), /\*\*University\*\*/);
-  assert.match(allText(scope), /\*\*Division\*\*/);
+  assert.doesNotMatch(allText(scope), /\*\*Division\*\*/);
   assert.doesNotMatch(allText(scope), /responsible for this project|ordinary project members/);
   assert.equal(componentForAction(scope, PROJECT_SETUP_ACTIONS.UNIVERSITY).type, ComponentType.StringSelect);
-  assert.equal(componentForAction(scope, PROJECT_SETUP_ACTIONS.DIVISION).disabled, true);
+  assert.equal(componentForAction(scope, PROJECT_SETUP_ACTIONS.UNIVERSITY_CONTINUE).disabled, true);
   assert.deepEqual(bottomButtons(scope).map((button) => button.label), [
-    'Continue to team',
+    'Continue to division',
     'Back to name',
     'Cancel setup',
   ]);
@@ -322,7 +328,7 @@ test('project setup renders a polished five-step wizard and creates only from re
   );
 });
 
-test('project setup preserves its last valid scope when loading a new university fails', async () => {
+test('project setup preserves the selected university when its divisions fail to load', async () => {
   const service = setupService({
     findDivisions: async (university) => {
       if (university === 'Sapienza') throw new Error('Division lookup unavailable');
@@ -337,21 +343,21 @@ test('project setup preserves its last valid scope when loading a new university
     update: async (payload) => { selectedScope = payload; },
   });
 
-  await assert.rejects(
-    () => service.handleStringSelect({
+  await service.handleStringSelect({
       ...baseInteraction(componentForAction(selectedScope, PROJECT_SETUP_ACTIONS.UNIVERSITY).custom_id),
       values: ['1'],
-      update: async () => assert.fail('must not update after a failed lookup'),
+      update: async (payload) => { selectedScope = payload; },
+    });
+  await assert.rejects(
+    () => service.handleButton({
+      ...baseInteraction(componentForAction(selectedScope, PROJECT_SETUP_ACTIONS.UNIVERSITY_CONTINUE).custom_id),
+      update: async () => undefined,
+      editReply: async (payload) => { selectedScope = payload; },
     }),
     /Division lookup unavailable/,
   );
-
-  await service.handleStringSelect({
-    ...baseInteraction(componentForAction(selectedScope, PROJECT_SETUP_ACTIONS.DIVISION).custom_id),
-    values: ['0'],
-    update: async (payload) => { selectedScope = payload; },
-  });
-  assert.match(summaryContent(selectedScope), /Bocconi · 🟦 Projects/);
+  assert.match(summaryContent(selectedScope), /Sapienza · Choose a division/);
+  assert.ok(componentForAction(selectedScope, PROJECT_SETUP_ACTIONS.UNIVERSITY_CONTINUE));
 });
 
 test('project setup pagination makes universities and divisions after the first 25 selectable', async () => {
@@ -381,6 +387,12 @@ test('project setup pagination makes universities and divisions after the first 
     ...baseInteraction(lastUniversityMenu.custom_id),
     values: ['25'],
     update: async (next) => { payload = next; },
+  });
+
+  await service.handleButton({
+    ...baseInteraction(componentForAction(payload, PROJECT_SETUP_ACTIONS.UNIVERSITY_CONTINUE).custom_id),
+    update: async () => undefined,
+    editReply: async (next) => { payload = next; },
   });
 
   assert.equal(componentForAction(payload, PROJECT_SETUP_ACTIONS.DIVISION).options.length, 25);

@@ -10,6 +10,7 @@ export interface DispatcherCompositionDependencies {
   governanceCommandPanels: ComponentHandler;
   governanceMembershipPanels: ComponentHandler;
   boardUpdatePanel: ComponentHandler;
+  boardInfoPanel: ComponentHandler;
   projectManagementPanels: ComponentHandler;
   onboarding: ComponentHandler;
   guide: ComponentHandler;
@@ -22,6 +23,7 @@ export function composeInteractionDispatcher({
   governanceCommandPanels,
   governanceMembershipPanels,
   boardUpdatePanel,
+  boardInfoPanel,
   projectManagementPanels,
   onboarding,
   guide,
@@ -36,6 +38,7 @@ export function composeInteractionDispatcher({
       governanceCommandPanels,
       governanceMembershipPanels,
       boardUpdatePanel,
+      boardInfoPanel,
       projectManagementPanels,
     ],
     onboarding,

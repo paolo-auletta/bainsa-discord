@@ -75,7 +75,7 @@ export function startHereTopics() {
   };
 }
 
-export function globalSeeds({ anonymousFeedbackUrl }: { anonymousFeedbackUrl?: string | null } = {}) {
+export function globalSeeds() {
   return {
     general: buildSeedContent({
       key: 'global:general',
@@ -132,13 +132,6 @@ export function globalSeeds({ anonymousFeedbackUrl }: { anonymousFeedbackUrl?: s
       title: 'Channel Proposals',
       body: 'Suggest a new shared channel for research, events, or discussion. Include its purpose, intended audience, and what help you need.',
     }),
-    anonymousFeedback: buildSeedContent({
-      key: 'global:anonymous-feedback',
-      title: 'Anonymous Feedback',
-      body: anonymousFeedbackUrl
-        ? `Use this form when you want feedback routed privately to the right reviewers:\n${anonymousFeedbackUrl}`
-        : 'Anonymous feedback is enabled by configuration. Ask a board member for the current feedback form if it is not displayed here yet.',
-    }),
   };
 }
 
@@ -151,7 +144,6 @@ export function globalTopics() {
     resources: 'GLOBAL BAINSA · Searchable resources, tools, papers, datasets, and templates for the whole community.',
     peopleDirectory: 'GLOBAL BAINSA · Opt-in people database for research and collaboration discovery.',
     channelProposals: 'GLOBAL BAINSA · Propose a shared space for a clear cross-university need.',
-    anonymousFeedback: 'GLOBAL BAINSA · Private feedback route for members who prefer not to identify themselves.',
     botLog: 'GLOBAL BAINSA · Commands and activity that operate across university scope. Global Presidents only.',
   };
 }

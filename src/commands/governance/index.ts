@@ -1,34 +1,22 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 
 import { formatBoardActivity } from '../../activity/formatters.js';
-import { respondAutocomplete } from '../../discord/autocomplete.js';
+import { universityActivityChannel } from '../../activity/router.js';
 import {
   handleInteractionError,
   replyBoardActivity,
   replyEphemeral,
 } from '../../discord/reply.js';
-import { logger } from '../../logger.js';
 import { divisionLabel } from '../../constants.js';
 import {
-  findDivisions,
-  findUniversities,
-  formatBoardInfo,
   formatMemberInfo,
-  getBoardInfo,
   getMemberInfo,
   removeMember,
 } from '../../services/governance/service.js';
 import { governanceMembershipPanels } from '../../services/governance/membership-panels.js';
 import { boardUpdatePanel } from '../../services/governance/board-update-panel.js';
+import { boardInfoPanel } from '../../services/governance/board-info-panel.js';
 import { governanceCommandPanels } from '../../services/governance/panels.js';
-
-function universityOption(option) {
-  return option
-    .setName('university')
-    .setDescription('University scope')
-    .setRequired(true)
-    .setAutocomplete(true);
-}
 
 function command(name, description) {
   return new SlashCommandBuilder()
@@ -37,53 +25,12 @@ function command(name, description) {
     .setDMPermission(false);
 }
 
-const AUTOCOMPLETE_LIMIT = 25;
-const DISCORD_CHOICE_TEXT_LIMIT = 100;
-
-function toAutocompleteChoice(name, value = name) {
-  if (name.length > DISCORD_CHOICE_TEXT_LIMIT || value.length > DISCORD_CHOICE_TEXT_LIMIT) {
-    return null;
-  }
-  return { name, value };
-}
-
 export function divisionAutocompleteChoice(row) {
   return {
     ...row,
     name: divisionLabel(row.name, row.color),
     value: row.name,
   };
-}
-
-async function findDivisionChoices(interaction, focusedName, value) {
-  const university = interaction.options.getString('university');
-  if (focusedName !== 'divisions') {
-    const rows = await findDivisions(university, value);
-    return rows.map(divisionAutocompleteChoice);
-  }
-
-  const finalCommaIndex = value.lastIndexOf(',');
-  let tokenStart = finalCommaIndex + 1;
-  while (tokenStart < value.length && value[tokenStart] === ' ') {
-    tokenStart += 1;
-  }
-  const prefix = finalCommaIndex === -1 ? '' : value.slice(0, tokenStart);
-  const search = finalCommaIndex === -1 ? value : value.slice(tokenStart);
-  const existing = new Set(
-    prefix
-      .split(',')
-      .map((division) => division.trim().toLowerCase())
-      .filter(Boolean),
-  );
-  const rows = await findDivisions(university, search);
-
-  return rows
-    .filter((row) => !existing.has(row.name.toLowerCase()))
-    .map((row) => ({
-      ...row,
-      name: divisionLabel(row.name, row.color),
-      value: `${prefix}${row.name}`,
-    }));
 }
 
 async function run(interaction, work) {
@@ -104,39 +51,14 @@ async function openPanel(interaction, start) {
 }
 
 async function postActivity(interaction, commandName, result) {
-  await replyBoardActivity(
-    interaction,
-    formatBoardActivity(commandName, {
+  const payload = formatBoardActivity(commandName, {
       actorId: interaction.user.id,
       result,
-    }),
-  );
-}
-
-async function autocomplete(interaction) {
-  const focused = interaction.options.getFocused(true);
-  const value = focused.value ?? '';
-  try {
-    const rows = focused.name === 'university'
-      ? await findUniversities(value)
-      : ['division', 'current_name', 'divisions'].includes(focused.name)
-        ? await findDivisionChoices(interaction, focused.name, value)
-        : [];
-    await respondAutocomplete(
-      interaction,
-      rows
-        .map((row) => toAutocompleteChoice(row.name, row.value ?? row.name))
-        .filter(Boolean)
-        .slice(0, AUTOCOMPLETE_LIMIT),
-    );
-  } catch (error) {
-    logger.warn('Governance autocomplete lookup failed', {
-      command: interaction.commandName,
-      option: focused.name,
-      error: error instanceof Error ? error.message : String(error),
     });
-    await respondAutocomplete(interaction, [], 'Governance autocomplete fallback');
-  }
+  const universityName = result.university?.name ?? result.universityName;
+  await replyBoardActivity(interaction, payload, {
+    channel: universityActivityChannel(interaction, universityName),
+  });
 }
 
 const memberUpdate = {
@@ -214,16 +136,8 @@ const boardUpdate = {
 };
 
 const boardInfo = {
-  data: command('board-info', 'Show a university board roster and role consistency.')
-    .addStringOption(universityOption),
-  autocomplete,
-  execute: (interaction) =>
-    run(interaction, async () => {
-      const info = await getBoardInfo(interaction, {
-        university: interaction.options.getString('university', true),
-      });
-      await replyEphemeral(interaction, formatBoardInfo(info));
-    }),
+  data: command('board-info', 'Open the private university board roster.'),
+  execute: (interaction) => openPanel(interaction, () => boardInfoPanel.start(interaction)),
 };
 
 export const governanceCommands = [

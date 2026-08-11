@@ -1,6 +1,8 @@
 import { escapeMarkdown } from 'discord.js';
 
 import { formatBoardActivity } from '../../activity/formatters.js';
+import { postUniversityBoardActivity } from '../../activity/router.js';
+import { hasGlobalAuthority } from '../../authorization.js';
 import { DIVISION_COLORS, MEMBER_TYPES, divisionLabel } from '../../constants.js';
 import { assertUser, UserFacingError } from '../../errors.js';
 import { flowCustomId, parseFlowCustomId } from '../../flows/custom-id.js';
@@ -15,9 +17,10 @@ import {
 } from '../../messages/index.js';
 import type { InteractionControlSpec } from '../../messages/types.js';
 import { botCommandChannelScope } from '../../runtime/command-channels.js';
+import { resolveCommandContext } from '../../runtime/command-scope.js';
 import { normalizeDisplayName } from '../../naming.js';
 import { memberRecordSummary } from './formatters.js';
-import { memberRequiresDivision } from './policy.js';
+import { boardRoleLabel, memberRequiresDivision } from './policy.js';
 import {
   createDivision,
   getMemberUpdateContext,
@@ -47,6 +50,7 @@ const ACTIONS = Object.freeze({
   DIVISION_UPDATE_UNIVERSITY: 'duu',
   DIVISION_UPDATE_UNIVERSITY_PREVIOUS: 'duup',
   DIVISION_UPDATE_UNIVERSITY_NEXT: 'duun',
+  DIVISION_UPDATE_UNIVERSITY_CONTINUE: 'duuc',
   DIVISION_UPDATE_DIVISION: 'dud',
   DIVISION_UPDATE_DIVISION_CONTINUE: 'dudc',
   DIVISION_UPDATE_DIVISION_PREVIOUS: 'dudp',
@@ -144,6 +148,7 @@ interface DivisionUpdateSession extends FlowSessionBase {
   universities: UniversityRow[];
   universityPage: number;
   university: UniversityRow | null;
+  universityConfirmed: boolean;
   divisions: DivisionRow[];
   divisionPage: number;
   division: DivisionRow | null;
@@ -165,6 +170,7 @@ interface MemberUpdateSession extends FlowSessionBase {
   memberType: string | null;
   divisionIds: string[];
   notes: string | null;
+  canChangeUniversity: boolean;
   screen: 'target' | 'details' | 'review';
 }
 
@@ -411,10 +417,10 @@ function divisionCreateReviewPayload(session: DivisionCreateSession) {
 
 function divisionUpdateSelectPayload(session: DivisionUpdateSession) {
   const controls = [
-    ...(!session.fixedUniversity
+    ...(!session.fixedUniversity && !session.universityConfirmed
       ? [universityControl(session, ACTIONS.DIVISION_UPDATE_UNIVERSITY)]
       : []),
-    divisionControl(session, ACTIONS.DIVISION_UPDATE_DIVISION),
+    ...(session.universityConfirmed ? [divisionControl(session, ACTIONS.DIVISION_UPDATE_DIVISION)] : []),
   ].filter(Boolean);
   return renderInteractionPanel({
     kind: 'interaction-panel',
@@ -430,10 +436,12 @@ function divisionUpdateSelectPayload(session: DivisionUpdateSession) {
     controls,
     actions: [
       {
-        id: id(session, ACTIONS.DIVISION_UPDATE_DIVISION_CONTINUE),
+        id: id(session, session.universityConfirmed
+          ? ACTIONS.DIVISION_UPDATE_DIVISION_CONTINUE
+          : ACTIONS.DIVISION_UPDATE_UNIVERSITY_CONTINUE),
         label: 'Continue',
         style: 'primary',
-        disabled: !session.division,
+        disabled: session.universityConfirmed ? !session.division : !session.university,
       },
       ...pageActions(
         session,
@@ -632,6 +640,22 @@ function hasValidMemberDivisions(session: MemberUpdateSession) {
   );
 }
 
+function memberUniversityMoveBlocker(session: MemberUpdateSession) {
+  if (!session.context || !session.university) return null;
+  if (rowValue(session.university) === String(session.context.member.university_id)) return null;
+  const scopedBoardRoles = session.context.boardRoles.filter((role) => role.university_name);
+  if (scopedBoardRoles.length > 0) {
+    const roles = scopedBoardRoles
+      .map((role) => role.division_name ? `Head of ${role.division_name}` : boardRoleLabel(role.role))
+      .join(', ');
+    return `Remove the member’s current board assignments first: ${roles}. Then reopen this panel.`;
+  }
+  if (session.context.projects.length > 0) {
+    return `Remove or reassign the member from ${session.context.projects.length} active or paused project(s) before changing university.`;
+  }
+  return null;
+}
+
 const MEMBER_DIVISION_REQUIREMENT = 'Choose at least one division. Only Global Presidents, Presidents, and Vice Presidents can be Researchers without one.';
 
 function summaryBody(body: string | readonly string[]) {
@@ -680,7 +704,12 @@ function privateNotesState(session: MemberUpdateSession) {
 
 function memberDetailsPayload(session: MemberUpdateSession) {
   const summary = memberUpdateSummary(session);
-  const controls: InteractionControlSpec[] = [{
+  const controls: InteractionControlSpec[] = [];
+  if (session.canChangeUniversity) {
+    const control = universityControl(session, ACTIONS.MEMBER_UPDATE_UNIVERSITY);
+    if (control) controls.push(control);
+  }
+  controls.push({
     kind: 'string-select',
     id: id(session, ACTIONS.MEMBER_UPDATE_TYPE),
     placeholder: 'Choose the member type',
@@ -689,7 +718,7 @@ function memberDetailsPayload(session: MemberUpdateSession) {
       { label: 'Researcher', value: MEMBER_TYPES.RESEARCHER, selected: session.memberType === MEMBER_TYPES.RESEARCHER },
       { label: 'Alumni', value: MEMBER_TYPES.ALUMNI, selected: session.memberType === MEMBER_TYPES.ALUMNI },
     ],
-  }];
+  });
   if (session.memberType === MEMBER_TYPES.RESEARCHER) {
     const control = divisionControl(session, ACTIONS.MEMBER_UPDATE_DIVISIONS, { multiple: true });
     if (control) controls.push({ ...control, label: 'Divisions' });
@@ -709,6 +738,14 @@ function memberDetailsPayload(session: MemberUpdateSession) {
       label: 'Private notes',
     },
     contentActions: [
+      ...(session.canChangeUniversity ? pageActions(
+        session,
+        ACTIONS.MEMBER_UPDATE_UNIVERSITY_PREVIOUS,
+        ACTIONS.MEMBER_UPDATE_UNIVERSITY_NEXT,
+        session.universityPage,
+        session.universities.length,
+        'universities',
+      ) : []),
       ...pageActions(
         session,
         ACTIONS.MEMBER_UPDATE_DIVISIONS_PREVIOUS,
@@ -724,12 +761,13 @@ function memberDetailsPayload(session: MemberUpdateSession) {
         id: id(session, ACTIONS.MEMBER_UPDATE_REVIEW),
         label: 'Continue to review',
         style: 'primary',
-        disabled: !hasMemberChanges(session) || !hasValidMemberDivisions(session),
+        disabled: !hasMemberChanges(session) || !hasValidMemberDivisions(session) || Boolean(memberUniversityMoveBlocker(session)),
       },
       { id: id(session, ACTIONS.MEMBER_UPDATE_BACK_TARGET), label: 'Back to users', style: 'secondary' },
       { id: id(session, ACTIONS.MEMBER_UPDATE_CANCEL), label: 'Cancel update', style: 'danger' },
     ],
-    status: hasValidMemberDivisions(session) ? undefined : MEMBER_DIVISION_REQUIREMENT,
+    status: memberUniversityMoveBlocker(session)
+      ?? (hasValidMemberDivisions(session) ? undefined : MEMBER_DIVISION_REQUIREMENT),
     audience: 'actor',
   });
 }
@@ -858,8 +896,9 @@ async function publishActivity(interaction, commandName: string, result) {
   });
   if (!activity) return false;
   try {
-    await interaction.channel.send(activity);
-    return true;
+    const universityName = result.university?.name ?? result.universityName;
+    const delivery = await postUniversityBoardActivity(interaction, activity, universityName);
+    return delivery.status === 'posted';
   } catch (error) {
     logger.warn('Governance panel activity could not be posted', {
       command: commandName,
@@ -883,20 +922,24 @@ export function createGovernancePanelService({
     expiredMessage: 'This governance setup has expired. Run the command again.',
   });
 
-  async function scopedUniversity(interaction, universities: UniversityRow[]) {
+  async function scopedUniversity(interaction, universities: UniversityRow[], commandName: string) {
     const scope = botCommandChannelScope(interaction.channel);
-    assertUser(scope, 'Use this command in a university or global bot-log.');
-    if (scope.kind !== 'university') return { fixed: false, university: null };
+    const resolved = resolveCommandContext({
+      commandName,
+      channelScope: scope,
+      requireUniversity: false,
+    });
+    if (!resolved.universityName) return { fixed: false, university: null };
     const university = universities.find(
-      (candidate) => candidate.name.toLowerCase() === scope.universityName.toLowerCase(),
+      (candidate) => candidate.name.toLowerCase() === resolved.universityName.toLowerCase(),
     );
-    assertUser(university, `The ${scope.universityName} bot-log is not linked to an active university.`);
+    assertUser(university, `The ${resolved.universityName} bot-log is not linked to an active university.`);
     return { fixed: true, university };
   }
 
   async function startDivisionCreate(interaction) {
     const universities = await loadUniversities();
-    const scoped = await scopedUniversity(interaction, universities);
+    const scoped = await scopedUniversity(interaction, universities, 'division-create');
     const session = store.start(interaction, (base) => ({
       ...base,
       kind: 'division-create' as const,
@@ -920,7 +963,7 @@ export function createGovernancePanelService({
 
   async function startDivisionUpdate(interaction) {
     const universities = await loadUniversities();
-    const scoped = await scopedUniversity(interaction, universities);
+    const scoped = await scopedUniversity(interaction, universities, 'division-update');
     const divisions = scoped.university
       ? await loadDivisions(scoped.university.name) as DivisionRow[]
       : [];
@@ -931,6 +974,7 @@ export function createGovernancePanelService({
       universities,
       universityPage: 0,
       university: scoped.university,
+      universityConfirmed: scoped.fixed,
       divisions,
       divisionPage: 0,
       division: null,
@@ -957,6 +1001,7 @@ export function createGovernancePanelService({
       memberType: null,
       divisionIds: [],
       notes: null,
+      canChangeUniversity: hasGlobalAuthority(interaction.member),
       screen: 'target' as const,
     })) as MemberUpdateSession;
     await interaction.reply(ephemeralReplyPayload(memberTargetPayload(session)));
@@ -966,6 +1011,11 @@ export function createGovernancePanelService({
     assertUser(session.targetUser, 'Choose a member before continuing.');
     await updateAfterLookup(interaction, session, memberTargetPayload(session, { loading: true }), async () => {
       const context = await loadMemberContext(interaction, { user: session.targetUser });
+      resolveCommandContext({
+        commandName: 'member-update',
+        channelScope: botCommandChannelScope(interaction.channel),
+        targetUniversity: context.member.university_name,
+      });
       session.target = context.target;
       session.targetUser = context.target.user ?? session.targetUser;
       session.context = context;
@@ -989,6 +1039,11 @@ export function createGovernancePanelService({
 
   async function saveDivisionCreate(interaction, session: DivisionCreateSession) {
     assertUser(session.university && session.divisionName && session.headId, 'Complete the division setup before creating it.');
+    resolveCommandContext({
+      commandName: 'division-create',
+      channelScope: botCommandChannelScope(interaction.channel),
+      selectedUniversity: session.university,
+    });
     session.busy = true;
     await interaction.update(pendingPayload(
       `Creating ${escapeMarkdown(session.divisionName)}`,
@@ -1016,12 +1071,17 @@ export function createGovernancePanelService({
     const posted = await publishActivity(interaction, 'division-create', result);
     await interaction.editReply(interactionEditPayload(completedPayload(
       'Division created',
-      `${escapeMarkdown(result.divisionName)} is ready at ${escapeMarkdown(result.university.name)}.${posted ? ' Activity was posted in this channel.' : ' The division is saved, but the activity card could not be posted.'}`,
+      `${escapeMarkdown(result.divisionName)} is ready at ${escapeMarkdown(result.university.name)}.${posted ? ' Activity was posted in the university bot-log.' : ' The division is saved, but the activity card could not be posted.'}`,
     )));
   }
 
   async function saveDivisionUpdate(interaction, session: DivisionUpdateSession) {
     assertUser(session.university && session.division && hasDivisionUpdateChanges(session), 'Choose at least one real division change before saving.');
+    resolveCommandContext({
+      commandName: 'division-update',
+      channelScope: botCommandChannelScope(interaction.channel),
+      selectedUniversity: session.university,
+    });
     session.busy = true;
     await interaction.update(pendingPayload(
       `Updating ${escapeMarkdown(session.division.name)}`,
@@ -1047,13 +1107,19 @@ export function createGovernancePanelService({
     const posted = await publishActivity(interaction, 'division-update', result);
     await interaction.editReply(interactionEditPayload(completedPayload(
       'Division updated',
-      `${escapeMarkdown(result.newName)} now uses the saved name, color, roles, and channel labels.${posted ? ' Activity was posted in this channel.' : ' The update is saved, but the activity card could not be posted.'}`,
+      `${escapeMarkdown(result.newName)} now uses the saved name, color, roles, and channel labels.${posted ? ' Activity was posted in the university bot-log.' : ' The update is saved, but the activity card could not be posted.'}`,
     )));
   }
 
   async function saveMemberUpdate(interaction, session: MemberUpdateSession) {
     assertUser(hasMemberChanges(session), 'Choose at least one real member change before saving.');
     assertUser(hasValidMemberDivisions(session), MEMBER_DIVISION_REQUIREMENT);
+    assertUser(!memberUniversityMoveBlocker(session), memberUniversityMoveBlocker(session));
+    resolveCommandContext({
+      commandName: 'member-update',
+      channelScope: botCommandChannelScope(interaction.channel),
+      targetUniversity: session.context.member.university_name,
+    });
     session.busy = true;
     await interaction.update(pendingPayload(
       'Saving the member update',
@@ -1084,7 +1150,7 @@ export function createGovernancePanelService({
     await interaction.editReply(interactionEditPayload(completedPayload(
       'Member updated',
       posted
-        ? 'The member record, roles, and divisions are current. Activity was posted in this channel.'
+        ? 'The member record, roles, and divisions are current. Activity was posted in the university bot-log.'
         : 'The member record, roles, and divisions are current. No board-visible activity was needed for private-only changes.',
     )));
   }
@@ -1162,6 +1228,26 @@ export function createGovernancePanelService({
         await interaction.update(divisionUpdateDetailsPayload(session));
         return;
       }
+      if (action === ACTIONS.DIVISION_UPDATE_UNIVERSITY_CONTINUE) {
+        assertUser(session.university, 'Choose a university before continuing.');
+        session.busy = true;
+        await interaction.update(pendingPayload(
+          `Loading ${escapeMarkdown(session.university.name)} divisions`,
+          'BAINSA is confirming your scope before loading active divisions.',
+        ));
+        try {
+          session.divisions = await loadDivisions(session.university.name) as DivisionRow[];
+          session.universityConfirmed = true;
+          session.division = null;
+          session.divisionPage = 0;
+          session.busy = false;
+          await interaction.editReply(interactionEditPayload(divisionUpdateSelectPayload(session)));
+        } catch (error) {
+          session.busy = false;
+          throw error;
+        }
+        return;
+      }
       if (action === ACTIONS.DIVISION_UPDATE_NAME_OPEN) {
         await interaction.showModal(divisionUpdateNameModal(session));
         return;
@@ -1222,6 +1308,7 @@ export function createGovernancePanelService({
     if (action === ACTIONS.MEMBER_UPDATE_REVIEW) {
       assertUser(hasMemberChanges(session), 'Choose at least one real member change before continuing.');
       assertUser(hasValidMemberDivisions(session), MEMBER_DIVISION_REQUIREMENT);
+      assertUser(!memberUniversityMoveBlocker(session), memberUniversityMoveBlocker(session));
       session.screen = 'review';
       await interaction.update(memberReviewPayload(session));
       return;
@@ -1243,6 +1330,7 @@ export function createGovernancePanelService({
 
     if (session.kind === 'division-create') {
       if (action === ACTIONS.DIVISION_CREATE_UNIVERSITY) {
+        assertUser(!session.fixedUniversity, 'The university is fixed by this command channel.');
         session.university = session.universities.find((row) => rowValue(row) === values[0]) ?? null;
         await interaction.update(divisionCreateScopePayload(session));
         return;
@@ -1255,10 +1343,10 @@ export function createGovernancePanelService({
 
     if (session.kind === 'division-update') {
       if (action === ACTIONS.DIVISION_UPDATE_UNIVERSITY) {
+        assertUser(!session.fixedUniversity, 'The university is fixed by this command channel.');
         session.university = session.universities.find((row) => rowValue(row) === values[0]) ?? null;
-        session.divisions = session.university
-          ? await loadDivisions(session.university.name) as DivisionRow[]
-          : [];
+        session.universityConfirmed = false;
+        session.divisions = [];
         session.division = null;
         session.divisionPage = 0;
         session.newName = null;
@@ -1286,6 +1374,7 @@ export function createGovernancePanelService({
       session.memberType = values[0];
       if (session.memberType === MEMBER_TYPES.ALUMNI) session.divisionIds = [];
     } else if (action === ACTIONS.MEMBER_UPDATE_UNIVERSITY) {
+      assertUser(session.canChangeUniversity && hasGlobalAuthority(interaction.member), 'Only a Global President can change a member’s university.');
       session.university = session.universities.find((row) => rowValue(row) === values[0]) ?? null;
       session.divisions = session.university
         ? await loadDivisions(session.university.name) as DivisionRow[]

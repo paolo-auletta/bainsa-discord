@@ -491,6 +491,15 @@ async function applyMemberMembership(interaction, options, deps: GovernanceDepen
       isGlobalPresident(actor) && options.auditAction === 'member.update',
       'Only a Global President can move a member between universities.',
     );
+    const scopedBoardRoles = boardRoles.filter((assignment) => assignment.university_name);
+    assertUser(
+      scopedBoardRoles.length === 0,
+      `Cannot move this member while they hold board assignments at ${previousRecord.university_name}: ${scopedBoardRoles
+        .map((assignment) => assignment.role === BOARD_ROLES.HEAD
+          ? `Head of ${assignment.division_name ?? 'a division'}`
+          : boardRoleLabel(assignment.role))
+        .join(', ')}. Remove those assignments with /board-update, then try the member move again.`,
+    );
   }
 
   const divisions = await getDivisionRecords(db, university, divisionNames);
@@ -1461,15 +1470,16 @@ export async function removeBoardRole(interaction, options, deps: GovernanceDepe
 
 export async function updateBoardRoster(interaction, options, deps: GovernanceDependencies = {}) {
   const db = dbFrom(deps);
-  actorMember(interaction);
+  const actor = actorMember(interaction);
   const university = await getUniversityByName(db, options.university);
   const authorityResult = await getBoardAuthorityRoles(db, interaction.user.id, university.id);
   const actorRoles = new Set(authorityResult.map((assignment) => String(assignment.role)));
   const actorPresident = actorRoles.has(BOARD_ROLES.PRESIDENT);
   const actorVicePresident = actorRoles.has(BOARD_ROLES.VICE_PRESIDENT);
+  const actorGlobal = isGlobalPresident(actor);
   assertUser(
-    actorPresident || actorVicePresident,
-    `Only the President or Vice President of ${university.name} can update its board.`,
+    actorGlobal || actorPresident || actorVicePresident,
+    `Only a Global President or the President or Vice President of ${university.name} can update its board.`,
   );
 
   const divisions = await listActiveDivisionsForBoard(db, university.id) as Array<{
@@ -1545,7 +1555,7 @@ export async function updateBoardRoster(interaction, options, deps: GovernanceDe
   const additions = desiredAssignments.filter((assignment) => !currentKeys.has(boardAssignmentKey(assignment)));
   for (const assignment of [...removals, ...additions]) {
     assertUser(
-      assignment.role !== BOARD_ROLES.PRESIDENT || actorPresident,
+      assignment.role !== BOARD_ROLES.PRESIDENT || actorGlobal || actorPresident,
       `Only the President of ${university.name} can change its President position.`,
     );
   }
@@ -1573,7 +1583,7 @@ export async function updateBoardRoster(interaction, options, deps: GovernanceDe
     const currentRoles = boardAssignmentsForUser(currentAssignments, userId)
       .map((assignment) => ({ ...assignment, university_name: university.name }));
     assertUser(
-      actorPresident || !currentRoles.some((assignment) => assignment.role === BOARD_ROLES.PRESIDENT),
+      actorGlobal || actorPresident || !currentRoles.some((assignment) => assignment.role === BOARD_ROLES.PRESIDENT),
       'A Vice President cannot manage their university President.',
     );
     const nextRoles = boardAssignmentsForUser(desiredAssignments, userId);

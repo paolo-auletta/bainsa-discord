@@ -2,6 +2,7 @@ import { escapeMarkdown } from 'discord.js';
 
 import {
   assertNotBotUser,
+  hasGlobalAuthority,
   hasRole,
   isDivisionHead,
   isUniversityDivisionHead,
@@ -9,8 +10,8 @@ import {
   isUniversityVicePresident,
 } from '../../authorization.js';
 import { formatBoardActivity } from '../../activity/formatters.js';
+import { postUniversityBoardActivity } from '../../activity/router.js';
 import { MEMBER_TYPES, PROJECT_PERSON_ROLES, ROLE_NAMES, divisionLabel } from '../../constants.js';
-import { postBoardActivity } from '../../discord/reply.js';
 import { assertUser, UserFacingError } from '../../errors.js';
 import { flowCustomId, parseFlowCustomId } from '../../flows/custom-id.js';
 import { createFlowSessionStore, type FlowSessionBase } from '../../flows/session-store.js';
@@ -26,6 +27,7 @@ import {
 } from '../../messages/index.js';
 import type { InteractionActionSpec } from '../../messages/types.js';
 import { botCommandChannelScope } from '../../runtime/command-channels.js';
+import { resolveCommandContext } from '../../runtime/command-scope.js';
 import { formatDivisionMemberHandoff, memberRecordSummary } from './formatters.js';
 import { memberRequiresDivision } from './policy.js';
 import {
@@ -115,7 +117,8 @@ interface MemberContext {
 
 interface MembershipPanelSession extends FlowSessionBase {
   kind: MembershipPanelKind;
-  university: UniversityRow;
+  universities: UniversityRow[];
+  university: UniversityRow | null;
   targetUser: DiscordUserReference | null;
   context: MemberContext | null;
   divisions: DivisionRow[];
@@ -172,11 +175,11 @@ function targetPayload(
     tone: problem ? 'danger' : 'brand',
     title: panelTitle(session.kind),
     description: remove
-      ? `Choose an active ${session.university.name} member. BAINSA will show every current division and make only safe in-scope removals actionable.`
-      : `Choose an active ${session.university.name} Researcher. BAINSA will load their current memberships before offering divisions in your scope.`,
+      ? `Choose an active${session.university ? ` ${session.university.name}` : ''} member. BAINSA will derive their university and show only safe in-scope removals.`
+      : `Choose an active${session.university ? ` ${session.university.name}` : ''} Researcher. BAINSA will derive their university before loading eligible divisions.`,
     progress: { label: panelLabel(), current: 1, total: 3 },
     facts: [
-      { label: 'University', value: session.university.name },
+      ...(session.university ? [{ label: 'University', value: session.university.name }] : []),
       ...(session.targetUser ? [{ label: 'Selected member', value: userReference(session.targetUser) }] : []),
     ],
     detailsDensity: 'compact',
@@ -208,6 +211,7 @@ function canManageDivision(session: MembershipPanelSession, division: DivisionRo
 }
 
 function localBoardRoles(session: MembershipPanelSession) {
+  if (!session.university) return [];
   return (session.context?.boardRoles ?? []).filter((role) =>
     sameText(role.university_name, session.university.name),
   );
@@ -514,7 +518,7 @@ export function createGovernanceMembershipPanelService({
   loadUniversities = listUniversities,
   loadDivisions = listDivisions,
   formatActivity = formatBoardActivity,
-  postActivity = postBoardActivity,
+  postActivity = postUniversityBoardActivity,
   sendHandoff = defaultSendHandoff,
   now = () => Date.now(),
 } = {}) {
@@ -525,6 +529,7 @@ export function createGovernanceMembershipPanelService({
 
   function actorScope(interaction, universityName: string) {
     return {
+      global: hasGlobalAuthority(interaction.member),
       president: isUniversityPresident(interaction.member, universityName),
       vicePresident: isUniversityVicePresident(interaction.member, universityName),
     };
@@ -532,21 +537,25 @@ export function createGovernanceMembershipPanelService({
 
   async function start(interaction, kind: MembershipPanelKind) {
     const scope = botCommandChannelScope(interaction.channel);
-    assertUser(
-      scope?.kind === 'university',
-      'Use this command in a university #bot-log. Global-scope governance will be added in the dedicated global workflow.',
-    );
-    const universities = await loadUniversities();
-    const university = universities.find((candidate) => sameText(candidate.name, scope.universityName));
-    assertUser(university, `The ${scope.universityName} bot-log is not linked to an active university.`);
-    const actor = actorScope(interaction, university.name);
-    assertUser(
-      actor.president || actor.vicePresident || isUniversityDivisionHead(interaction.member, university.name),
-      `Only a board member of ${university.name} can manage division memberships here.`,
-    );
+    const universities = await loadUniversities() as UniversityRow[];
+    const resolved = resolveCommandContext({ commandName: kind, channelScope: scope, requireUniversity: false });
+    const university = resolved.universityName
+      ? universities.find((candidate) => sameText(candidate.name, resolved.universityName)) ?? null
+      : null;
+    if (resolved.universityName) {
+      assertUser(university, `The ${resolved.universityName} bot-log is not linked to an active university.`);
+      const actor = actorScope(interaction, university.name);
+      assertUser(
+        actor.global || actor.president || actor.vicePresident || isUniversityDivisionHead(interaction.member, university.name),
+        `Only a board member of ${university.name} can manage division memberships here.`,
+      );
+    } else {
+      assertUser(hasGlobalAuthority(interaction.member), 'Your global board access changed. Run the command again.');
+    }
     const session = store.start(interaction, (base) => ({
       ...base,
       kind,
+      universities,
       university,
       targetUser: null,
       context: null,
@@ -574,13 +583,19 @@ export function createGovernanceMembershipPanelService({
       await interaction.update(targetPayload(session, { loading: true }));
       const context = await loadMemberContext(interaction, { user: session.targetUser });
       assertUser(!hasRole(context.target, ROLE_NAMES.BOT), 'The Bot member cannot be managed.');
-      assertUser(
-        context.member.status === 'active' && sameText(context.member.university_name, session.university.name),
-        `Choose an active member of ${session.university.name}.`,
-      );
+      const resolved = resolveCommandContext({
+        commandName: session.kind,
+        channelScope: botCommandChannelScope(interaction.channel),
+        targetUniversity: context.member.university_name,
+        selectedUniversity: session.university,
+      });
+      const university = session.universities.find((candidate) => sameText(candidate.name, resolved.universityName));
+      assertUser(university, `The member's university, ${resolved.universityName}, is no longer active.`);
+      session.university = university;
+      assertUser(context.member.status === 'active', `Choose an active member of ${session.university.name}.`);
       const actor = actorScope(interaction, session.university.name);
       assertUser(
-        actor.president || actor.vicePresident || isUniversityDivisionHead(interaction.member, session.university.name),
+        actor.global || actor.president || actor.vicePresident || isUniversityDivisionHead(interaction.member, session.university.name),
         'Your division-management access changed. Run the command again.',
       );
       const divisions = await loadDivisions(session.university.name) as DivisionRow[];
@@ -588,7 +603,7 @@ export function createGovernanceMembershipPanelService({
       session.targetUser = context.target.user ?? session.targetUser;
       session.divisions = divisions;
       session.manageableDivisionIds = divisions
-        .filter((division) => actor.president || actor.vicePresident || isDivisionHead(interaction.member, session.university.name, division.name))
+        .filter((division) => actor.global || actor.president || actor.vicePresident || isDivisionHead(interaction.member, session.university.name, division.name))
         .map(rowValue);
       session.selectedDivisionId = null;
       session.choicePage = 0;
@@ -614,6 +629,12 @@ export function createGovernanceMembershipPanelService({
   async function save(interaction, session: MembershipPanelSession) {
     const division = selectedDivision(session);
     assertUser(session.context && division, 'Choose a valid current division change before confirming.');
+    resolveCommandContext({
+      commandName: session.kind,
+      channelScope: botCommandChannelScope(interaction.channel),
+      targetUniversity: session.context.member.university_name,
+      selectedUniversity: session.university,
+    });
     session.busy = true;
     await interaction.update(pendingPayload(session));
     let result;
@@ -639,7 +660,7 @@ export function createGovernanceMembershipPanelService({
     store.remove(session);
     const activity = formatActivity(session.kind, { actorId: interaction.user.id, result });
     const [activityDelivery, handoffSent] = await Promise.all([
-      postActivity(interaction, activity),
+      postActivity(interaction, activity, result.university.name),
       sendHandoff(
         result.target,
         formatDivisionMemberHandoff(result, {

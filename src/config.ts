@@ -20,7 +20,6 @@ export function loadConfig(env = process.env) {
     discordGuildId: env.DISCORD_GUILD_ID,
     databaseUrl: env.DATABASE_URL,
     databaseSslCa: resolveDatabaseSslCa(env),
-    anonymousFeedbackUrl: env.ANONYMOUS_FEEDBACK_URL?.trim() || null,
     logLevel: env.LOG_LEVEL?.trim() || 'info',
   });
 }

@@ -1,6 +1,7 @@
 import { escapeMarkdown } from 'discord.js';
 
 import { formatBoardActivity } from '../../activity/formatters.js';
+import { postUniversityBoardActivity } from '../../activity/router.js';
 import {
   OPEN_PROJECT_STATUSES,
   PROJECT_PERSON_ROLES,
@@ -672,27 +673,19 @@ async function updateAfterLookup(interaction, session: ProjectPanelSession, load
   }
 }
 
-function activityChannel(interaction, result) {
-  if (!projectCommandChannelScope(interaction.channel)) return interaction.channel;
-  const universityName = result?.project?.university_name;
-  if (!universityName) return null;
-  return interaction.guild?.channels?.cache?.find?.(
-    (channel) => channel.name === 'bot-log'
-      && channel.parent?.name === `BAINSA ${universityName.toUpperCase()}`,
-  ) ?? null;
-}
-
 async function publishActivity(interaction, commandName: string, result) {
   const activity = formatBoardActivity(commandName, {
     actorId: interaction.user.id,
     result,
   });
   if (!activity) return false;
-  const channel = activityChannel(interaction, result);
-  if (!channel) return false;
   try {
-    await channel.send(activity);
-    return true;
+    const delivery = await postUniversityBoardActivity(
+      interaction,
+      activity,
+      result?.project?.university_name,
+    );
+    return delivery.status === 'posted';
   } catch (error) {
     logger.warn('Project panel activity could not be posted', {
       command: commandName,

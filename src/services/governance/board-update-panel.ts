@@ -1,9 +1,9 @@
 import { escapeMarkdown } from 'discord.js';
 
-import { assertNotBotUser } from '../../authorization.js';
+import { assertNotBotUser, hasGlobalAuthority } from '../../authorization.js';
 import { formatBoardActivity } from '../../activity/formatters.js';
+import { postUniversityBoardActivity } from '../../activity/router.js';
 import { BOARD_ROLES, divisionLabel, ROLE_NAMES } from '../../constants.js';
-import { postBoardActivity } from '../../discord/reply.js';
 import { assertUser, UserFacingError } from '../../errors.js';
 import { createFlowSessionStore, type FlowSessionBase } from '../../flows/session-store.js';
 import { logger } from '../../logger.js';
@@ -15,6 +15,7 @@ import {
 } from '../../messages/index.js';
 import type { InteractionActionSpec, InteractionControlSpec } from '../../messages/types.js';
 import { botCommandChannelScope } from '../../runtime/command-channels.js';
+import { resolveCommandContext } from '../../runtime/command-scope.js';
 import { boardRecordSummary, formatBoardUpdateHandoff } from './formatters.js';
 import {
   getBoardInfo,
@@ -29,6 +30,10 @@ const POSITION_PAGE_SIZE = 8;
 export const BOARD_UPDATE_HANDOFF_CONCURRENCY = 5;
 
 const ACTIONS = Object.freeze({
+  UNIVERSITY: 'u',
+  UNIVERSITY_PREVIOUS: 'upv',
+  UNIVERSITY_NEXT: 'unx',
+  UNIVERSITY_CONTINUE: 'uc',
   EDIT: 'e',
   PREVIOUS: 'p',
   NEXT: 'n',
@@ -90,14 +95,17 @@ interface BoardPositionPage {
 }
 
 interface BoardUpdateSession extends FlowSessionBase {
-  university: UniversityRow;
+  universities: UniversityRow[];
+  university: UniversityRow | null;
+  universityPage: number;
+  fixedUniversity: boolean;
   divisions: DivisionRow[];
   currentAssignments: BoardAssignmentRow[];
   selections: Record<string, string[]>;
   actorPresident: boolean;
   actorVicePresident: boolean;
   page: number;
-  screen: 'overview' | 'edit' | 'review';
+  screen: 'scope' | 'overview' | 'edit' | 'review';
   problem: string | null;
 }
 
@@ -116,8 +124,44 @@ function sameText(left: unknown, right: unknown) {
   return String(left ?? '').trim().toLowerCase() === String(right ?? '').trim().toLowerCase();
 }
 
-function rowValue(row: DivisionRow | null | undefined) {
+function rowValue(row: DivisionRow | UniversityRow | null | undefined) {
   return String(row?.id ?? row?.name ?? '');
+}
+
+function universityScopePayload(session: BoardUpdateSession) {
+  const pageCount = Math.max(1, Math.ceil(session.universities.length / 25));
+  session.universityPage = Math.min(pageCount - 1, Math.max(0, session.universityPage));
+  const start = session.universityPage * 25;
+  const universities = session.universities.slice(start, start + 25);
+  return renderInteractionPanel({
+    kind: 'interaction-panel',
+    tone: 'brand',
+    title: 'Update a university board',
+    description: 'Choose the university first. Its roster and positions load only after you continue.',
+    progress: { label: 'Board update', current: 1, total: 4 },
+    facts: [{ label: 'University', value: session.university?.name ?? 'Not selected yet' }],
+    controls: universities.length ? [{
+      kind: 'string-select',
+      id: customId(session, ACTIONS.UNIVERSITY),
+      label: 'University',
+      placeholder: 'Choose a university',
+      options: universities.map((university) => ({
+        label: university.name,
+        value: rowValue(university),
+        selected: rowValue(university) === rowValue(session.university),
+      })),
+    }] : [],
+    contentActions: pageCount > 1 ? [
+      { id: customId(session, ACTIONS.UNIVERSITY_PREVIOUS), label: 'Previous universities', style: 'secondary', disabled: session.universityPage === 0 },
+      { id: customId(session, ACTIONS.UNIVERSITY_NEXT), label: 'Next universities', style: 'secondary', disabled: session.universityPage === pageCount - 1 },
+    ] : [],
+    actions: [
+      { id: customId(session, ACTIONS.UNIVERSITY_CONTINUE), label: 'Continue', style: 'primary', disabled: !session.university },
+      { id: customId(session, ACTIONS.CANCEL), label: 'Cancel update', style: 'danger' },
+    ],
+    status: universities.length ? undefined : 'No active universities are available.',
+    audience: 'actor',
+  });
 }
 
 function positions(session: BoardUpdateSession): BoardPosition[] {
@@ -228,6 +272,11 @@ function hasChanges(session: BoardUpdateSession) {
   return positions(session).some((position) => !sameIds(currentIds(session, position), selectedIds(session, position)));
 }
 
+function boardUpdateProgress(session: BoardUpdateSession, localStep: number) {
+  const scopeStep = session.fixedUniversity ? 0 : 1;
+  return { label: 'Board update', current: localStep + scopeStep, total: 3 + scopeStep };
+}
+
 function validationStatus(session: BoardUpdateSession) {
   if ((session.selections.president ?? []).length === 0) {
     return `${session.university.name} must keep at least one President.`;
@@ -241,7 +290,7 @@ function overviewPayload(session: BoardUpdateSession) {
     tone: 'brand',
     title: `${session.university.name} board`,
     description: 'Review the current roster, then open the editor to change one or more positions.',
-    progress: { label: 'Board update', current: 1, total: 3 },
+    progress: boardUpdateProgress(session, 1),
     facts: [
       { label: 'University', value: session.university.name },
       { label: 'Board positions', value: String(positions(session).length) },
@@ -344,7 +393,7 @@ function editPayload(session: BoardUpdateSession) {
     tone: status ? 'warning' : 'brand',
     title: `Update the ${session.university.name} board`,
     description: 'Current assignments stay selected. Change the positions that should be different, then review the resulting roster.',
-    progress: { label: 'Board update', current: 2, total: 3 },
+    progress: boardUpdateProgress(session, 2),
     facts: [
       { label: 'University', value: session.university.name },
       {
@@ -395,7 +444,7 @@ function reviewPayload(session: BoardUpdateSession) {
     tone: 'changed',
     title: `Review the ${session.university.name} board`,
     description: 'These position changes will become the new university board roster.',
-    progress: { label: 'Board update', current: 3, total: 3 },
+    progress: boardUpdateProgress(session, 3),
     facts: [
       { label: 'Positions changing', value: String(changedPositions(session).length) },
       { label: 'Members affected', value: String(affectedMembers(session)) },
@@ -498,7 +547,7 @@ export function createBoardUpdatePanelService({
   loadMemberContext = getMemberInfo,
   updateOperation = updateBoardRoster,
   formatActivity = formatBoardActivity,
-  postActivity = postBoardActivity,
+  postActivity = postUniversityBoardActivity,
   sendHandoff = defaultSendHandoff,
   now = () => Date.now(),
 } = {}) {
@@ -519,37 +568,81 @@ export function createBoardUpdatePanelService({
 
   async function start(interaction) {
     const scope = botCommandChannelScope(interaction.channel);
-    assertUser(
-      scope?.kind === 'university',
-      'Use `/board-update` in a university #bot-log. Global board management will be added in the dedicated global workflow.',
-    );
-    const universities = await loadUniversities();
-    const university = universities.find((candidate) => sameText(candidate.name, scope.universityName));
-    assertUser(university, `The ${scope.universityName} bot-log is not linked to an active university.`);
-    const actorContext = await loadMemberContext(interaction, { user: interaction.user }) as MemberContext;
-    const actor = actorScope(actorContext, university.name);
-    assertUser(
-      actor.president || actor.vicePresident,
-      `Only the President or Vice President of ${university.name} can update its board.`,
-    );
-    const [divisions, currentAssignments] = await Promise.all([
-      loadDivisions(university.name) as Promise<DivisionRow[]>,
-      loadBoardAssignments(interaction, university.name) as Promise<BoardAssignmentRow[]>,
-    ]);
+    const universities = await loadUniversities() as UniversityRow[];
+    const resolved = resolveCommandContext({
+      commandName: 'board-update',
+      channelScope: scope,
+      requireUniversity: false,
+    });
+    const university = resolved.universityName
+      ? universities.find((candidate) => sameText(candidate.name, resolved.universityName)) ?? null
+      : null;
+    if (resolved.universityName) {
+      assertUser(university, `The ${resolved.universityName} bot-log is not linked to an active university.`);
+    } else {
+      assertUser(hasGlobalAuthority(interaction.member), 'Your global board access changed. Run `/board-update` again.');
+    }
     const session = store.start(interaction, (base) => ({
       ...base,
+      universities,
       university,
-      divisions,
-      currentAssignments,
+      universityPage: 0,
+      fixedUniversity: Boolean(university),
+      divisions: [],
+      currentAssignments: [],
       selections: {},
-      actorPresident: actor.president,
-      actorVicePresident: actor.vicePresident,
+      actorPresident: false,
+      actorVicePresident: false,
       page: 0,
-      screen: 'overview',
+      screen: university ? 'overview' : 'scope',
       problem: null,
     })) as BoardUpdateSession;
-    session.selections = initialSelections(session);
-    await interaction.reply(ephemeralReplyPayload(overviewPayload(session)));
+    if (!university) {
+      await interaction.reply(ephemeralReplyPayload(universityScopePayload(session)));
+      return;
+    }
+    await loadSelectedUniversity(interaction, session, false);
+  }
+
+  async function loadSelectedUniversity(interaction, session: BoardUpdateSession, updating: boolean) {
+    assertUser(session.university, 'Choose a university before continuing.');
+    resolveCommandContext({
+      commandName: 'board-update',
+      channelScope: botCommandChannelScope(interaction.channel),
+      selectedUniversity: session.university,
+    });
+    const global = hasGlobalAuthority(interaction.member);
+    if (updating) {
+      session.busy = true;
+      await interaction.update(pendingPayload(
+        `Loading the ${session.university.name} board`,
+        'BAINSA is checking your current authority and loading the canonical roster and active divisions.',
+      ));
+    }
+    try {
+      const actorContext = await loadMemberContext(interaction, { user: interaction.user }) as MemberContext;
+      const actor = actorScope(actorContext, session.university.name);
+      assertUser(
+        global || actor.president || actor.vicePresident,
+        `Only a Global President or the President or Vice President of ${session.university.name} can update its board.`,
+      );
+      const [divisions, currentAssignments] = await Promise.all([
+        loadDivisions(session.university.name) as Promise<DivisionRow[]>,
+        loadBoardAssignments(interaction, session.university.name) as Promise<BoardAssignmentRow[]>,
+      ]);
+      session.divisions = divisions;
+      session.currentAssignments = currentAssignments;
+      session.actorPresident = global || actor.president;
+      session.actorVicePresident = actor.vicePresident;
+      session.selections = initialSelections(session);
+      session.screen = 'overview';
+      session.busy = false;
+      if (updating) await interaction.editReply(interactionEditPayload(overviewPayload(session)));
+      else await interaction.reply(ephemeralReplyPayload(overviewPayload(session)));
+    } catch (error) {
+      session.busy = false;
+      throw error;
+    }
   }
 
   function requireSession(interaction) {
@@ -602,6 +695,11 @@ export function createBoardUpdatePanelService({
   }
 
   async function save(interaction, session: BoardUpdateSession) {
+    resolveCommandContext({
+      commandName: 'board-update',
+      channelScope: botCommandChannelScope(interaction.channel),
+      selectedUniversity: session.university,
+    });
     session.busy = true;
     await interaction.update(pendingPayload('Saving the board update', 'BAINSA is re-checking the roster and reconciling managed Discord roles.'));
     let result;
@@ -622,7 +720,7 @@ export function createBoardUpdatePanelService({
 
     store.remove(session);
     const activity = formatActivity('board-update', { actorId: interaction.user.id, result });
-    const activityDelivery = await postActivity(interaction, activity);
+    const activityDelivery = await postActivity(interaction, activity, result.university.name);
     const handoffResults = await sendBoardUpdateHandoffs(result, sendHandoff);
     const missedHandoffs = handoffResults.filter((sent) => !sent).length;
     const warnings = [
@@ -649,6 +747,15 @@ export function createBoardUpdatePanelService({
         title: 'Board update cancelled',
         description: 'Nothing was changed.',
       })));
+      return;
+    }
+    if (parsed.action === ACTIONS.UNIVERSITY_PREVIOUS || parsed.action === ACTIONS.UNIVERSITY_NEXT) {
+      session.universityPage += parsed.action === ACTIONS.UNIVERSITY_PREVIOUS ? -1 : 1;
+      await interaction.update(universityScopePayload(session));
+      return;
+    }
+    if (parsed.action === ACTIONS.UNIVERSITY_CONTINUE) {
+      await loadSelectedUniversity(interaction, session, true);
       return;
     }
     if (parsed.action === ACTIONS.EDIT) {
@@ -721,12 +828,23 @@ export function createBoardUpdatePanelService({
     await interaction.update(editPayload(session));
   }
 
+  async function handleStringSelect(interaction) {
+    const matched = requireSession(interaction);
+    if (!matched || matched.parsed.action !== ACTIONS.UNIVERSITY) return;
+    assertUser(!matched.session.fixedUniversity, 'The university is fixed by this command channel.');
+    matched.session.university = matched.session.universities.find(
+      (university) => rowValue(university) === String(interaction.values?.[0] ?? ''),
+    ) ?? null;
+    await interaction.update(universityScopePayload(matched.session));
+  }
+
   return {
     start,
     canHandle(customIdValue: string) {
       return Boolean(parseCustomId(customIdValue));
     },
     handleButton,
+    handleStringSelect,
     handleUserSelect,
   };
 }

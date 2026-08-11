@@ -1,9 +1,15 @@
 import { assertUser } from '../errors.js';
+import { commandScopePolicy } from './command-scope.js';
 
 const BOT_LOG_CHANNEL_NAME = 'bot-log';
 const GLOBAL_LOG_CATEGORY_NAME = 'LOGS';
 const UNIVERSITY_CATEGORY_PREFIX = 'BAINSA ';
 const PROJECT_TOPIC_PATTERN = /(?:^|\s)project\s+(\d+)$/i;
+
+export type BotCommandChannelScope =
+  | { kind: 'global' }
+  | { kind: 'university'; universityName: string };
+export type ProjectCommandChannelScope = { kind: 'project'; projectId: string };
 
 export const PROJECT_CHANNEL_COMMANDS = Object.freeze(new Set([
   'project-update',
@@ -11,7 +17,7 @@ export const PROJECT_CHANNEL_COMMANDS = Object.freeze(new Set([
   'project-info',
 ]));
 
-export function botCommandChannelScope(channel) {
+export function botCommandChannelScope(channel): BotCommandChannelScope | null {
   if (!channel || channel.name !== BOT_LOG_CHANNEL_NAME) return null;
 
   const parentName = channel.parent?.name ?? channel.parent?.parent?.name ?? null;
@@ -22,13 +28,13 @@ export function botCommandChannelScope(channel) {
   return universityName ? { kind: 'university', universityName } : null;
 }
 
-export function projectCommandChannelScope(channel) {
+export function projectCommandChannelScope(channel): ProjectCommandChannelScope | null {
   const match = String(channel?.topic ?? '').trim().match(PROJECT_TOPIC_PATTERN);
   if (!match) return null;
   return { kind: 'project', projectId: match[1] };
 }
 
-export function commandChannelScope(channel) {
+export function commandChannelScope(channel): BotCommandChannelScope | ProjectCommandChannelScope | null {
   return botCommandChannelScope(channel) ?? projectCommandChannelScope(channel);
 }
 
@@ -38,8 +44,8 @@ export function isBotCommandChannel(channel) {
 
 export function assertCommandChannel(interaction, commandName) {
   const scope = commandChannelScope(interaction.channel);
-  if (scope?.kind === 'global' || scope?.kind === 'university') return scope;
-  if (scope?.kind === 'project' && PROJECT_CHANNEL_COMMANDS.has(commandName)) return scope;
+  const policy = commandScopePolicy(commandName);
+  if (scope && policy?.channels.includes(scope.kind)) return scope;
   assertUser(
     false,
     PROJECT_CHANNEL_COMMANDS.has(commandName)

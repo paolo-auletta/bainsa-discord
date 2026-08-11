@@ -73,7 +73,7 @@ Buttons and command selectors update the same ephemeral message in place. Every 
 
 - Panel flows infer the university from a university-specific `bot-log`; the global `bot-log`
   shows a scoped university selector when one is needed.
-- Remaining inline university fields search active universities.
+- Commands without a target open a private university selector only in the global `bot-log`; the selector must be confirmed before divisions, members, projects, or board positions load.
 - A division field searches only active divisions belonging to the selected university. The division list is empty until a valid university value has been selected.
 - Project selectors show the latest 25 visible matches as `#id Name • University, Division • Status`; `/project-close` limits the matches to active and paused projects. Inside a project channel, autocomplete returns only that project. Discord does not render more than 25 autocomplete choices at once, so typing a narrower name, university, division, or ID searches the full candidate set.
 - Project creation is a private five-step wizard with native Discord modals and selectors. The database validates the selected people against the project scope before creation.
@@ -99,7 +99,9 @@ University Presidents and Vice Presidents cannot move a member outside their sco
 Global Presidents receive the university selector. The bot rechecks scope and active-project
 eligibility at confirmation, then updates the database and reconciles Discord roles. Changing a
 Researcher to Alumni clears division assignments. Existing board assignments must remain
-compatible with the selected member type.
+compatible with the selected member type. A cross-university move is blocked before mutation while
+the member has university board assignments or active/paused project roles; the panel names the
+dependencies that must be removed or reassigned first.
 
 ### `/member-remove`
 
@@ -161,17 +163,17 @@ the current colour icon, and records the change.
 
 ### `/division-add-member`
 
-**Who can use it:** A university President or Vice President, and a Division Head for their own division. Global President support is deferred to issue #70.
+**Who can use it:** Global Presidents across all universities; a university President or Vice President; and a Division Head for their own division.
 
-The command has no inline fields. Run it in the university `bot-log`; the panel infers that university, asks for a member first, and loads their current record and division memberships. It then offers only divisions the actor may manage and which the active Researcher has not already joined. Memberships outside a Head's scope remain out of the action control.
+The command has no inline fields. It asks for the member first and derives their canonical university before loading divisions. A university `bot-log` must match that affiliation; the global `bot-log` accepts any active university member for a current Global President. The panel then offers only divisions the actor may manage and which the active Researcher has not already joined. Memberships outside a Head's scope remain out of the action control.
 
 The edit and final review summaries show the member’s current affiliation changing to the proposed affiliation. On confirmation, the bot revalidates authority, active Researcher eligibility, university, and current memberships; assigns the managed university/division Discord roles; adds the relationship; posts activity; and sends the member a private handoff.
 
 ### `/division-remove-member`
 
-**Who can use it:** A university President or Vice President, and a Division Head for their own division. Global President support is deferred to issue #70.
+**Who can use it:** Global Presidents across all universities; a university President or Vice President; and a Division Head for their own division.
 
-The command has no inline fields. Its member-first panel infers the university from `bot-log`, then displays every current division membership. A President or Vice President can act across that university; a Head sees other memberships as read only and can act only on their own division. Because Discord string-select options cannot be disabled individually, only safe actionable divisions appear in the selector while every read-only or blocked division remains visible in the summary with its reason.
+The command has no inline fields. Its member-first panel derives the university from the selected member and verifies that it agrees with a university `bot-log` when used locally. A Global President can select members across all active universities. A President or Vice President can act across their university; a Head sees other memberships as read only and can act only on their own division. Because Discord string-select options cannot be disabled individually, only safe actionable divisions appear in the selector while every read-only or blocked division remains visible in the summary with its reason.
 
 Removal is blocked when the division is required by an active Head assignment, by active project membership, or by the rule that a non-executive Researcher must keep at least one division. The actor can add an optional private reason in the panel. The final review shows the remaining divisions. Confirmation revalidates the database state before removing only the selected relationship and managed role; university membership remains intact. Activity omits the reason, while the audit record and affected member's private handoff retain it.
 
@@ -179,9 +181,9 @@ Removal is blocked when the division is required by an active Head assignment, b
 
 ### `/board-update`
 
-**Who can use it:** A university President or Vice President in their university `bot-log`. A Vice President can view but cannot edit the President position. Global President support is deferred to issue #70.
+**Who can use it:** Global Presidents in the global `bot-log`, or a university President or Vice President in their university `bot-log`. A Vice President can view but cannot edit the President position.
 
-The command has no inline fields. The private panel infers the university and loads the complete board roster. University leadership appears first, followed by one Head position for every active division. Every position supports multiple members. The controls keep current members selected and paginate when the university has more positions than fit safely in one Discord message, so newly created and occupied divisions are never filtered out.
+The command has no inline fields. A university `bot-log` infers the university. In the global `bot-log`, the private panel asks for a university and requires **Continue** before loading the roster. University leadership appears first, followed by one Head position for every active division. Every position supports multiple members. The controls keep current members selected and paginate when the university has more positions than fit safely in one Discord message, so newly created and occupied divisions are never filtered out.
 
 As selections change, the summary presents each affected position as `Current → New`. Selecting a member as a Head moves that member out of any other Head division and executive position; selecting an executive removes that member from division leadership. Presidents and Vice Presidents have university-wide division access. The final review shows all changed seats before one optimistic, transaction-backed roster update reconciles the database and managed Discord roles.
 
@@ -189,11 +191,9 @@ Removing a Head title preserves the member’s ordinary division membership and 
 
 ### `/board-info`
 
-**Who can use it:** Global Presidents and any active board member of the selected university.
+**Who can use it:** Global Presidents and any active board member of the resolved university.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `university` | Yes | University board to inspect |
+The command has no inline fields. A university `bot-log` opens its roster directly. The global `bot-log` opens a private university selector and loads the roster only after **View board** is selected.
 
 The bot privately returns the canonical board roster with Presidents and Vice Presidents grouped
 above a single leadership-to-divisions separator. Every active division appears once with all of
@@ -225,7 +225,7 @@ All v1 projects are private, university-scoped, and division-scoped. Project cha
 The command has no inline arguments. It opens a private guided setup that stays in one ephemeral message:
 
 1. Enter the project name in a modal.
-2. Select the owning university and division.
+2. Confirm the owning university, then select the division. A university `bot-log` supplies and hides the university; the global `bot-log` shows the university selector first.
 3. Select the initial members and supervisors with two Discord-native multi-user selectors.
 4. Enter the start and expected-end dates, add a required public summary, and optionally add private internal working notes.
 5. Review the complete project and press **Create project**.

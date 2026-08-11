@@ -33,7 +33,6 @@ export const GLOBAL_CHANNELS = Object.freeze({
   RESOURCES: 'resources',
   PEOPLE_DIRECTORY: 'people-database',
   CHANNEL_PROPOSALS: 'channel-proposals',
-  ANONYMOUS_FEEDBACK: 'anonymous-feedback',
 });
 
 export const START_CHANNELS = Object.freeze({

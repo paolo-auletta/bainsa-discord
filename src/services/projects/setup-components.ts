@@ -37,6 +37,7 @@ export const PROJECT_SETUP_ACTIONS = Object.freeze({
   DIVISION: "div",
   UNIVERSITY_PREVIOUS: "up",
   UNIVERSITY_NEXT: "un",
+  UNIVERSITY_CONTINUE: "uc",
   DIVISION_PREVIOUS: "dp",
   DIVISION_NEXT: "dn",
   SCOPE_DONE: "sd",
@@ -329,24 +330,41 @@ export function scopePayload(session) {
     .setAccentColor(CONTAINER_COLORS.BRAND)
     .addTextDisplayComponents(projectSummary(session))
     .addSeparatorComponents(separator())
-    .addTextDisplayComponents(
-      text("### Choose the project scope\n\n**University**"),
-    )
-    .addActionRowComponents(
-      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-        universityMenu(session),
-      ),
+    .addTextDisplayComponents(text("### Choose the project scope"));
+
+  if (!session.universityConfirmed) {
+    container.addTextDisplayComponents(fieldLabel("University"))
+      .addActionRowComponents(
+        new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(universityMenu(session)),
+      );
+    const universityPagination = paginationRow(
+      session,
+      PROJECT_SETUP_ACTIONS.UNIVERSITY_PREVIOUS,
+      PROJECT_SETUP_ACTIONS.UNIVERSITY_NEXT,
+      session.universityPage,
+      session.universities.length,
+      "universities",
     );
-  const universityPagination = paginationRow(
-    session,
-    PROJECT_SETUP_ACTIONS.UNIVERSITY_PREVIOUS,
-    PROJECT_SETUP_ACTIONS.UNIVERSITY_NEXT,
-    session.universityPage,
-    session.universities.length,
-    "universities",
-  );
-  if (universityPagination) container.addActionRowComponents(universityPagination);
-  container.addTextDisplayComponents(fieldLabel("Division"))
+    if (universityPagination) container.addActionRowComponents(universityPagination);
+    container.addSeparatorComponents(separator())
+      .addActionRowComponents(
+        navigationRow(
+          session,
+          {
+            action: PROJECT_SETUP_ACTIONS.UNIVERSITY_CONTINUE,
+            label: "Continue to division",
+            disabled: !session.university,
+          },
+          { action: PROJECT_SETUP_ACTIONS.NAME_OPEN, label: "Back to name" },
+        ),
+      );
+    return wizardPayload(container);
+  }
+
+  container.addTextDisplayComponents(
+    text(`**University**\n\n${escapeMarkdown(session.university)}${session.fixedUniversity ? " · From this bot-log" : ""}`),
+    fieldLabel("Division"),
+  )
     .addActionRowComponents(
       new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
         divisionMenu(session),

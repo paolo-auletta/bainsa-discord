@@ -52,14 +52,13 @@ START HERE — visible to every new arrival
 
 GLOBAL BAINSA — visible to approved members
 ├── #bainsa-general — whole-network conversation
-├── voice: bainsa-general-room — whole-network voice room
 ├── #bainsa-announcements — network-wide official updates and events
 ├── #bainsa-board — Global Presidents + University Presidents
 ├── forum: projects-showcase — selected cross-network project stories
 ├── forum: resources — shared knowledge base
 ├── forum: people-database — opt-in, bot-managed member profiles
 ├── forum: channel-proposals — member-led requests for new shared channels
-└── #anonymous-feedback — link to a confidential external form
+└── voice: bainsa-general-room — whole-network voice room
 
 BAINSA <UNIVERSITY> — visible only to that university
 ├── #general — local member discussion
@@ -222,13 +221,13 @@ The benefit is consistency: new members do not need an administrator to manually
 ```
 GLOBAL BAINSA — visible to approved members
 ├── #bainsa-general — whole-network conversation
-├── voice: bainsa-general-room — whole-network voice room
 ├── #bainsa-announcements — network-wide official updates and events
 ├── #bainsa-board — Global Presidents + University Presidents
 ├── forum: projects-showcase — selected cross-network project stories
 ├── forum: resources — shared knowledge base
+├── forum: people-database — opt-in, bot-managed member profiles
 ├── forum: channel-proposals — member-led requests for new shared channels
-└── #anonymous-feedback — link to a confidential external form
+└── voice: bainsa-general-room — whole-network voice room
 ```
 
 ### `#bainsa-general`
@@ -359,12 +358,6 @@ Members show interest through emoji reactions. Reactions are evidence of demand,
 - Review new channels after a defined trial period and archive inactive ones.
 
 **Planned:** add a bot command to approve a proposal and create the resulting space. That command does not exist in v1.
-
-### `#anonymous-feedback`
-
-This channel is read-only and links to an external confidential form, such as Google Forms. The Discord channel explains who receives the feedback and how it will be handled, but anonymous submissions should not be collected publicly in Discord.
-
----
 
 ## 7. Deep dive: each university
 
