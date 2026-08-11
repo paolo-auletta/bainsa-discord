@@ -28,6 +28,7 @@ import {
 } from '../../naming.js';
 import {
   assertCanAssignBoardRole,
+  assertCanManageBoardMember,
   assertCanManageMember,
   assertCanRemoveBoardRole,
   assertCanRemoveMember,
@@ -326,6 +327,7 @@ async function assertNoActiveProjectAccessLoss(db, userId, division) {
       WHERE pp.discord_user_id = $1
         AND p.division_id = $2
         AND p.status = ANY($3::text[])
+        AND pp.role = 'member'
         AND NOT EXISTS (
           SELECT 1
             FROM board_assignments br
@@ -343,6 +345,63 @@ async function assertNoActiveProjectAccessLoss(db, userId, division) {
     `Cannot remove this division role because the member still has active project access in ${division.name}: ${result.rows
       .map((row) => row.name)
       .join(', ')}.`,
+  );
+}
+
+async function getExclusiveBoardAssignment(db, universityId, role, divisionId = null) {
+  if (role === BOARD_ROLES.PRESIDENT) return null;
+  const result = role === BOARD_ROLES.HEAD
+    ? await db.query(
+        `SELECT discord_user_id
+           FROM board_assignments
+          WHERE university_id = $1
+            AND role = $2
+            AND division_id = $3
+            AND active = true
+          LIMIT 1`,
+        [universityId, role, divisionId],
+      )
+    : await db.query(
+        `SELECT discord_user_id
+           FROM board_assignments
+          WHERE university_id = $1
+            AND role = $2
+            AND active = true
+          LIMIT 1`,
+        [universityId, role],
+      );
+  return result.rows[0] ?? null;
+}
+
+function assertExclusiveBoardAssignmentAvailable(assignment, targetId, role, university, division) {
+  if (!assignment || String(assignment.discord_user_id) === String(targetId)) return;
+  assertUser(
+    false,
+    role === BOARD_ROLES.HEAD
+      ? `Head of ${division.name} is already assigned to another member.`
+      : `${boardRoleLabel(role)} at ${university.name} is already assigned to another member.`,
+  );
+}
+
+function boardAssignmentKey(assignment) {
+  return [
+    assignment.role,
+    String(assignment.university_id ?? assignment.university_name ?? '').toLowerCase(),
+    String(assignment.division_id ?? assignment.division_name ?? '').toLowerCase(),
+  ].join(':');
+}
+
+function sameBoardAssignments(left, right) {
+  const leftKeys = left.map(boardAssignmentKey).sort();
+  const rightKeys = right.map(boardAssignmentKey).sort();
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key, index) => key === rightKeys[index]);
+}
+
+function hasUniversityExecutiveAssignment(boardRoles, universityName) {
+  return boardRoles.some((assignment) =>
+    [BOARD_ROLES.PRESIDENT, BOARD_ROLES.VICE_PRESIDENT].includes(assignment.role)
+    && String(assignment.university_name ?? '').toLowerCase() === String(universityName).toLowerCase(),
   );
 }
 
@@ -963,7 +1022,22 @@ export async function addDivisionMember(interaction, options, deps: GovernanceDe
     BOARD_ROLES.PRESIDENT,
   ]);
   const previousRecord = await getMemberRecord(db, target.id);
-  assertCanPromoteResearcher(previousRecord, university.name);
+  assertUser(
+    previousRecord?.status === 'active'
+      && previousRecord.member_type === MEMBER_TYPES.RESEARCHER
+      && previousRecord.university_name === university.name,
+    `Choose an active Researcher from ${university.name}.`,
+  );
+  const previousDivisions = await getMemberDivisions(db, target.id);
+  const currentBoardRoles = await getBoardRoles(db, target.id);
+  assertUser(
+    !hasUniversityExecutiveAssignment(currentBoardRoles, university.name),
+    'Presidents and Vice Presidents cannot hold university division memberships.',
+  );
+  assertUser(
+    !previousDivisions.some((entry) => String(entry.id) === String(division.id)),
+    `That member already belongs to ${division.name}.`,
+  );
 
   const reason = `BAINSA governance: division.add_member ${university.name}/${division.name}`;
   const { addedRoles, removedRoles } = await enforceResearcherRoles(
@@ -979,7 +1053,23 @@ export async function addDivisionMember(interaction, options, deps: GovernanceDe
   try {
     await db.transaction(async (q) => {
       await lockMemberEligibilityRows(q, [target.id]);
+      const currentMember = await getMemberRecord(q, target.id);
       const currentDivisions = await getMemberDivisions(q, target.id);
+      const lockedBoardRoles = await getBoardRoles(q, target.id);
+      assertUser(
+        currentMember?.status === 'active'
+          && currentMember.member_type === MEMBER_TYPES.RESEARCHER
+          && String(currentMember.university_id) === String(university.id),
+        'The selected member is no longer an active Researcher in this university.',
+      );
+      assertUser(
+        !currentDivisions.some((entry) => String(entry.id) === String(division.id)),
+        `That member already belongs to ${division.name}.`,
+      );
+      assertUser(
+        !hasUniversityExecutiveAssignment(lockedBoardRoles, university.name),
+        'The selected member became a President or Vice President while this panel was open.',
+      );
       await assertMemberProjectAssignmentEligibility(q, {
         userId: target.id,
         memberType: MEMBER_TYPES.RESEARCHER,
@@ -1019,6 +1109,30 @@ export async function removeDivisionMember(interaction, options, deps: Governanc
     BOARD_ROLES.VICE_PRESIDENT,
     BOARD_ROLES.PRESIDENT,
   ]);
+  const currentMember = await getMemberRecord(db, target.id);
+  const currentDivisions = await getMemberDivisions(db, target.id);
+  const currentBoardRoles = await getBoardRoles(db, target.id);
+  assertUser(
+    currentMember?.status === 'active'
+      && currentMember.university_name === university.name,
+    `Choose an active member from ${university.name}.`,
+  );
+  assertUser(
+    currentDivisions.some((entry) => String(entry.id) === String(division.id)),
+    `That member no longer belongs to ${division.name}.`,
+  );
+  assertUser(
+    !currentBoardRoles.some((role) =>
+      role.role === BOARD_ROLES.HEAD && String(role.division_id) === String(division.id),
+    ),
+    `Remove the member's Head of ${division.name} board role before removing their division membership.`,
+  );
+  assertMemberDivisionRequirement(
+    currentMember.member_type,
+    currentDivisions.filter((entry) => String(entry.id) !== String(division.id)),
+    currentBoardRoles,
+    university.name,
+  );
   await assertNoActiveProjectAccessLoss(db, target.id, division);
 
   const reason = options.reason ?? `BAINSA governance: division.remove_member ${university.name}/${division.name}`;
@@ -1032,15 +1146,38 @@ export async function removeDivisionMember(interaction, options, deps: Governanc
   try {
     await db.transaction(async (q) => {
       await lockMemberEligibilityRows(q, [target.id]);
-      const currentMember = await getMemberRecord(q, target.id);
-      const currentDivisions = await getMemberDivisions(q, target.id);
+      const lockedMember = await getMemberRecord(q, target.id);
+      const lockedDivisions = await getMemberDivisions(q, target.id);
+      const lockedBoardRoles = await getBoardRoles(q, target.id);
+      assertUser(
+        lockedMember?.status === 'active'
+          && String(lockedMember.university_id) === String(university.id),
+        'The selected member is no longer active in this university.',
+      );
+      assertUser(
+        lockedDivisions.some((entry) => String(entry.id) === String(division.id)),
+        `That member no longer belongs to ${division.name}.`,
+      );
+      assertUser(
+        !lockedBoardRoles.some((role) =>
+          role.role === BOARD_ROLES.HEAD && String(role.division_id) === String(division.id),
+        ),
+        `Remove the member's Head of ${division.name} board role before removing their division membership.`,
+      );
+      const remainingDivisions = lockedDivisions.filter((entry) =>
+        String(entry.id) !== String(division.id),
+      );
+      assertMemberDivisionRequirement(
+        lockedMember.member_type,
+        remainingDivisions,
+        lockedBoardRoles,
+        university.name,
+      );
       await assertMemberProjectAssignmentEligibility(q, {
         userId: target.id,
-        memberType: currentMember?.member_type ?? MEMBER_TYPES.RESEARCHER,
-        universityId: currentMember?.university_id ?? university.id,
-        divisionIds: currentDivisions
-          .filter((entry) => String(entry.id) !== String(division.id))
-          .map((entry) => entry.id),
+        memberType: lockedMember.member_type,
+        universityId: lockedMember.university_id,
+        divisionIds: remainingDivisions.map((entry) => entry.id),
       });
       await removeMemberDivisionRow(q, target.id, division.id);
       await writeAudit(q, {
@@ -1074,7 +1211,10 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
   assertCanAssignBoardRole(actor, university.name, role);
   assertBoardAssignDivisionShape(role, divisionName);
   const previousRecord = await getMemberRecord(db, target.id);
-  assertCanPromoteResearcher(previousRecord, university.name);
+  assertUser(
+    previousRecord?.status === 'active' && previousRecord.university_name === university.name,
+    `Choose an active member from ${university.name}.`,
+  );
 
   const division =
     role === BOARD_ROLES.HEAD
@@ -1082,9 +1222,28 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
       : null;
 
   const currentBoardRoles = await getBoardRoles(db, target.id);
+  assertCanManageBoardMember(actor, university.name, target, currentBoardRoles);
+  assertUser(
+    !currentBoardRoles.some((assignment) =>
+      assignment.role === role
+      && assignment.university_name === university.name
+      && (
+        role !== BOARD_ROLES.HEAD
+        || String(assignment.division_id) === String(division?.id)
+      ),
+    ),
+    `That member already has the selected ${role === BOARD_ROLES.HEAD ? `Head of ${division.name}` : boardRoleLabel(role)} role.`,
+  );
   if (role === BOARD_ROLES.HEAD) {
     assertHeadAssignmentCompatible(currentBoardRoles, university.name);
   }
+  assertExclusiveBoardAssignmentAvailable(
+    await getExclusiveBoardAssignment(db, university.id, role, division?.id ?? null),
+    target.id,
+    role,
+    university,
+    division,
+  );
   const universityDivisionRoleIds = await getUniversityDivisionDiscordRoleIds(db, university.id);
   const currentUniversityHeadDivisionIds = currentBoardRoles
     .filter((boardRole) =>
@@ -1133,10 +1292,39 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
   try {
     await db.transaction(async (q) => {
       await lockDivisionHeadEligibilityRows(q, headEligibilityDivisionIds);
-      await lockMemberEligibilityRows(q, [target.id]);
-      if (role === BOARD_ROLES.HEAD) {
-        assertHeadAssignmentCompatible(await getBoardRoles(q, target.id), university.name);
+      if (role === BOARD_ROLES.VICE_PRESIDENT) {
+        await q.query('SELECT id FROM universities WHERE id = $1 FOR UPDATE', [university.id]);
       }
+      await lockMemberEligibilityRows(q, [target.id]);
+      const lockedMember = await getMemberRecord(q, target.id);
+      const lockedBoardRoles = await getBoardRoles(q, target.id);
+      assertUser(
+        lockedMember?.status === 'active'
+          && String(lockedMember.university_id) === String(university.id),
+        'The selected member is no longer active in this university.',
+      );
+      assertCanManageBoardMember(actor, university.name, target, lockedBoardRoles);
+      assertUser(
+        !lockedBoardRoles.some((assignment) =>
+          assignment.role === role
+          && assignment.university_name === university.name
+          && (
+            role !== BOARD_ROLES.HEAD
+            || String(assignment.division_id) === String(division?.id)
+          ),
+        ),
+        'That board role was assigned while this panel was open. Reload the member before trying again.',
+      );
+      if (role === BOARD_ROLES.HEAD) {
+        assertHeadAssignmentCompatible(lockedBoardRoles, university.name);
+      }
+      assertExclusiveBoardAssignmentAvailable(
+        await getExclusiveBoardAssignment(q, university.id, role, division?.id ?? null),
+        target.id,
+        role,
+        university,
+        division,
+      );
       await assertMemberProjectAssignmentEligibility(q, {
         userId: target.id,
         memberType: MEMBER_TYPES.RESEARCHER,
@@ -1159,11 +1347,16 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
           [String(target.id), university.id, BOARD_ROLES.HEAD, division.id],
         );
       }
-      await q.query(
+      const insertedAssignment = await q.query(
         `INSERT INTO board_assignments (discord_user_id, university_id, role, division_id, active)
          VALUES ($1, $2, $3, $4, true)
-         ON CONFLICT DO NOTHING`,
+         ON CONFLICT DO NOTHING
+         RETURNING id`,
         [String(target.id), university.id, role, division?.id ?? null],
+      );
+      assertUser(
+        insertedAssignment.rowCount === 1,
+        'That board appointment changed while this panel was open. Reload the member before trying again.',
       );
       await writeAudit(q, {
         actorId: interaction.user.id,
@@ -1199,6 +1392,28 @@ export async function removeBoardRole(interaction, options, deps: GovernanceDepe
     role === BOARD_ROLES.HEAD && divisionName
       ? await getDivisionByName(db, university.id, university.name, divisionName)
       : null;
+  const currentBoardRoles = await getBoardRoles(db, target.id);
+  const currentMember = await getMemberRecord(db, target.id);
+  assertUser(
+    currentMember?.status === 'active' && currentMember.university_name === university.name,
+    `Choose an active member from ${university.name}.`,
+  );
+  assertCanManageBoardMember(actor, university.name, target, currentBoardRoles);
+  const matchingRoles = currentBoardRoles.filter((assignment) =>
+    assignment.role === role
+      && assignment.university_name === university.name
+      && (
+        role !== BOARD_ROLES.HEAD
+        || !division
+        || String(assignment.division_id) === String(division.id)
+      ),
+  );
+  assertUser(
+    matchingRoles.length > 0,
+    role === BOARD_ROLES.HEAD && !division
+      ? `That member no longer has a Head role at ${university.name}.`
+      : `That member no longer has the selected ${boardRoleLabel(role)} role.`,
+  );
   const headAssignments = role !== BOARD_ROLES.HEAD
     ? []
     : division
@@ -1232,6 +1447,27 @@ export async function removeBoardRole(interaction, options, deps: GovernanceDepe
     await db.transaction(async (q) => {
       await lockDivisionHeadEligibilityRows(q, headAssignments.map((assignment) => assignment.id));
       await lockMemberEligibilityRows(q, [target.id]);
+      const lockedMember = await getMemberRecord(q, target.id);
+      const lockedBoardRoles = await getBoardRoles(q, target.id);
+      assertUser(
+        lockedMember?.status === 'active'
+          && String(lockedMember.university_id) === String(university.id),
+        'The selected member is no longer active in this university.',
+      );
+      assertCanManageBoardMember(actor, university.name, target, lockedBoardRoles);
+      const lockedMatchingRoles = lockedBoardRoles.filter((assignment) =>
+        assignment.role === role
+          && assignment.university_name === university.name
+          && (
+            role !== BOARD_ROLES.HEAD
+            || !division
+            || String(assignment.division_id) === String(division.id)
+          ),
+      );
+      assertUser(
+        sameBoardAssignments(matchingRoles, lockedMatchingRoles),
+        'That board assignment changed while this panel was open. Reload the member before trying again.',
+      );
       await q.query(
         `UPDATE board_assignments
             SET active = false,
@@ -1243,16 +1479,13 @@ export async function removeBoardRole(interaction, options, deps: GovernanceDepe
             AND ($4::bigint IS NULL OR division_id = $4)`,
         [String(target.id), university.id, role, division?.id ?? null],
       );
-      const member = await getMemberRecord(q, target.id);
       const memberDivisions = await getMemberDivisions(q, target.id);
-      if (member) {
-        await assertMemberProjectAssignmentEligibility(q, {
-          userId: target.id,
-          memberType: member.member_type,
-          universityId: member.university_id,
-          divisionIds: memberDivisions.map((entry) => entry.id),
-        });
-      }
+      await assertMemberProjectAssignmentEligibility(q, {
+        userId: target.id,
+        memberType: lockedMember.member_type,
+        universityId: lockedMember.university_id,
+        divisionIds: memberDivisions.map((entry) => entry.id),
+      });
       await writeAudit(q, {
         actorId: interaction.user.id,
         action: 'board.remove',

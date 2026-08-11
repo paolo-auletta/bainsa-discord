@@ -12,10 +12,10 @@ const EXPECTED_COMMANDS = {
   'member-info': ['user'],
   'division-create': [],
   'division-update': [],
-  'division-add-member': ['user', 'university', 'division'],
-  'division-remove-member': ['user', 'university', 'division', 'reason'],
-  'board-assign': ['user', 'university', 'role', 'division'],
-  'board-remove': ['user', 'university', 'role', 'division', 'reason'],
+  'division-add-member': [],
+  'division-remove-member': [],
+  'board-add-member': [],
+  'board-remove-member': [],
   'board-info': ['university'],
   'project-create': [],
   'project-update': [],
@@ -23,11 +23,11 @@ const EXPECTED_COMMANDS = {
   'project-info': ['project'],
 };
 
-const UNIVERSITY_DEPENDENT_DIVISION_COMMANDS = [
+const PANEL_GOVERNANCE_COMMANDS = [
   'division-add-member',
   'division-remove-member',
-  'board-assign',
-  'board-remove',
+  'board-add-member',
+  'board-remove-member',
 ];
 
 test('every v1 command is registered with a complete slash-command contract', () => {
@@ -51,25 +51,10 @@ test('member admission is handled by onboarding, not a slash command', () => {
   assert.equal(commands.some((command) => command.data.name === 'member-add'), false);
 });
 
-test('university-dependent division selectors expose ordered autocomplete contracts', () => {
-  const divisionOptionNames = new Set(['division', 'divisions', 'current_name']);
-  const targetCommands = serializeCommands(commands).filter((command) => {
-    const optionNames = command.options.map((option) => option.name);
-    return optionNames.includes('university') && optionNames.some((name) => divisionOptionNames.has(name));
-  });
-
-  assert.deepEqual(
-    targetCommands.map((command) => command.name).sort(),
-    [...UNIVERSITY_DEPENDENT_DIVISION_COMMANDS].sort(),
-  );
-
-  for (const command of targetCommands) {
-    const universityIndex = command.options.findIndex((option) => option.name === 'university');
-    const divisionIndex = command.options.findIndex((option) => divisionOptionNames.has(option.name));
-
-    assert.equal(command.options[universityIndex].autocomplete, true, `${command.name}: university autocomplete`);
-    assert.equal(command.options[divisionIndex].autocomplete, true, `${command.name}: division autocomplete`);
-    assert.ok(universityIndex < divisionIndex, `${command.name}: university must precede division`);
+test('member-first governance panels expose no obsolete inline scope options', () => {
+  const serialized = new Map(serializeCommands(commands).map((command) => [command.name, command]));
+  for (const commandName of PANEL_GOVERNANCE_COMMANDS) {
+    assert.deepEqual(serialized.get(commandName).options, [], commandName);
   }
 });
 
@@ -82,10 +67,6 @@ test('every command with an inline user target blocks the Bot account', () => {
   assert.deepEqual(
     targetCommands.map((command) => command.data.name).sort(),
     [
-      'board-assign',
-      'board-remove',
-      'division-add-member',
-      'division-remove-member',
       'member-info',
       'member-remove',
     ].sort(),

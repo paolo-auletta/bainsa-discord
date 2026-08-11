@@ -100,8 +100,8 @@ must be shortened safely before reaching Discord limits.
 | `/division-update` | Always after success | University and changed division name or color |
 | `/division-add-member` | Always after success | Member and university/division scope |
 | `/division-remove-member` | Always after success | Member and university/division scope |
-| `/board-assign` | Always after success | Member, assigned role, university, and Head division when applicable |
-| `/board-remove` | Always after success | Member, removed role, university, and Head division when applicable |
+| `/board-add-member` | Always after success | Member, assigned role, university, and Head division when applicable |
+| `/board-remove-member` | Always after success | Member, removed role, university, and Head division when applicable |
 | `/board-info` | Never | Private lookup |
 | `/project-create` | Always after success | Project, scope, team, timeline, and created channel |
 | `/project-update` | For visible project or team changes | Project, scope, visible `old -> new` changes, participant additions/removals, and role changes |

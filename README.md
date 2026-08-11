@@ -115,15 +115,13 @@ Divisions and board:
 - `/division-update`
 - `/division-add-member`
 - `/division-remove-member`
-- `/board-assign`
-- `/board-remove`
+- `/board-add-member`
+- `/board-remove-member`
 - `/board-info`
 
 Projects:
 
 - `/project-create`
-- `/project-add-member`
-- `/project-remove-member`
 - `/project-update`
 - `/project-close`
 - `/project-info`
@@ -136,7 +134,7 @@ Announcements and scheduled events use Discord's native UI and scoped channel pe
 
 Commands cannot target the Bot account, including project participant selectors. Governance commands acknowledge immediately before performing Discord and database work, so longer operations do not expire the interaction response window.
 
-Governance and project-creation slash commands are usable only in the global `LOGS / bot-log` or the matching university `bot-log`. `/project-info`, `/project-add-member`, `/project-remove-member`, `/project-update`, and `/project-close` may also be used inside the owning private project channel. The project selector is optional there and cannot target a different project. Every participant may use `/project-info`; project supervisors and scoped board roles may use the mutation commands. A project-channel mutation keeps its human transition in the workspace and routes its governance activity entry to the owning university `bot-log`.
+Governance and project-creation slash commands are usable only in the global `LOGS / bot-log` or the matching university `bot-log`. The four board/division membership panels currently require a university `bot-log`; their Global President workflow is reserved for issue #70. `/project-info`, `/project-update`, and `/project-close` may also be used inside the owning private project channel. The project selector is optional there and cannot target a different project. Every participant may use `/project-info`; project supervisors and scoped board roles may use the mutation commands. A project-channel mutation keeps its human transition in the workspace and routes its governance activity entry to the owning university `bot-log`.
 
 The dispatcher enforces channel and resource scope even if Discord permissions are later changed manually. Command registration requires `DISCORD_CLIENT_SECRET` in production and synchronizes presentation-layer visibility for board tiers and approved members. Discord documents that this permission endpoint requires a Bearer token with the `applications.commands.permissions.update` scope: [Application Commands](https://discord.com/developers/interactions/application-commands#edit-application-command-permissions). The dispatcher independently authorizes autocomplete before any database or guild-member lookup; stale or unauthorized interactions receive no suggestions. Execution-time and transactional authorization remain authoritative.
 

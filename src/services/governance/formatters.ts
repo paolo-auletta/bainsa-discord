@@ -232,3 +232,24 @@ export function formatBoardRemovalHandoff(result, reason = null) {
     audience: 'member',
   });
 }
+
+export function formatDivisionMemberHandoff(result, { removed = false, reason = null } = {}) {
+  return renderHandoffMessage({
+    kind: 'handoff-message',
+    tone: removed ? 'changed' : 'success',
+    title: 'Your BAINSA division access changed',
+    context: removed
+      ? 'A division membership was removed. Your university membership remains unchanged.'
+      : 'A division membership was added to your BAINSA access.',
+    sections: [
+      { heading: removed ? 'Division removed' : 'Division added', body: result.division.name },
+      { heading: 'University', body: result.university.name },
+      ...(removed && reason ? [{ heading: 'Reason shared by the board', body: safeText(reason) }] : []),
+    ],
+    nextActions: removed
+      ? ['Run `/guide` in a board command channel if you still hold board access.']
+      : ['Open the division space and review its current work before contributing.'],
+    provenance: 'BAINSA governance · Access handoff',
+    audience: 'member',
+  });
+}

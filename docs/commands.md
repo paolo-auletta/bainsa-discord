@@ -150,63 +150,37 @@ the current colour icon, and records the change.
 
 ### `/division-add-member`
 
-**Who can use it:** Global Presidents, the selected university's President or Vice President, and the Head of the selected division.
+**Who can use it:** A university President or Vice President, and a Division Head for their own division. Global President support is deferred to issue #70.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `user` | Yes | Researcher to add |
-| `university` | Yes | University scope |
-| `division` | Yes | Division inside the selected university |
+The command has no inline fields. Run it in the university `bot-log`; the panel infers that university, asks for a member first, and loads their current record and division memberships. It then offers only divisions the actor may manage and which the active Researcher has not already joined. Memberships outside a Head's scope remain out of the action control.
 
-The bot verifies that the target can be a Researcher, assigns the university and division access roles, adds the member-division relationship, and records an audit entry.
+The final review shows the complete division set after the change. On confirmation, the bot revalidates authority, active Researcher eligibility, university, and current memberships; assigns the managed university/division Discord roles; adds the relationship; posts activity; and sends the member a private handoff.
 
 ### `/division-remove-member`
 
-**Who can use it:** Global Presidents, the selected university's President or Vice President, and the Head of the selected division.
+**Who can use it:** A university President or Vice President, and a Division Head for their own division. Global President support is deferred to issue #70.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `user` | Yes | Member to remove from the division |
-| `university` | Yes | University scope |
-| `division` | Yes | Division inside the selected university |
-| `reason` | No | Audit and Discord role-removal reason |
+The command has no inline fields. Its member-first panel infers the university from `bot-log`, then displays every current division membership. A President or Vice President can act across that university; a Head sees other memberships as read only and can act only on their own division. Because Discord string-select options cannot be disabled individually, only safe actionable divisions appear in the selector while every read-only or blocked division remains visible in the summary with its reason.
 
-The bot blocks removal when the person still has active project access in that division. Otherwise it removes the division relationship and access role while preserving the university membership record.
+Removal is blocked when the division is required by an active Head assignment, by active project membership, or by the rule that a non-executive Researcher must keep at least one division. The actor can add an optional private reason in the panel. The final review shows the remaining divisions. Confirmation revalidates the database state before removing only the selected relationship and managed role; university membership remains intact. Activity omits the reason, while the audit record and affected member's private handoff retain it.
 
 ## Board Commands
 
-### `/board-assign`
+### `/board-add-member`
 
-**Who can use it:** Global Presidents for all universities; a university President or Vice President for their university. A university President can also assign a co-President; a Vice President cannot assign a President.
+**Who can use it:** A university President or Vice President in their university `bot-log`. A President can appoint a co-President; a Vice President cannot appoint or manage a President. Global President support is deferred to issue #70.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `user` | Yes | Member to appoint |
-| `university` | Yes | University board scope |
-| `role` | Yes | `Head`, `Vice President`, or `President` |
-| `division` | Head only | Required division when assigning a Head; must be empty for Vice President or President |
+The command has no inline fields. The private panel infers the university, asks for the member first, and loads their current board and division state. It offers only available roles: occupied or already-held appointments are omitted, President is offered only to a President, and Head opens a second division selector containing only eligible unoccupied divisions.
 
-The bot verifies the appointment, reconciles the Researcher, university, division, board, and Head roles, records the board assignment, and writes an audit entry. Assigning a Head moves the member into the selected division: previous division and Head roles for that university are removed, the selected division and Head roles are added, and the stored division membership is replaced.
+The final review shows the resulting board roles, division access, and any Head assignment that the appointment supersedes. Confirmation revalidates authority and current database state, reconciles managed Discord roles, records the appointment, posts activity, and sends the member a private handoff. Assigning a Head moves the member into the selected division and replaces another Head assignment in that university; assigning an executive clears university division and Head access according to the database invariant.
 
-### `/board-remove`
+### `/board-remove-member`
 
-**Who can use it:** Global Presidents for all universities; a university President or Vice President for their university. A university President can remove a co-President; a Vice President cannot remove a President.
+**Who can use it:** A university President or Vice President in their university `bot-log`. A President can remove a co-President; a Vice President cannot select or manage a President. Global President support is deferred to issue #70.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `user` | Yes | Board member to update |
-| `university` | Yes | University board scope |
-| `role` | Yes | Board role to remove |
-| `division` | Head only | Specific Head division, or empty to remove all Head roles for that university |
-| `reason` | No | Audit and Discord role-removal reason |
+The command has no inline fields. After member selection and confirmation, the panel loads and lists all current board roles, including roles outside the current university as read only. Only roles within the actor's hierarchy appear in the action selector. Multiple Head appointments are listed separately, and the selector also provides an explicit **All Head roles** action when applicable.
 
-The bot first opens a private, actor-bound confirmation showing the member, role, and exact scope.
-The confirmation expires after 15 minutes and cannot be used by another member. After confirmation,
-the bot deactivates the matching board assignment and removes the managed board role. Base
-Researcher and university roles remain. The shared activity card excludes the private reason; the
-affected member receives that reason only in their direct access-handoff message. A committed role
-change is never presented as safe to retry merely because the activity card or DM could not be
-delivered.
+The actor can add an optional private reason before reviewing the exact roles and preserved base access. The actor-bound session expires after 15 minutes and revalidates authority and the selected assignment at save time. Confirmation deactivates only the requested assignment or explicit all-Heads selection and removes the managed role while preserving Researcher/Alumni and university access. Shared activity excludes the private reason; the audit record and affected member's private handoff include it. A committed change is never presented as safe to retry merely because activity or DM delivery failed.
 
 ### `/board-info`
 

@@ -10,44 +10,22 @@ import {
 import { logger } from '../../logger.js';
 import { divisionLabel } from '../../constants.js';
 import {
-  BOARD_ROLE_CHOICES,
-} from '../../services/governance/policy.js';
-import {
-  addDivisionMember,
-  assignBoardRole,
   findDivisions,
   findUniversities,
   formatBoardInfo,
   formatMemberInfo,
   getBoardInfo,
   getMemberInfo,
-  removeDivisionMember,
   removeMember,
 } from '../../services/governance/service.js';
-import { boardRoleRemovalConfirmation } from '../../services/governance/confirmations.js';
-import { formatBoardAssignmentHandoff } from '../../services/governance/formatters.js';
+import { governanceMembershipPanels } from '../../services/governance/membership-panels.js';
 import { governanceCommandPanels } from '../../services/governance/panels.js';
-
-function withBoardRoleChoices(option) {
-  return option
-    .setName('role')
-    .setDescription('Board role')
-    .addChoices(...BOARD_ROLE_CHOICES);
-}
 
 function universityOption(option) {
   return option
     .setName('university')
     .setDescription('University scope')
     .setRequired(true)
-    .setAutocomplete(true);
-}
-
-function divisionOption(option, name = 'division', description = 'Division name', required = true) {
-  return option
-    .setName(name)
-    .setDescription(description)
-    .setRequired(required)
     .setAutocomplete(true);
 }
 
@@ -134,17 +112,6 @@ async function postActivity(interaction, commandName, result) {
   );
 }
 
-async function notifyBoardAssignment(result) {
-  try {
-    await result.target.send(formatBoardAssignmentHandoff(result));
-  } catch (error) {
-    logger.warn('Board assignment DM could not be delivered', {
-      userId: String(result.target.id),
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
 async function autocomplete(interaction) {
   const focused = interaction.options.getFocused(true);
   const value = focused.value ?? '';
@@ -222,82 +189,35 @@ const divisionUpdate = {
 };
 
 const divisionAddMember = {
-  data: command('division-add-member', 'Add a Researcher to a division.')
-    .addUserOption((option) => option.setName('user').setDescription('Member to add').setRequired(true))
-    .addStringOption(universityOption)
-    .addStringOption((option) => divisionOption(option)),
-  autocomplete,
-  execute: (interaction) =>
-    run(interaction, async () => {
-      const result = await addDivisionMember(interaction, {
-        user: interaction.options.getUser('user', true),
-        university: interaction.options.getString('university', true),
-        division: interaction.options.getString('division', true),
-      });
-      await postActivity(interaction, 'division-add-member', result);
-    }),
+  data: command('division-add-member', 'Open the private guided division-member panel.'),
+  execute: (interaction) => openPanel(
+    interaction,
+    () => governanceMembershipPanels.startDivisionAddMember(interaction),
+  ),
 };
 
 const divisionRemoveMember = {
-  data: command('division-remove-member', 'Remove a member from a division.')
-    .addUserOption((option) => option.setName('user').setDescription('Member to remove').setRequired(true))
-    .addStringOption(universityOption)
-    .addStringOption((option) => divisionOption(option))
-    .addStringOption((option) => option.setName('reason').setDescription('Optional removal reason').setRequired(false)),
-  autocomplete,
-  execute: (interaction) =>
-    run(interaction, async () => {
-      const result = await removeDivisionMember(interaction, {
-        user: interaction.options.getUser('user', true),
-        university: interaction.options.getString('university', true),
-        division: interaction.options.getString('division', true),
-        reason: interaction.options.getString('reason') ?? null,
-      });
-      await postActivity(interaction, 'division-remove-member', result);
-    }),
+  data: command('division-remove-member', 'Open the private guided division-removal panel.'),
+  execute: (interaction) => openPanel(
+    interaction,
+    () => governanceMembershipPanels.startDivisionRemoveMember(interaction),
+  ),
 };
 
-const boardAssign = {
-  data: command('board-assign', 'Assign a university board role.')
-    .addUserOption((option) => option.setName('user').setDescription('Member to promote').setRequired(true))
-    .addStringOption(universityOption)
-    .addStringOption((option) => withBoardRoleChoices(option).setRequired(true))
-    .addStringOption((option) => divisionOption(option, 'division', 'Required for Head roles', false)),
-  autocomplete,
-  execute: (interaction) =>
-    run(interaction, async () => {
-      const result = await assignBoardRole(interaction, {
-        user: interaction.options.getUser('user', true),
-        university: interaction.options.getString('university', true),
-        role: interaction.options.getString('role', true),
-        division: interaction.options.getString('division') ?? null,
-      });
-      await notifyBoardAssignment(result);
-      await postActivity(interaction, 'board-assign', result);
-    }),
+const boardAddMember = {
+  data: command('board-add-member', 'Open the private guided board-appointment panel.'),
+  execute: (interaction) => openPanel(
+    interaction,
+    () => governanceMembershipPanels.startBoardAddMember(interaction),
+  ),
 };
 
-const boardRemove = {
-  data: command('board-remove', 'Remove a university board role while keeping base member roles.')
-    .addUserOption((option) => option.setName('user').setDescription('Member to update').setRequired(true))
-    .addStringOption(universityOption)
-    .addStringOption((option) => withBoardRoleChoices(option).setRequired(true))
-    .addStringOption((option) => divisionOption(option, 'division', 'Head division to remove, or blank for all', false))
-    .addStringOption((option) => option.setName('reason').setDescription('Optional removal reason').setRequired(false)),
-  autocomplete,
-  execute: async (interaction) => {
-    try {
-      await boardRoleRemovalConfirmation.start(interaction, {
-        user: interaction.options.getUser('user', true),
-        university: interaction.options.getString('university', true),
-        role: interaction.options.getString('role', true),
-        division: interaction.options.getString('division') ?? null,
-        reason: interaction.options.getString('reason') ?? null,
-      });
-    } catch (error) {
-      await handleInteractionError(interaction, error);
-    }
-  },
+const boardRemoveMember = {
+  data: command('board-remove-member', 'Open the private guided board-role removal panel.'),
+  execute: (interaction) => openPanel(
+    interaction,
+    () => governanceMembershipPanels.startBoardRemoveMember(interaction),
+  ),
 };
 
 const boardInfo = {
@@ -321,8 +241,8 @@ export const governanceCommands = [
   divisionUpdate,
   divisionAddMember,
   divisionRemoveMember,
-  boardAssign,
-  boardRemove,
+  boardAddMember,
+  boardRemoveMember,
   boardInfo,
 ];
 

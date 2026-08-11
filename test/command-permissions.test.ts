@@ -22,9 +22,9 @@ const roles = [
 
 test('every registered command has a deliberate board-visibility policy', () => {
   assert.deepEqual(Object.keys(COMMAND_VISIBILITY).sort(), [
-    'board-assign',
+    'board-add-member',
     'board-info',
-    'board-remove',
+    'board-remove-member',
     'division-add-member',
     'division-create',
     'division-remove-member',
@@ -54,8 +54,29 @@ test('board role commands are visible to university Vice Presidents', () => {
   const scope = { kind: 'university', universityName: 'Bocconi' };
   const vicePresident = memberWithRoles(['Bocconi - Vice President']);
 
-  assert.equal(canDiscoverCommand({ commandName: 'board-assign', member: vicePresident, channelScope: scope }), true);
-  assert.equal(canDiscoverCommand({ commandName: 'board-remove', member: vicePresident, channelScope: scope }), true);
+  assert.equal(canDiscoverCommand({ commandName: 'board-add-member', member: vicePresident, channelScope: scope }), true);
+  assert.equal(canDiscoverCommand({ commandName: 'board-remove-member', member: vicePresident, channelScope: scope }), true);
+});
+
+test('local membership panels stay out of global scope until the #70 workflow exists', () => {
+  const globalPresident = memberWithRoles(['Global President']);
+  const scope = { kind: 'global' };
+
+  for (const commandName of [
+    'board-add-member',
+    'board-remove-member',
+    'division-add-member',
+    'division-remove-member',
+  ]) {
+    assert.equal(canDiscoverCommand({ commandName, member: globalPresident, channelScope: scope }), false);
+  }
+
+  const boardPermissions = buildCommandPermissionOverwrites({
+    commandName: 'board-add-member',
+    guildId: 'guild',
+    roles,
+  });
+  assert.equal(boardPermissions.some((permission) => permission.id === 'global'), false);
 });
 
 test('only project-scoped commands are discoverable inside a project channel', () => {

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const files = execFileSync(
   'git',
@@ -9,7 +9,7 @@ const files = execFileSync(
   },
 )
   .split('\n')
-  .filter((file) => file.endsWith('.ts'));
+  .filter((file) => file.endsWith('.ts') && existsSync(file));
 
 const failures = files.flatMap((file) => {
   const source = readFileSync(file, 'utf8');

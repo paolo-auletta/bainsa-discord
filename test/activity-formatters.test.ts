@@ -21,8 +21,8 @@ const division = { name: 'Culture' };
 
 test('activity policy contains every state-changing command and no lookup command', () => {
   assert.deepEqual([...BOARD_ACTIVITY_COMMANDS].sort(), [
-    'board-assign',
-    'board-remove',
+    'board-add-member',
+    'board-remove-member',
     'division-add-member',
     'division-create',
     'division-remove-member',
@@ -90,7 +90,7 @@ test('division and board activity use consistent action, scope, and role fields'
   assert.match(fieldValue(divisionEmbed, 'Channels created'), /<#200>/);
   assert.match(fieldValue(divisionEmbed, 'Channels created'), /Voice: No/);
 
-  const boardPayload = formatBoardActivity('board-assign', {
+  const boardPayload = formatBoardActivity('board-add-member', {
     actorId,
     result: { target, university, division, role: 'head' },
   });
@@ -108,7 +108,7 @@ test('activity keeps a member display name when Discord cannot resolve their bot
     user: { username: 'sellaceo' },
   };
 
-  for (const command of ['board-assign', 'board-remove']) {
+  for (const command of ['board-add-member', 'board-remove-member']) {
     const payload = formatBoardActivity(command, {
       actorId,
       result: { target: nonBoardMember, university, division, role: 'head' },

@@ -48,10 +48,6 @@ function fakeMember(roleNames) {
   };
 }
 
-function option(commandJson, name) {
-  return commandJson.options.find((entry) => entry.name === name);
-}
-
 function cacheFrom(items = []) {
   const map = new Map(items.map((item) => [String(item.id), item]));
   return {
@@ -133,9 +129,9 @@ test('parseDivisionList normalizes, deduplicates, and ignores empty parts', () =
 test('governanceCommands exposes only the approved v1 governance commands', () => {
   const names = governanceCommands.map((entry) => entry.data.name).sort();
   assert.deepEqual(names, [
-    'board-assign',
+    'board-add-member',
     'board-info',
-    'board-remove',
+    'board-remove-member',
     'division-add-member',
     'division-create',
     'division-remove-member',
@@ -335,13 +331,14 @@ test('division-update restores an already-renamed channel when a later channel r
   assert.equal(voiceChannel.name, '🟦-projects-room');
 });
 
-test('board command option shape matches the approved policy', () => {
-  const boardAssign = governanceCommands.find((entry) => entry.data.name === 'board-assign').data.toJSON();
-  const boardRemove = governanceCommands.find((entry) => entry.data.name === 'board-remove').data.toJSON();
+test('board membership commands open zero-argument private panel flows', () => {
+  const boardAdd = governanceCommands.find((entry) => entry.data.name === 'board-add-member').data.toJSON();
+  const boardRemove = governanceCommands.find((entry) => entry.data.name === 'board-remove-member').data.toJSON();
 
-  assert.equal(option(boardAssign, 'division').required, false);
-  assert.equal(option(boardRemove, 'division').required, false);
-  assert.equal(option(boardRemove, 'reason').required, false);
+  assert.deepEqual(boardAdd.options, []);
+  assert.deepEqual(boardRemove.options, []);
+  assert.match(boardAdd.description, /private guided board-appointment panel/i);
+  assert.match(boardRemove.description, /private guided board-role removal panel/i);
 });
 
 test('member-remove policy protects President and Bot roles', () => {
@@ -775,7 +772,15 @@ test('board Head assignment moves the member to the Head division in Discord and
     async query(text) {
       if (text.includes('FROM universities')) return { rows: [{ id: 2, name: 'Bocconi' }], rowCount: 1 };
       if (text.includes('FROM members m')) {
-        return { rows: [{ university_name: 'Bocconi', member_type: MEMBER_TYPES.RESEARCHER }], rowCount: 1 };
+        return {
+          rows: [{
+            university_id: 2,
+            university_name: 'Bocconi',
+            member_type: MEMBER_TYPES.RESEARCHER,
+            status: 'active',
+          }],
+          rowCount: 1,
+        };
       }
       if (text.includes('SELECT br.role')) {
         return {
@@ -786,6 +791,9 @@ test('board Head assignment moves the member to the Head division in Discord and
           }],
           rowCount: 1,
         };
+      }
+      if (text.includes('SELECT discord_user_id') && text.includes('FROM board_assignments')) {
+        return { rows: [], rowCount: 0 };
       }
       if (text.includes('SELECT id, member_role_id, head_role_id')) {
         return {
@@ -815,6 +823,17 @@ test('board Head assignment moves the member to the Head division in Discord and
       return callback({
         async query(text, values) {
           transactionQueries.push({ text, values });
+          if (text.includes('FROM members m')) {
+            return {
+              rows: [{
+                university_id: 2,
+                university_name: 'Bocconi',
+                member_type: MEMBER_TYPES.RESEARCHER,
+                status: 'active',
+              }],
+              rowCount: 1,
+            };
+          }
           if (text.includes('SELECT br.role')) {
             return {
               rows: [{
@@ -824,6 +843,12 @@ test('board Head assignment moves the member to the Head division in Discord and
               }],
               rowCount: 1,
             };
+          }
+          if (text.includes('SELECT discord_user_id') && text.includes('FROM board_assignments')) {
+            return { rows: [], rowCount: 0 };
+          }
+          if (text.includes('INSERT INTO board_assignments')) {
+            return { rows: [{ id: 1 }], rowCount: 1 };
           }
           return { rows: [], rowCount: 0 };
         },
@@ -876,7 +901,15 @@ test('board Head assignment rejects an active executive before touching Discord 
     async query(text) {
       if (text.includes('FROM universities')) return { rows: [{ id: 1, name: 'Bocconi' }], rowCount: 1 };
       if (text.includes('FROM members m')) {
-        return { rows: [{ university_name: 'Bocconi', member_type: MEMBER_TYPES.RESEARCHER }], rowCount: 1 };
+        return {
+          rows: [{
+            university_id: 1,
+            university_name: 'Bocconi',
+            member_type: MEMBER_TYPES.RESEARCHER,
+            status: 'active',
+          }],
+          rowCount: 1,
+        };
       }
       if (text.includes('FROM divisions')) {
         return {
@@ -962,7 +995,17 @@ test('board VP assignment removes Discord division and Head roles even when assi
   const db = {
     async query(text) {
       if (text.includes('FROM universities')) return { rows: [{ id: 1, name: 'Bocconi' }], rowCount: 1 };
-      if (text.includes('FROM members m')) return { rows: [{ university_name: 'Bocconi' }], rowCount: 1 };
+      if (text.includes('FROM members m')) {
+        return {
+          rows: [{
+            university_id: 1,
+            university_name: 'Bocconi',
+            member_type: MEMBER_TYPES.RESEARCHER,
+            status: 'active',
+          }],
+          rowCount: 1,
+        };
+      }
       if (text.includes('FROM member_divisions')) {
         return {
           rows: [
@@ -973,6 +1016,9 @@ test('board VP assignment removes Discord division and Head roles even when assi
         };
       }
       if (text.includes('FROM board_assignments br')) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (text.includes('SELECT discord_user_id') && text.includes('FROM board_assignments')) {
         return { rows: [], rowCount: 0 };
       }
       if (text.includes('SELECT id, member_role_id, head_role_id')) {
@@ -988,7 +1034,28 @@ test('board VP assignment removes Discord division and Head roles even when assi
       throw new Error(`Unexpected query: ${text}`);
     },
     async transaction(callback) {
-      return callback({ async query() { return { rows: [], rowCount: 0 }; } });
+      return callback({
+        async query(text) {
+          if (text.includes('FROM members m')) {
+            return {
+              rows: [{
+                university_id: 1,
+                university_name: 'Bocconi',
+                member_type: MEMBER_TYPES.RESEARCHER,
+                status: 'active',
+              }],
+              rowCount: 1,
+            };
+          }
+          if (text.includes('SELECT discord_user_id') && text.includes('FROM board_assignments')) {
+            return { rows: [], rowCount: 0 };
+          }
+          if (text.includes('INSERT INTO board_assignments')) {
+            return { rows: [{ id: 1 }], rowCount: 1 };
+          }
+          return { rows: [], rowCount: 0 };
+        },
+      });
     },
   };
 
@@ -1009,6 +1076,84 @@ test('board VP assignment removes Discord division and Head roles even when assi
   assert.deepEqual(
     [...target.roles.cache.values()].map((role) => role.name).sort(),
     [ROLE_NAMES.RESEARCHER, 'Bocconi', 'Bocconi - Vice President'].sort(),
+  );
+});
+
+test('board VP assignment aborts and restores Discord roles when the appointment becomes occupied', async () => {
+  const researcherRole = testRole('researcher-role', ROLE_NAMES.RESEARCHER);
+  const universityRole = testRole('bocconi-role', 'Bocconi');
+  const vicePresidentRole = testRole('vice-president-role', 'Bocconi - Vice President');
+  const roleCache = cacheFrom([researcherRole, universityRole, vicePresidentRole]);
+  const target = memberWithRoles([researcherRole, universityRole]);
+  let occupancyChecks = 0;
+  let inserts = 0;
+  const activeMember = {
+    university_id: 1,
+    university_name: 'Bocconi',
+    member_type: MEMBER_TYPES.RESEARCHER,
+    status: 'active',
+  };
+  const db = {
+    async query(text) {
+      if (text.includes('FROM universities')) {
+        return { rows: [{ id: 1, name: 'Bocconi' }], rowCount: 1 };
+      }
+      if (text.includes('FROM members m')) return { rows: [activeMember], rowCount: 1 };
+      if (text.includes('FROM board_assignments br')) return { rows: [], rowCount: 0 };
+      if (text.includes('SELECT discord_user_id') && text.includes('FROM board_assignments')) {
+        occupancyChecks += 1;
+        return { rows: [], rowCount: 0 };
+      }
+      if (text.includes('SELECT id, member_role_id, head_role_id')) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (text.includes('FROM project_people pp')) return { rows: [], rowCount: 0 };
+      throw new Error(`Unexpected query: ${text}`);
+    },
+    async transaction(callback) {
+      return callback({
+        async query(text) {
+          if (text.includes('FROM members m')) return { rows: [activeMember], rowCount: 1 };
+          if (text.includes('FROM board_assignments br')) return { rows: [], rowCount: 0 };
+          if (text.includes('SELECT discord_user_id') && text.includes('FROM board_assignments')) {
+            occupancyChecks += 1;
+            return {
+              rows: [{ discord_user_id: 'another-member' }],
+              rowCount: 1,
+            };
+          }
+          if (text.includes('INSERT INTO board_assignments')) inserts += 1;
+          return { rows: [], rowCount: 0 };
+        },
+      });
+    },
+  };
+
+  await assert.rejects(
+    assignBoardRole(
+      {
+        guild: {
+          roles: { cache: roleCache },
+          members: { async fetch() { return target; } },
+        },
+        user: { id: 'actor-user' },
+        member: fakeMember([ROLE_NAMES.GLOBAL_PRESIDENT]),
+      },
+      {
+        university: 'Bocconi',
+        role: BOARD_ROLES.VICE_PRESIDENT,
+        user: { id: 'target-user' },
+      },
+      { db },
+    ),
+    /Vice President at Bocconi is already assigned to another member/,
+  );
+
+  assert.equal(occupancyChecks, 2);
+  assert.equal(inserts, 0);
+  assert.deepEqual(
+    [...target.roles.cache.values()].map((role) => role.name).sort(),
+    [ROLE_NAMES.RESEARCHER, 'Bocconi'].sort(),
   );
 });
 
@@ -1044,8 +1189,21 @@ test('board executive assignment removes division roles by persisted ID without 
   const db = {
     async query(text) {
       if (text.includes('FROM universities')) return { rows: [{ id: 1, name: 'A' }], rowCount: 1 };
-      if (text.includes('FROM members m')) return { rows: [{ university_name: 'A' }], rowCount: 1 };
+      if (text.includes('FROM members m')) {
+        return {
+          rows: [{
+            university_id: 1,
+            university_name: 'A',
+            member_type: MEMBER_TYPES.RESEARCHER,
+            status: 'active',
+          }],
+          rowCount: 1,
+        };
+      }
       if (text.includes('FROM board_assignments br')) return { rows: [], rowCount: 0 };
+      if (text.includes('SELECT discord_user_id') && text.includes('FROM board_assignments')) {
+        return { rows: [], rowCount: 0 };
+      }
       if (text.includes('SELECT id, member_role_id, head_role_id')) {
         return {
           rows: [{ id: 10, member_role_id: divisionRole.id, head_role_id: headRole.id }],
@@ -1056,7 +1214,28 @@ test('board executive assignment removes division roles by persisted ID without 
       throw new Error(`Unexpected query: ${text}`);
     },
     async transaction(callback) {
-      return callback({ async query() { return { rows: [], rowCount: 0 }; } });
+      return callback({
+        async query(text) {
+          if (text.includes('FROM members m')) {
+            return {
+              rows: [{
+                university_id: 1,
+                university_name: 'A',
+                member_type: MEMBER_TYPES.RESEARCHER,
+                status: 'active',
+              }],
+              rowCount: 1,
+            };
+          }
+          if (text.includes('SELECT discord_user_id') && text.includes('FROM board_assignments')) {
+            return { rows: [], rowCount: 0 };
+          }
+          if (text.includes('INSERT INTO board_assignments')) {
+            return { rows: [{ id: 1 }], rowCount: 1 };
+          }
+          return { rows: [], rowCount: 0 };
+        },
+      });
     },
   };
 
@@ -1098,11 +1277,24 @@ test('board executive assignment preserves same-university project membership wi
   const db = {
     async query(text) {
       if (text.includes('FROM universities')) return { rows: [{ id: 1, name: 'Bocconi' }], rowCount: 1 };
-      if (text.includes('FROM members m')) return { rows: [{ university_name: 'Bocconi' }], rowCount: 1 };
+      if (text.includes('FROM members m')) {
+        return {
+          rows: [{
+            university_id: 1,
+            university_name: 'Bocconi',
+            member_type: MEMBER_TYPES.RESEARCHER,
+            status: 'active',
+          }],
+          rowCount: 1,
+        };
+      }
       if (text.includes('FROM member_divisions')) {
         return { rows: [{ id: 10, name: 'Analysis', university_name: 'Bocconi' }], rowCount: 1 };
       }
       if (text.includes('FROM board_assignments br')) return { rows: [], rowCount: 0 };
+      if (text.includes('SELECT discord_user_id') && text.includes('FROM board_assignments')) {
+        return { rows: [], rowCount: 0 };
+      }
       if (text.includes('SELECT id, member_role_id, head_role_id')) {
         return { rows: [{ id: 10, member_role_id: analysisRole.id, head_role_id: null }], rowCount: 1 };
       }
@@ -1114,8 +1306,26 @@ test('board executive assignment preserves same-university project membership wi
     async transaction(callback) {
       return callback({
         async query(text) {
+          if (text.includes('FROM members m')) {
+            return {
+              rows: [{
+                university_id: 1,
+                university_name: 'Bocconi',
+                member_type: MEMBER_TYPES.RESEARCHER,
+                status: 'active',
+              }],
+              rowCount: 1,
+            };
+          }
+          if (text.includes('FROM board_assignments br')) return { rows: [], rowCount: 0 };
+          if (text.includes('SELECT discord_user_id') && text.includes('FROM board_assignments')) {
+            return { rows: [], rowCount: 0 };
+          }
           if (text.includes('FROM project_people pp')) {
             return { rows: [projectAssignment], rowCount: 1 };
+          }
+          if (text.includes('INSERT INTO board_assignments')) {
+            return { rows: [{ id: 1 }], rowCount: 1 };
           }
           return { rows: [], rowCount: 0 };
         },
@@ -1169,7 +1379,19 @@ test('division member assignment preserves an existing division member role colo
   const db = {
     async query(text) {
       if (text.includes('FROM universities')) return { rows: [{ id: 2, name: 'Sapienza' }], rowCount: 1 };
-      if (text.includes('FROM members m')) return { rows: [], rowCount: 0 };
+      if (text.includes('FROM members m')) {
+        return {
+          rows: [{
+            university_id: 2,
+            university_name: 'Sapienza',
+            member_type: MEMBER_TYPES.RESEARCHER,
+            status: 'active',
+          }],
+          rowCount: 1,
+        };
+      }
+      if (text.includes('FROM member_divisions')) return { rows: [], rowCount: 0 };
+      if (text.includes('FROM board_assignments br')) return { rows: [], rowCount: 0 };
       if (text.includes('FROM divisions')) {
         return {
           rows: [{
@@ -1186,7 +1408,22 @@ test('division member assignment preserves an existing division member role colo
       throw new Error(`Unexpected query: ${text}`);
     },
     async transaction(callback) {
-      return callback({ async query() { return { rows: [], rowCount: 0 }; } });
+      return callback({
+        async query(text) {
+          if (text.includes('FROM members m')) {
+            return {
+              rows: [{
+                university_id: 2,
+                university_name: 'Sapienza',
+                member_type: MEMBER_TYPES.RESEARCHER,
+                status: 'active',
+              }],
+              rowCount: 1,
+            };
+          }
+          return { rows: [], rowCount: 0 };
+        },
+      });
     },
   };
 
@@ -1234,7 +1471,19 @@ test('generic division assignment refuses to create a missing division role with
   const db = {
     async query(text) {
       if (text.includes('FROM universities')) return { rows: [{ id: 2, name: 'Sapienza' }], rowCount: 1 };
-      if (text.includes('FROM members m')) return { rows: [], rowCount: 0 };
+      if (text.includes('FROM members m')) {
+        return {
+          rows: [{
+            university_id: 2,
+            university_name: 'Sapienza',
+            member_type: MEMBER_TYPES.RESEARCHER,
+            status: 'active',
+          }],
+          rowCount: 1,
+        };
+      }
+      if (text.includes('FROM member_divisions')) return { rows: [], rowCount: 0 };
+      if (text.includes('FROM board_assignments br')) return { rows: [], rowCount: 0 };
       if (text.includes('FROM divisions')) {
         return {
           rows: [{ id: 88, university_id: 2, name: 'Robotics', color: 'green' }],

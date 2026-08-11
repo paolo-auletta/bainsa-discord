@@ -79,7 +79,7 @@ test('a division Head sees only Head commands in the owned division scope', () =
     ],
   );
   assert.equal(guideScopeLabel(access, { scopeKind: 'division' }), 'Bocconi › Culture');
-  assert.equal(access.availableCommands.has('board-assign'), false);
+  assert.equal(access.availableCommands.has('board-add-member'), false);
 });
 
 test('multiple board roles combine their current effective access', () => {
@@ -95,8 +95,8 @@ test('multiple board roles combine their current effective access', () => {
   assert.equal(access.vicePresident, true);
   assert.deepEqual(access.divisions, ['Culture']);
   assert.equal(access.availableCommands.has('division-create'), false);
-  assert.equal(access.availableCommands.has('board-assign'), true);
-  assert.equal(access.availableCommands.has('board-remove'), true);
+  assert.equal(access.availableCommands.has('board-add-member'), true);
+  assert.equal(access.availableCommands.has('board-remove-member'), true);
   assert.equal(guideScopeLabel(access, { scopeKind: 'division' }), 'Bocconi › all divisions');
 });
 
@@ -112,7 +112,11 @@ test('President and Global President guides expose the intended wider tiers', ()
     member: memberWithRoles(['Global President']),
     channelScope: { kind: 'global' },
   });
-  assert.equal(global.availableCommands.size, GUIDE_CATALOG.length);
+  assert.equal(global.availableCommands.size, GUIDE_CATALOG.length - 4);
+  assert.equal(global.availableCommands.has('board-add-member'), false);
+  assert.equal(global.availableCommands.has('board-remove-member'), false);
+  assert.equal(global.availableCommands.has('division-add-member'), false);
+  assert.equal(global.availableCommands.has('division-remove-member'), false);
   assert.equal(guideScopeLabel(global), 'All universities');
 
   const members = topicPayload({ user: { id: '42' } }, global, 'members');

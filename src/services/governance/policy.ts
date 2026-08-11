@@ -124,6 +124,27 @@ export function assertCanManageMember(actorMember, targetUniversityName, targetM
   );
 }
 
+export function assertCanManageBoardMember(
+  actorMember,
+  targetUniversityName,
+  targetMember,
+  targetBoardRoles = [],
+) {
+  assertCanManageMember(actorMember, targetUniversityName, targetMember);
+  if (
+    isUniversityVicePresident(actorMember, targetUniversityName)
+    && !isUniversityPresident(actorMember, targetUniversityName)
+  ) {
+    assertUser(
+      !targetBoardRoles.some((role) =>
+        role.role === BOARD_ROLES.PRESIDENT
+        && String(role.university_name ?? '').toLowerCase() === String(targetUniversityName).toLowerCase(),
+      ),
+      'A Vice President cannot manage their university President.',
+    );
+  }
+}
+
 function memberManagementUniversityName(member, fallbackUniversityName) {
   const boardRole = member.roles.cache.find?.((role) =>
     /^(?<university>.+) - (?:President|Vice President)$/.test(role.name),

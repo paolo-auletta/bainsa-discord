@@ -631,39 +631,39 @@ New members enter through onboarding. A board approval creates the member record
 #### `/division-add-member`
 
 - **Why:** place a Researcher into a division and grant the correct rooms.
-- **Who:** Global Presidents; the university President or Vice President; the selected Division Head.
-- **Inputs:** `user`, `university`, `division`.
-- **Returns:** private confirmation after the relationship and access role are added.
+- **Who:** the university President or Vice President; a Division Head inside their own scope. Global support follows in issue #70.
+- **Inputs:** none inline; the private panel infers the university, selects the member, loads current memberships, and offers eligible divisions.
+- **Returns:** a final review and private confirmation after the relationship and access role are added.
 - **Rules:** the target must be eligible as an active Researcher.
 - **Activity:** member and division are posted.
 
 #### `/division-remove-member`
 
 - **Why:** remove division access without removing the person from BAINSA.
-- **Who:** Global Presidents; the university President or Vice President; the selected Division Head.
-- **Inputs:** `user`, `university`, `division`; optional private `reason`.
+- **Who:** the university President or Vice President; a Division Head inside their own scope. Global support follows in issue #70.
+- **Inputs:** none inline; the member-first panel shows all current divisions, offers only authorized safe removals, and accepts an optional private reason.
 - **Returns:** private confirmation after the division relationship and access role are removed.
-- **Rules:** removal is blocked while the person still has active project access in that division.
+- **Rules:** removal is blocked by a Head assignment, active project membership, or the last-division Researcher invariant. Out-of-scope divisions stay visible but read only.
 - **Activity:** the division removal is posted without the reason.
 
 ### Board commands
 
-#### `/board-assign`
+#### `/board-add-member`
 
 - **Why:** appoint board members through the same auditable role hierarchy used for every other operation.
-- **Who:** Global Presidents for any university; a University President or Vice President inside their university.
-- **Inputs:** `user`, `university`, `role` (`Head`, `Vice President`, or `President`); `division` is required only for Head.
-- **Returns:** private confirmation after the member, board assignment, and roles are reconciled.
+- **Who:** a University President or Vice President inside their university. Global support follows in issue #70.
+- **Inputs:** none inline; the panel infers the university, selects the member first, offers an eligible board role, and asks for a division only for Head.
+- **Returns:** a final review and private confirmation after the member, board assignment, and roles are reconciled.
 - **Rules:** a University President or Global President can appoint a University President. Multiple co-Presidents can be active in one university; Vice Presidents cannot appoint a President.
 - **Activity:** appointee, university, position, and division where relevant are posted.
 
-#### `/board-remove`
+#### `/board-remove-member`
 
 - **Why:** remove authority while preserving the person’s ordinary membership.
-- **Who:** Global Presidents for any university; a University President or Vice President inside their university.
-- **Inputs:** `user`, `university`, `role`; optional `division` for a specific Head role and optional private `reason`.
+- **Who:** a University President or Vice President inside their university. Global support follows in issue #70.
+- **Inputs:** none inline; the member-first panel lists every current board role, offers only hierarchy-safe local removals, and accepts an optional private reason.
 - **Returns:** private confirmation after the board assignment and managed board role are removed.
-- **Rules:** a University President or Global President can remove a University President. Vice Presidents cannot remove a President. Leaving Head division blank removes all Head roles in that university.
+- **Rules:** a University President can remove a co-President. Vice Presidents cannot manage a President. Multiple Head roles are separate choices, with an explicit all-Heads action when applicable.
 - **Activity:** the removed position is posted without the reason.
 
 #### `/board-info`

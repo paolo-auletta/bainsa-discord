@@ -74,7 +74,7 @@ export async function getMemberDivisions(db, userId) {
 
 export async function getBoardRoles(db, userId) {
   const result = await db.query(
-    `SELECT br.role, br.division_id, u.name AS university_name, d.name AS division_name
+    `SELECT br.role, br.university_id, br.division_id, u.name AS university_name, d.name AS division_name
        FROM board_assignments br
        LEFT JOIN universities u ON u.id = br.university_id AND u.active = true
        LEFT JOIN divisions d ON d.id = br.division_id AND d.active = true
@@ -101,7 +101,8 @@ export async function getUniversityDivisionDiscordRoleIds(db, universityId) {
 
 export async function getActiveProjectAssignments(db, userId) {
   const result = await db.query(
-    `SELECT p.id, p.name, p.status, p.channel_id, pp.role, u.name AS university_name, d.name AS division_name
+    `SELECT p.id, p.name, p.status, p.channel_id, p.university_id, p.division_id, pp.role,
+            u.name AS university_name, d.name AS division_name
        FROM project_people pp
        JOIN projects p ON p.id = pp.project_id
        JOIN universities u ON u.id = p.university_id
