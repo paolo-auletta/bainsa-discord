@@ -155,7 +155,6 @@ export function formatMemberInfo(info) {
     subject: { ...summary.metadata[0], inline: true },
     details: [
       { ...summary.metadata[1], inline: true },
-      { label: '\u200b', value: '\u200b', inline: false },
       { ...summary.metadata[2], inline: true },
       { ...summary.metadata[3], inline: true },
       ...summary.sections.map((section) => infoField(section.heading, summaryBody(section.body))),
@@ -225,7 +224,6 @@ export function formatBoardInfo(info) {
     subject: summary.leadership[0],
     details: [
       summary.leadership[1],
-      infoField('\u200b', '\u200b'),
       infoField('Division Heads', formatBoundedLines(divisionLines, FIELD_VALUE_LIMIT)),
     ],
     audience: 'university',

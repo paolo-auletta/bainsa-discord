@@ -1700,7 +1700,6 @@ test('member-info renders a compact informational card from a direct Discord use
   assert.deepEqual(embed.fields, [
     { name: 'Member', value: 'Ada Lovelace (<@100>)', inline: true },
     { name: 'Type', value: 'Researcher', inline: true },
-    { name: '\u200b', value: '\u200b', inline: false },
     { name: 'University', value: 'Bocconi', inline: true },
     { name: 'Divisions', value: '🟨 Robotics', inline: true },
     { name: 'Board roles', value: 'Global President', inline: false },
@@ -1726,7 +1725,7 @@ test('member-info keeps empty assignments compact and readable', () => {
   assert.equal(fields.find((field) => field.name === 'Active projects').value, 'No active project assignments');
 });
 
-test('board-info groups leadership above one empty line and keeps divisions in one roster field', () => {
+test('board-info keeps leadership and divisions in one compact roster', () => {
   const payload = formatBoardInfo({
     university: { name: 'Bocconi' },
     divisions: [
@@ -1749,11 +1748,10 @@ test('board-info groups leadership above one empty line and keeps divisions in o
   assert.equal(roster.description, '2 Presidents · 1 Vice President · 1 of 2 divisions headed');
   assert.equal(roster.fields[0].value, '<@president>, <@co-president>');
   assert.deepEqual(roster.fields.map((field) => field.name), [
-    'Presidents', 'Vice Presidents', '\u200b', 'Division Heads',
+    'Presidents', 'Vice Presidents', 'Division Heads',
   ]);
-  assert.equal(roster.fields[2].value, '\u200b');
-  assert.equal(roster.fields[3].value, '**🟧 Analysis** · <@head>\n**🟨 Robotics** · *No active Head*');
-  assert.equal((roster.fields[3].value.match(/━/g) ?? []).length, 0);
+  assert.equal(roster.fields[2].value, '**🟧 Analysis** · <@head>\n**🟨 Robotics** · *No active Head*');
+  assert.equal((roster.fields[2].value.match(/━/g) ?? []).length, 0);
   assert.equal(roster.footer, undefined);
   assert.deepEqual(payload.allowedMentions, { parse: [] });
 });
@@ -1804,8 +1802,8 @@ test('board-info keeps an empty board and every unheaded division explicit', () 
   assert.equal(roster.description, 'No active leadership assignments are recorded');
   assert.equal(roster.fields[0].value, 'No active President');
   assert.equal(roster.fields[1].value, 'No active Vice Presidents');
-  assert.match(roster.fields[3].value, /\*\*🟦 Research\*\* · \*No active Head\*/);
-  assert.match(roster.fields[3].value, /\*\*[^\n]+ Partnerships\*\* · \*No active Head\*/);
+  assert.match(roster.fields[2].value, /\*\*🟦 Research\*\* · \*No active Head\*/);
+  assert.match(roster.fields[2].value, /\*\*[^\n]+ Partnerships\*\* · \*No active Head\*/);
 });
 
 test('board-info retains a database name when the Discord member is unresolved', () => {
