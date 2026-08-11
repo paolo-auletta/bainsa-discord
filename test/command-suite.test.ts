@@ -7,27 +7,23 @@ import { serializeCommands } from '../src/runtime/command-registry.js';
 
 const EXPECTED_COMMANDS = {
   guide: [],
-  'member-update': ['user', 'member_type', 'university', 'divisions', 'notes'],
+  'member-update': [],
   'member-remove': ['user', 'reason'],
   'member-info': ['user'],
-  'division-create': ['university', 'division_name', 'color', 'head', 'create_text_channel', 'create_voice_channel'],
-  'division-update': ['university', 'current_name', 'new_name', 'color'],
+  'division-create': [],
+  'division-update': [],
   'division-add-member': ['user', 'university', 'division'],
   'division-remove-member': ['user', 'university', 'division', 'reason'],
   'board-assign': ['user', 'university', 'role', 'division'],
   'board-remove': ['user', 'university', 'role', 'division', 'reason'],
   'board-info': ['university'],
   'project-create': [],
-  'project-add-member': ['user', 'role', 'project'],
-  'project-remove-member': ['user', 'project', 'reason'],
-  'project-update': ['project', 'name', 'expected_end', 'summary', 'notes', 'status'],
-  'project-close': ['outcome', 'final_notes', 'project'],
+  'project-update': [],
+  'project-close': [],
   'project-info': ['project'],
 };
 
 const UNIVERSITY_DEPENDENT_DIVISION_COMMANDS = [
-  'member-update',
-  'division-update',
   'division-add-member',
   'division-remove-member',
   'board-assign',
@@ -77,7 +73,7 @@ test('university-dependent division selectors expose ordered autocomplete contra
   }
 });
 
-test('every command that accepts a user or project participant blocks the Bot account', () => {
+test('every command with an inline user target blocks the Bot account', () => {
   const botId = '99999999999999999';
   const targetCommands = commands.filter((command) =>
     command.data.toJSON().options.some((option) => option.type === 6),
@@ -89,13 +85,9 @@ test('every command that accepts a user or project participant blocks the Bot ac
       'board-assign',
       'board-remove',
       'division-add-member',
-      'division-create',
       'division-remove-member',
       'member-info',
       'member-remove',
-      'member-update',
-      'project-add-member',
-      'project-remove-member',
     ].sort(),
   );
 

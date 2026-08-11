@@ -1,13 +1,10 @@
-import {
-  EmbedBuilder,
-  escapeMarkdown,
-} from 'discord.js';
+import { escapeMarkdown } from 'discord.js';
 
 import { BOARD_ROLES, divisionLabel, MEMBER_TYPES } from '../../constants.js';
+import { renderHandoffMessage, renderWorkspaceDocument, userReference } from '../../messages/index.js';
 import { divisionHeadRoleName, divisionRoleName, normalizeDisplayName } from '../../naming.js';
 import { boardRoleLabel, memberTypeLabel } from './policy.js';
 
-const MEMBER_INFO_COLOR = 0x5865f2;
 const FIELD_VALUE_LIMIT = 1_024;
 const DIVISION_LIST_LIMIT = 800;
 const BOARD_LIST_LIMIT = 800;
@@ -108,7 +105,7 @@ function formatProjectList(projects) {
 
 function memberDisplay(info) {
   const name = safeText(info.member.full_name, 'Not recorded');
-  return info.target.id ? `${name} (<@${info.target.id}>)` : name;
+  return info.target.id ? userReference(info.target.id, name) : name;
 }
 
 function affiliationDisplay(info, divisions) {
@@ -116,36 +113,43 @@ function affiliationDisplay(info, divisions) {
   return divisions === 'None' ? university : `${university} › ${divisions}`;
 }
 
-function infoField(name, value) {
-  return { name, value: truncateText(value), inline: false };
+function infoField(label, value) {
+  return { label, value: truncateText(value), inline: false };
 }
 
-export function formatMemberInfo(info) {
+export function memberRecordSummary(info) {
   const divisions = formatBoundedLines(info.divisions
     .map((division) => divisionLabel(division.name, division.color))
     .map((division) => safeText(division)), DIVISION_LIST_LIMIT, ', ');
   const board = formatBoundedLines(info.boardRoles.map(formatBoardRole), BOARD_LIST_LIMIT, ', ');
   const projects = formatProjectList(info.projects);
-  const embed = new EmbedBuilder()
-    .setColor(MEMBER_INFO_COLOR)
-    .setTitle('🔵 Member information')
-    .addFields(
+  return {
+    title: 'Member information',
+    metadata: [
       infoField('Member', memberDisplay(info)),
       infoField('Type', memberTypeDisplay(info.member.member_type)),
       infoField('Affiliation', affiliationDisplay(info, divisions)),
-      infoField('Board roles', board),
-      infoField('Projects', projects),
-    );
-
-  return {
-    embeds: [embed],
-    allowedMentions: { parse: [] },
+    ],
+    sections: [
+      { heading: 'Board roles', body: board },
+      { heading: 'Projects', body: projects },
+    ],
   };
 }
 
+export function formatMemberInfo(info) {
+  return renderWorkspaceDocument({
+    kind: 'workspace-document',
+    ...memberRecordSummary(info),
+    provenance: 'Member record · Current database state',
+    audience: 'actor',
+  });
+}
+
 export function formatBoardInfo(info) {
-  if (!info.rows.length) return `No board roles are recorded for ${info.university.name}.`;
-  return info.rows
+  const assignments = !info.rows.length
+    ? `No board roles are recorded for ${info.university.name}.`
+    : info.rows
     .map((row) => {
       const role =
         row.role === BOARD_ROLES.HEAD
@@ -155,4 +159,57 @@ export function formatBoardInfo(info) {
       return `<@${row.discord_user_id}> - ${role}.${missing}`;
     })
     .join('\n');
+  return renderWorkspaceDocument({
+    kind: 'workspace-document',
+    title: `${info.university.name} board`,
+    sections: [{ heading: 'Assignments', body: assignments }],
+    provenance: `${info.university.name} · Current board record`,
+    audience: 'university',
+  });
+}
+
+function boardAccessLabel(result) {
+  if (result.role === BOARD_ROLES.HEAD) {
+    return result.division ? `Head of ${result.division.name}` : 'All division Head roles';
+  }
+  return boardRoleLabel(result.role);
+}
+
+function boardAccessScope(result) {
+  return result.division
+    ? `${result.university.name} › ${result.division.name}`
+    : result.university.name;
+}
+
+export function formatBoardAssignmentHandoff(result) {
+  return renderHandoffMessage({
+    kind: 'handoff-message',
+    tone: 'success',
+    title: 'Your BAINSA board access changed',
+    context: 'A board role was assigned to you.',
+    sections: [
+      { heading: 'Role', body: boardAccessLabel(result) },
+      { heading: 'Scope', body: boardAccessScope(result) },
+    ],
+    nextActions: ['Open the university board space and run `/guide` to see the commands available to your new role.'],
+    provenance: 'BAINSA governance · Access handoff',
+    audience: 'member',
+  });
+}
+
+export function formatBoardRemovalHandoff(result, reason = null) {
+  return renderHandoffMessage({
+    kind: 'handoff-message',
+    tone: 'changed',
+    title: 'Your BAINSA board access changed',
+    context: 'A board role was removed. Your base BAINSA membership remains unchanged.',
+    sections: [
+      { heading: 'Role removed', body: boardAccessLabel(result) },
+      { heading: 'Scope', body: boardAccessScope(result) },
+      ...(reason ? [{ heading: 'Reason shared by the board', body: safeText(reason) }] : []),
+    ],
+    nextActions: ['Run `/guide` in a board command channel to see the commands still available to you.'],
+    provenance: 'BAINSA governance · Access handoff',
+    audience: 'member',
+  });
 }

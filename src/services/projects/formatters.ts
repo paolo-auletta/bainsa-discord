@@ -1,32 +1,21 @@
-import { EmbedBuilder } from 'discord.js';
-
 import {
-  divisionColorDetails,
   divisionLabel,
   PROJECT_PERSON_ROLES,
   PROJECT_STATUSES,
 } from '../../constants.js';
+import {
+  channelReference,
+  escapeUserText,
+  interactionOutcome,
+  renderEventCard,
+  renderHandoffMessage,
+  renderInteractionPanel,
+  renderWorkspaceDocument,
+} from '../../messages/index.js';
 
-const DISCORD_MESSAGE_LIMIT = 2_000;
 const DISCORD_AUTOCOMPLETE_CHOICE_LIMIT = 100;
 const PEOPLE_LINE_LIMIT = 400;
 const EMBED_FIELD_LIMIT = 1_024;
-
-const STATUS_COLORS = Object.freeze({
-  [PROJECT_STATUSES.ACTIVE]: 0x2F80ED,
-  [PROJECT_STATUSES.PAUSED]: 0xF2994A,
-  [PROJECT_STATUSES.COMPLETED]: 0x27AE60,
-  [PROJECT_STATUSES.ARCHIVED]: 0x7A7A7A,
-});
-
-function truncateMessage(message) {
-  if (message.length <= DISCORD_MESSAGE_LIMIT) return message;
-  return `${message.slice(0, DISCORD_MESSAGE_LIMIT - 1).trimEnd()}…`;
-}
-
-function formatMessage(lines) {
-  return truncateMessage(lines.filter(Boolean).join('\n'));
-}
 
 export function projectStatusLabel(status) {
   const normalized = String(status ?? '').trim().toLowerCase();
@@ -93,13 +82,12 @@ export function formatPeopleLine(
   return rendered.join(', ');
 }
 
-function projectColor(project) {
-  const divisionColor = divisionColorDetails(project.division_color)?.hex;
-  return divisionColor ? Number.parseInt(divisionColor.slice(1), 16) : (STATUS_COLORS[project.status] ?? 0x2F80ED);
-}
-
 function projectTimeline(project) {
   return `${project.start_date} → ${project.expected_end}`;
+}
+
+function projectText(value, fallback = 'Not provided') {
+  return escapeUserText(value, fallback);
 }
 
 function embedFieldValue(value) {
@@ -108,89 +96,27 @@ function embedFieldValue(value) {
   return `${text.slice(0, EMBED_FIELD_LIMIT - 1).trimEnd()}…`;
 }
 
-function projectTeamFields(people) {
-  const fields = [
-    {
-      name: 'Members',
-      value: formatPeopleLine(people, PROJECT_PERSON_ROLES.MEMBER, PEOPLE_LINE_LIMIT),
-    },
-    {
-      name: 'Supervisors',
-      value: formatPeopleLine(people, PROJECT_PERSON_ROLES.SUPERVISOR, PEOPLE_LINE_LIMIT),
-    },
-  ];
-  const boardLiaisons = people.filter((person) => person.role === PROJECT_PERSON_ROLES.BOARD_LIAISON);
-  if (boardLiaisons.length > 0) {
-    fields.push({
-      name: 'Board liaisons',
-      value: formatPeopleLine(people, PROJECT_PERSON_ROLES.BOARD_LIAISON, PEOPLE_LINE_LIMIT),
-    });
-  }
-  return fields;
-}
-
-function projectWorkspaceGuidance(project) {
-  if (project.status === PROJECT_STATUSES.COMPLETED || project.status === PROJECT_STATUSES.ARCHIVED) {
-    return [
-      '**How to use this space**',
-      '',
-      'This workspace preserves the project history. Members can read it; supervisors and scoped board retain handover access.',
-      '',
-      `-# Project #${project.id} · Pinned workspace guide`,
-    ].join('\n');
-  }
-  return [
-    '**How to use this space**',
-    '',
-    'Keep discussion, drafts, decisions, and internal files in this private workspace.',
-    '',
-    '**Everyone** · Run `/project-info` for the current project record, then use this channel for day-to-day work.',
-    '**Supervisors & scoped board** · Run project commands here to update the project, manage participants, or close it. The project is selected automatically.',
-    '',
-    'Use the showcase post for shareable progress, materials, questions, and expressions of interest.',
-    '',
-    `-# Project #${project.id} · Pinned workspace guide`,
-  ].join('\n');
-}
-
-function projectRecordEmbed(project, people) {
-  const embed = new EmbedBuilder()
-    .setColor(projectColor(project))
-    .setTitle(project.name)
-    .setDescription(String(project.summary || 'No public project summary has been added yet.').slice(0, 4_096))
-    .addFields(
-      { name: 'Status', value: projectStatusLabel(project.status), inline: true },
-      { name: 'Division', value: divisionLabel(project.division_name, project.division_color), inline: true },
-      { name: 'Timeline', value: projectTimeline(project), inline: false },
-      ...projectTeamFields(people),
-    );
-
-  if (project.notes) embed.addFields({ name: 'Internal working notes', value: embedFieldValue(project.notes) });
-  if (project.outcome) embed.addFields({ name: 'Conclusion', value: embedFieldValue(project.outcome) });
-  if (project.final_notes) embed.addFields({ name: 'Internal handover notes', value: embedFieldValue(project.final_notes) });
-  return embed;
-}
-
-function projectRecordLinks(project) {
-  return [
-    {
-      name: 'Workspace',
-      value: project.discord_channel_id ? `<#${project.discord_channel_id}>` : 'Not provisioned',
-      inline: true,
-    },
-    {
-      name: 'Shareable record',
-      value: project.showcase_thread_id ? `<#${project.showcase_thread_id}>` : 'Pending',
-      inline: true,
-    },
-  ];
-}
-
 function projectHomeMarker(project) {
-  return `-# Project #${project.id} · Pinned project record · Updates automatically`;
+  return `Project #${project.id} · Pinned project record · Updates automatically`;
 }
 
-function projectHomeText(project, people) {
+function projectMetadata(project, { includeLinks = true } = {}) {
+  const rows = [
+    { label: 'University', value: projectText(project.university_name) },
+    { label: 'Status', value: projectStatusLabel(project.status) },
+    { label: 'Division', value: projectText(divisionLabel(project.division_name, project.division_color)) },
+    { label: 'Timeline', value: projectTimeline(project) },
+  ];
+  if (includeLinks) {
+    rows.push(
+      { label: 'Workspace', value: channelReference(project.discord_channel_id) },
+      { label: 'Shareable record', value: channelReference(project.showcase_thread_id, 'Pending') },
+    );
+  }
+  return rows;
+}
+
+export function projectTeamSummaryLines(people) {
   const team = [
     `**Members:** ${formatPeopleLine(people, PROJECT_PERSON_ROLES.MEMBER, PEOPLE_LINE_LIMIT)}`,
     `**Supervisors:** ${formatPeopleLine(people, PROJECT_PERSON_ROLES.SUPERVISOR, PEOPLE_LINE_LIMIT)}`,
@@ -199,99 +125,121 @@ function projectHomeText(project, people) {
   if (boardLiaisons.length > 0) {
     team.push(`**Board liaisons:** ${formatPeopleLine(people, PROJECT_PERSON_ROLES.BOARD_LIAISON, PEOPLE_LINE_LIMIT)}`);
   }
-
-  const workspace = project.discord_channel_id ? `<#${project.discord_channel_id}>` : 'Not provisioned';
-  const showcase = project.showcase_thread_id ? `<#${project.showcase_thread_id}>` : 'Pending';
-  const marker = projectHomeMarker(project);
-  const lines = [
-    `**${project.name}**`,
-    '',
-    `**University:** ${project.university_name}`,
-    `**Status:** ${projectStatusLabel(project.status)}`,
-    `**Division:** ${divisionLabel(project.division_name, project.division_color)}`,
-    `**Timeline:** ${projectTimeline(project)}`,
-    `**Workspace:** ${workspace}`,
-    `**Shareable record:** ${showcase}`,
-    '',
-    '**Summary**',
-    String(project.summary || 'No public project summary has been added yet.').slice(0, 1_024),
-    '',
-    '**Team**',
-    ...team,
-  ];
-
-  if (project.notes) lines.push('', `**Internal working notes:** ${embedFieldValue(project.notes)}`);
-  if (project.outcome) lines.push('', `**Conclusion:** ${embedFieldValue(project.outcome)}`);
-  if (project.final_notes) lines.push('', `**Internal handover notes:** ${embedFieldValue(project.final_notes)}`);
-  lines.push('', marker);
-
-  const text = lines.join('\n');
-  if (text.length <= DISCORD_MESSAGE_LIMIT) return text;
-  const availableBodyLength = DISCORD_MESSAGE_LIMIT - marker.length - 2;
-  return `${text.slice(0, availableBodyLength).trimEnd()}…\n${marker}`;
+  return team;
 }
 
-export function projectHomePayload(project, people) {
+function privateProjectSections(project, people) {
+  const sections = [
+    {
+      heading: 'Summary',
+      body: projectText(project.summary, 'No public project summary has been added yet.').slice(0, 1_024),
+    },
+    { heading: 'Team', body: projectTeamSummaryLines(people) },
+  ];
+  if (project.notes) sections.push({ heading: 'Internal working notes', body: projectText(embedFieldValue(project.notes)) });
+  if (project.outcome) sections.push({ heading: 'Conclusion', body: projectText(embedFieldValue(project.outcome)) });
+  if (project.final_notes) sections.push({ heading: 'Internal handover notes', body: projectText(embedFieldValue(project.final_notes)) });
+  return sections;
+}
+
+export function projectRecordSummary(project, people, { includeLinks = true } = {}) {
   return {
-    content: projectHomeText(project, people),
+    title: projectText(project.name, 'Unnamed project'),
+    metadata: projectMetadata(project, { includeLinks }),
+    sections: privateProjectSections(project, people),
   };
 }
 
+export function projectHomePayload(project, people) {
+  const record = projectRecordSummary(project, people);
+  return renderWorkspaceDocument({
+    kind: 'workspace-document',
+    ...record,
+    provenance: projectHomeMarker(project),
+    audience: 'workspace',
+  });
+}
+
 export function projectWorkspaceGuidePayload(project) {
-  return { content: projectWorkspaceGuidance(project) };
+  const closed = project.status === PROJECT_STATUSES.COMPLETED || project.status === PROJECT_STATUSES.ARCHIVED;
+  return renderWorkspaceDocument({
+    kind: 'workspace-document',
+    title: 'How to use this space',
+    sections: closed
+      ? [{ body: 'This workspace preserves the project history. Members can read it; supervisors and scoped board retain handover access.' }]
+      : [
+          { body: 'Keep discussion, drafts, decisions, and internal files in this private workspace.' },
+          {
+            heading: 'Everyone',
+            body: 'Run `/project-info` for the current project record, then use this channel for day-to-day work.',
+          },
+          {
+            heading: 'Supervisors & scoped board',
+            body: 'Run project commands here to update the project, manage participants, or close it. The project is selected automatically.',
+          },
+          { body: 'Use the showcase post for shareable progress, materials, questions, and expressions of interest.' },
+        ],
+    provenance: `Project #${project.id} · Pinned workspace guide`,
+    audience: 'workspace',
+  });
 }
 
 export function showcasePostPayload(project, people) {
   const completed = project.status === PROJECT_STATUSES.COMPLETED || project.status === PROJECT_STATUSES.ARCHIVED;
-  const embed = new EmbedBuilder()
-    .setColor(projectColor(project))
-    .setTitle(project.name)
-    .setDescription(String(project.summary || 'The project team has not added a public summary yet.').slice(0, 4_096))
-    .addFields(
-      { name: 'Status', value: projectStatusLabel(project.status), inline: true },
-      { name: 'Division', value: divisionLabel(project.division_name, project.division_color), inline: true },
-      { name: 'Timeline', value: projectTimeline(project), inline: false },
-      {
-        name: 'Contributors',
-        value: formatPeopleLine(people, PROJECT_PERSON_ROLES.MEMBER, EMBED_FIELD_LIMIT),
-      },
-      {
-        name: 'Supervisors',
-        value: formatPeopleLine(people, PROJECT_PERSON_ROLES.SUPERVISOR, EMBED_FIELD_LIMIT),
-      },
-    );
-
-  if (project.outcome) embed.addFields({ name: 'Conclusion', value: embedFieldValue(project.outcome) });
-  embed
-    .addFields({
-      name: completed ? 'Project record' : 'Follow or contribute',
-      value: completed
-        ? 'This project is complete. Its shareable materials and discussion remain below; internal handover notes stay private in the project workspace.'
-        : 'Project members can share progress and files below. Interested Researchers can reply with a relevant question or contribution idea, or contact a supervisor.',
-    })
-    .setFooter({ text: `BAINSA ${project.university_name} · Project #${project.id}` });
-
-  return {
-    content: `-# BAINSA ${project.university_name} project record`,
-    embeds: [embed],
-  };
+  const sections = [
+    {
+      heading: 'Summary',
+      body: projectText(project.summary, 'The project team has not added a public summary yet.').slice(0, 1_024),
+    },
+    {
+      heading: 'Contributors',
+      body: formatPeopleLine(people, PROJECT_PERSON_ROLES.MEMBER, EMBED_FIELD_LIMIT),
+    },
+    {
+      heading: 'Supervisors',
+      body: formatPeopleLine(people, PROJECT_PERSON_ROLES.SUPERVISOR, EMBED_FIELD_LIMIT),
+    },
+  ];
+  if (project.outcome) sections.push({ heading: 'Conclusion', body: projectText(embedFieldValue(project.outcome)) });
+  sections.push({
+    heading: completed ? 'Project record' : 'Follow or contribute',
+    body: completed
+      ? 'This project is complete. Its shareable materials and discussion remain below; internal handover notes stay private in the project workspace.'
+      : 'Project members can share progress and files below. Interested Researchers can reply with a relevant question or contribution idea, or contact a supervisor.',
+  });
+  return renderWorkspaceDocument({
+    kind: 'workspace-document',
+    title: projectText(project.name, 'Unnamed project'),
+    metadata: projectMetadata(project, { includeLinks: false }),
+    sections,
+    provenance: `BAINSA ${project.university_name} · Project #${project.id} · Shareable project record`,
+    audience: 'university',
+  });
 }
 
 export function projectInfoMessage(project, people) {
-  const embed = projectRecordEmbed(project, people)
-    .setFooter({ text: `Project #${project.id} · Private project record` })
-    .addFields(...projectRecordLinks(project));
-  return { embeds: [embed] };
+  const record = projectRecordSummary(project, people);
+  return renderWorkspaceDocument({
+    kind: 'workspace-document',
+    ...record,
+    provenance: `Project #${project.id} · Private project record`,
+    audience: 'actor',
+  });
 }
 
 export function projectTransitionPayload({ project, title, summary, detail = null, color = null }) {
-  const embed = new EmbedBuilder()
-    .setColor(color ?? projectColor(project))
-    .setTitle(title)
-    .setDescription(summary)
-    .setFooter({ text: `Project #${project.id} · The pinned overview is up to date` });
-  if (detail) embed.addFields({ name: 'What this means', value: detail });
-  return { embeds: [embed] };
+  return renderEventCard({
+    kind: 'event-card',
+    tone: color === 0x27AE60 ? 'success' : 'changed',
+    title,
+    subject: { label: 'Project', value: projectText(project.name, 'Unnamed project') },
+    scope: `${projectText(project.university_name)} › ${projectText(project.division_name)}`,
+    details: detail ? [{ label: 'What this means', value: detail }] : [],
+    result: { label: 'Result', value: summary },
+    discordState: 'The pinned project record is up to date.',
+    footer: `Project #${project.id}`,
+    audience: 'workspace',
+  });
 }
 
 export function projectAssignmentMessage(guildId, project, role, previousRole = null) {
@@ -302,42 +250,57 @@ export function projectAssignmentMessage(guildId, project, role, previousRole = 
     ? `https://discord.com/channels/${guildId}/${project.showcase_thread_id}`
     : null;
   const roleLabel = projectStatusLabel(role);
-  const title = previousRole
-    ? `**Your role on ${project.name} changed**`
-    : `**You joined ${project.name}**`;
+  const safeProjectName = projectText(project.name, 'this project');
+  const title = previousRole ? `Your role on ${safeProjectName} changed` : `You joined ${safeProjectName}`;
   const roleLine = previousRole
-    ? `**Role** · ${projectStatusLabel(previousRole)} → ${roleLabel}`
-    : `**Role** · ${roleLabel}`;
+    ? `${projectStatusLabel(previousRole)} → ${roleLabel}`
+    : roleLabel;
   const nextStep = role === PROJECT_PERSON_ROLES.SUPERVISOR
     ? 'Read the two pinned messages, welcome the team, and use project commands in the workspace to keep the record current.'
     : 'Read the two pinned messages, introduce yourself, and follow the latest discussion, files, and decisions.';
-  return formatMessage([
+  return renderHandoffMessage({
+    kind: 'handoff-message',
+    tone: previousRole ? 'changed' : 'success',
     title,
-    `${project.university_name} · ${divisionLabel(project.division_name, project.division_color)}`,
-    roleLine,
-    '',
-    '**Start here**',
-    workspaceUrl ? `1. [Open the project workspace](${workspaceUrl})` : '1. Your project workspace is being prepared.',
-    '2. Read the pinned project record and workspace guide.',
-    `3. ${nextStep}`,
-    showcaseUrl ? `[View the shareable project record](${showcaseUrl})` : null,
-  ]);
+    context: `${projectText(project.university_name)} · ${projectText(divisionLabel(project.division_name, project.division_color))}`,
+    sections: [{ heading: 'Role', body: roleLine }],
+    nextActions: [
+      workspaceUrl ? 'Open the project workspace.' : 'Wait for the project workspace to finish provisioning.',
+      'Read the pinned project record and workspace guide.',
+      nextStep,
+    ],
+    links: [
+      ...(workspaceUrl ? [{ label: 'Open workspace', url: workspaceUrl }] : []),
+      ...(showcaseUrl ? [{ label: 'View shareable record', url: showcaseUrl }] : []),
+    ],
+    fallback: workspaceUrl ? null : 'If the workspace does not appear shortly, contact a project supervisor.',
+    provenance: `Project #${project.id} · Access handoff`,
+    audience: 'member',
+  });
 }
 
 export function projectRemovalMessage(guildId, project, reason = null) {
   const showcaseUrl = project.showcase_thread_id
     ? `https://discord.com/channels/${guildId}/${project.showcase_thread_id}`
     : null;
-  return formatMessage([
-    `**Your access to ${project.name} changed**`,
-    `You are no longer assigned to this ${project.university_name} project.`,
-    reason ? `**Reason shared by the supervisor or board** · ${reason}` : null,
-    showcaseUrl ? `The shareable project record remains available here: ${showcaseUrl}` : null,
-  ]);
+  return renderHandoffMessage({
+    kind: 'handoff-message',
+    tone: 'changed',
+    title: `Your access to ${projectText(project.name, 'this project')} changed`,
+    context: `You are no longer assigned to this ${projectText(project.university_name)} project.`,
+    sections: reason ? [{ heading: 'Reason shared by the supervisor or board', body: projectText(reason) }] : [],
+    links: showcaseUrl ? [{ label: 'View the shareable project record', url: showcaseUrl }] : [],
+    provenance: `Project #${project.id} · Access handoff`,
+    audience: 'member',
+  });
 }
 
 export function projectSuccessMessage(action, project) {
   const channel = project.discord_channel_id ? ` <#${project.discord_channel_id}>` : '';
   const pending = project.reconciliation_pending ? ' Discord reconciliation is in progress.' : '';
-  return `${action} **${project.name}** (#${project.id}).${channel}${pending}`;
+  return renderInteractionPanel(interactionOutcome({
+    outcome: project.reconciliation_pending ? 'reconciliation-pending' : 'success',
+    title: project.reconciliation_pending ? 'Project saved; Discord is catching up' : 'Project saved',
+    description: `${action} **${projectText(project.name, 'this project')}** (#${project.id}).${channel}${pending}`,
+  }));
 }

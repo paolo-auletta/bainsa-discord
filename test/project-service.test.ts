@@ -616,7 +616,7 @@ test('project participant selection rejects every bot account', async () => {
   );
 });
 
-test('project embeds cap participant lists and keep private handover notes out of the showcase', () => {
+test('project workspace documents stay bounded and keep private handover notes out of the showcase', () => {
   const people = Array.from({ length: MAX_PROJECT_PARTICIPANTS }, (_, index) => ({
     discord_user_id: String(100000000000000 + index),
     role: index % 3 === 0 ? 'member' : index % 3 === 1 ? 'supervisor' : 'board_liaison',
@@ -639,15 +639,9 @@ test('project embeds cap participant lists and keep private handover notes out o
   };
 
   for (const payload of [showcasePostPayload(project, people), projectInfoMessage(project, people)]) {
-    const embed = payload.embeds[0].toJSON();
-    assert.ok((embed.description?.length ?? 0) <= 4_096);
-    assert.ok(embed.fields.every((field) => field.value.length <= 1_024));
-    const embedCharacters = (embed.title?.length ?? 0)
-      + (embed.description?.length ?? 0)
-      + (embed.footer?.text.length ?? 0)
-      + embed.fields.reduce((total, field) => total + field.name.length + field.value.length, 0);
-    assert.ok(embedCharacters <= 6_000, `embed contains ${embedCharacters} characters`);
-    assert.match(JSON.stringify(embed), /\(\+\d+ more\)/);
+    assert.equal(payload.embeds, undefined);
+    assert.ok(payload.content.length <= 2_000);
+    assert.match(payload.content, /\(\+\d+ more\)/);
   }
   const home = projectHomePayload(project, people);
   assert.equal(home.embeds, undefined);
@@ -658,7 +652,7 @@ test('project embeds cap participant lists and keep private handover notes out o
   assert.equal(showcase.includes('x'.repeat(100)), false);
 
   const guide = projectWorkspaceGuidePayload(project).content;
-  assert.match(guide, /^\*\*How to use this space\*\*/);
+  assert.match(guide, /^## How to use this space/);
   assert.match(guide, /`\/project-info`/);
   assert.match(guide, /Pinned workspace guide$/);
 });
@@ -681,15 +675,15 @@ test('project home keeps project-info data in a scannable plain-message hierarch
     final_notes: null,
   };
   const people = [{ discord_user_id: 'supervisor', role: PROJECT_PERSON_ROLES.SUPERVISOR }];
-  const infoFields = projectInfoMessage(project, people).embeds[0].toJSON().fields;
+  const info = projectInfoMessage(project, people).content;
   const home = projectHomePayload(project, people).content;
-  assert.match(home, /^\*\*Signals\*\*/);
+  assert.match(home, /^## Signals/);
   assert.match(home, /\*\*University:\*\* Bocconi\n\*\*Status:\*\* Active\n\*\*Division:\*\* 🟧 Analysis/);
   assert.match(home, /\*\*Timeline:\*\* 2026-07-01 → 2026-08-01\n\*\*Workspace:\*\* <#workspace>\n\*\*Shareable record:\*\* <#showcase>/);
   assert.match(home, /\*\*Members:\*\* None yet/);
   assert.match(home, /\*\*Supervisors:\*\* <@supervisor>/);
-  assert.equal(infoFields.some((field) => field.name === 'Workspace'), true);
-  assert.equal(infoFields.some((field) => field.name === 'Shareable record'), true);
+  assert.match(info, /\*\*Workspace:\*\* <#workspace>/);
+  assert.match(info, /\*\*Shareable record:\*\* <#showcase>/);
   assert.match(home, /Pinned project record · Updates automatically$/);
 });
 
@@ -707,12 +701,13 @@ test('project assignment DM has a compact desktop-first hierarchy', () => {
     showcase_thread_id: 'showcase',
   };
   const handoff = projectAssignmentMessage('guild', project, PROJECT_PERSON_ROLES.SUPERVISOR);
-  assert.match(handoff, /^\*\*You joined Signals\*\*\n\n?Bocconi/);
-  assert.match(handoff, /\*\*Role\*\* · Supervisor/);
-  assert.match(handoff, /\*\*Start here\*\*\n1\. \[Open the project workspace\]/);
-  assert.match(handoff, /2\. Read the pinned project record and workspace guide\./);
-  assert.match(handoff, /\[View the shareable project record\]/);
-  assert.doesNotMatch(handoff, /Project workspace:|Shareable project record:/);
+  assert.deepEqual(handoff.allowedMentions, { parse: [] });
+  assert.match(handoff.content, /^\*\*You joined Signals\*\*\n\n?Bocconi/);
+  assert.match(handoff.content, /\*\*Role\*\*\nSupervisor/);
+  assert.match(handoff.content, /\*\*Start here\*\*\n1\. Open the project workspace\./);
+  assert.match(handoff.content, /2\. Read the pinned project record and workspace guide\./);
+  assert.match(handoff.content, /\[View shareable record\]/);
+  assert.doesNotMatch(handoff.content, /Project workspace:|Shareable project record:/);
 });
 
 test('project-close completes the project and moves the channel to history', async () => {
@@ -872,9 +867,9 @@ test('project-close completes the project and moves the channel to history', asy
   assert.equal(channel.parentId, 'archive-category');
   assert.deepEqual(channel.parentOptions, { lockPermissions: false });
   assert.equal(channel.overwriteReason, 'Reconcile project 42 access');
-  assert.match(messages[0].content, /\*\*Conclusion:\*\* Completed successfully/);
-  assert.match(messages[0].content, /\*\*Internal handover notes:\*\* Ready for handover/);
-  assert.match(messages[1].content, /^\*\*How to use this space\*\*/);
+  assert.match(messages[0].content, /\*\*Conclusion\*\*\nCompleted successfully/);
+  assert.match(messages[0].content, /\*\*Internal handover notes\*\*\nReady for handover/);
+  assert.match(messages[1].content, /^## How to use this space/);
   assert.equal(JSON.stringify(messages[1]).includes('Ready for handover'), false);
   assert.equal(JSON.stringify(messages[2]).includes('Ready for handover'), false);
   assert.match(messages[2].embeds[0].data.title, /Project completed/);

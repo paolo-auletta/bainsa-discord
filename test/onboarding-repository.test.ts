@@ -181,9 +181,10 @@ test('rejection controls require a reason explicitly shared with the applicant',
     university: { name: 'Bocconi' },
     divisions: [],
   });
-  assert.match(dm, /Please clarify your university connection/);
-  assert.doesNotMatch(dm, /start a new application|reapply/i);
-  assert.match(dm, /onboarding-channel/);
+  assert.deepEqual(dm.allowedMentions, { parse: [] });
+  assert.match(dm.content, /Please clarify your university connection/);
+  assert.doesNotMatch(dm.content, /start a new application|reapply/i);
+  assert.match(dm.content, /onboarding-channel/);
 });
 
 test('approval handoff leads with access, native channel links, and a profile call to action', async () => {
@@ -217,15 +218,16 @@ test('approval handoff leads with access, native channel links, and a profile ca
     divisions: [{ name: 'Analysis', color: 'orange', text_channel_id: 'analysis-channel' }],
   });
 
-  assert.match(dm, /application was approved/i);
-  assert.match(dm, /approved\.\n\n\*\*Your access\*\*/);
-  assert.match(dm, /Your access.*Researcher.*Bocconi.*Analysis/s);
-  assert.match(dm, /Global general/);
-  assert.match(dm, /Bocconi general/);
-  assert.match(dm, /Your division: <#analysis-channel>/);
-  assert.match(dm, /Create your profile in <#database> next/);
-  assert.ok(dm.indexOf('**Start here**') < dm.indexOf('Create your profile'));
-  assert.doesNotMatch(dm, /optional|Check application status/i);
+  assert.deepEqual(dm.allowedMentions, { parse: [] });
+  assert.match(dm.content, /application was approved/i);
+  assert.match(dm.content, /approved\*\*\n\n\*\*Your access\*\*/);
+  assert.match(dm.content, /Your access.*Researcher.*Bocconi.*Analysis/s);
+  assert.match(dm.content, /Global general/);
+  assert.match(dm.content, /Bocconi general/);
+  assert.match(dm.content, /Your division: <#analysis-channel>/);
+  assert.match(dm.content, /Create your profile in <#database>/);
+  assert.ok(dm.content.indexOf('**Start here**') < dm.content.indexOf('Create your profile'));
+  assert.doesNotMatch(dm.content, /optional|Check application status/i);
 });
 
 test('Find my spaces opens a channel guide and only prompts members without a profile', async () => {

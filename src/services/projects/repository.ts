@@ -15,6 +15,7 @@ const PROJECT_SELECT = `
   p.outcome,
   p.final_notes,
   p.closed_at,
+  p.updated_at::text AS updated_at,
   p.channel_id AS discord_channel_id,
   p.home_message_id,
   p.workspace_guide_message_id,

@@ -17,6 +17,10 @@ import {
 } from "discord.js";
 
 import { divisionLabel } from "../../constants.js";
+import {
+  interactionOutcome,
+  renderInteractionPanel,
+} from "../../messages/index.js";
 
 const MAX_CUSTOM_ID_LENGTH = 100;
 const MAX_NATIVE_SELECTIONS = 25;
@@ -499,56 +503,64 @@ export function reviewPayload(session) {
 }
 
 export function cancelledPayload() {
-  const container = new ContainerBuilder()
-    .setAccentColor(CONTAINER_COLORS.BRAND)
-    .addTextDisplayComponents(
-      text("## Project setup cancelled\nNothing was created."),
-    );
-  return wizardPayload(container);
+  return renderInteractionPanel(interactionOutcome({
+    outcome: "cancelled",
+    title: "Project setup cancelled",
+    description: "Nothing was created.",
+  }));
 }
 
 export function createdPayload(acknowledgement) {
-  const container = new ContainerBuilder()
-    .setAccentColor(CONTAINER_COLORS.SUCCESS)
-    .addTextDisplayComponents(text(`## Project created\n${acknowledgement}`));
-  return wizardPayload(container);
+  return renderInteractionPanel(interactionOutcome({
+    outcome: acknowledgement.includes("pending") ? "reconciliation-pending" : "success",
+    title: "Project created",
+    description: acknowledgement,
+  }));
 }
 
 export function creatingPayload(session) {
-  const container = new ContainerBuilder()
-    .setAccentColor(CONTAINER_COLORS.BRAND)
-    .addTextDisplayComponents(
-      text([
-        `## Creating ${escapeMarkdown(session.name || "project")}`,
-        "Please wait while BAINSA checks eligibility, saves the project, and prepares its private Discord channel.",
-        "",
-        "This message will update when the project is ready. Do not submit it again.",
-      ].join("\n")),
-    );
-  return wizardPayload(container);
+  return renderInteractionPanel({
+    kind: "interaction-panel",
+    tone: "pending",
+    title: `Creating ${escapeMarkdown(session.name || "project")}`,
+    description: "BAINSA is checking eligibility, saving the project, and preparing its private Discord channel.",
+    status: "This message will update when the project is ready. Do not submit it again.",
+    audience: "actor",
+  });
 }
 
 export function creationFailedPayload(session, message) {
-  const container = new ContainerBuilder()
-    .setAccentColor(CONTAINER_COLORS.DANGER)
-    .addTextDisplayComponents(
-      text([
-        "## Project not created",
-        "Nothing was saved. Your project setup is still available.",
-        "",
-        `**What happened**\n${escapeMarkdown(message)}`,
-      ].join("\n")),
-      projectSummary(session),
-    )
-    .addSeparatorComponents(separator())
-    .addActionRowComponents(
-      navigationRow(
-        session,
-        { action: PROJECT_SETUP_ACTIONS.CREATE, label: "Try creating project" },
-        { action: PROJECT_SETUP_ACTIONS.BACK_DETAILS, label: "Back to details" },
-      ),
-    );
-  return wizardPayload(container);
+  return renderInteractionPanel({
+    kind: "interaction-panel",
+    tone: "danger",
+    title: "Project not created",
+    description: "Nothing was saved. Your project setup is still available.",
+    facts: [
+      { label: "Project", value: session.name || "New project" },
+      { label: "Scope", value: selectedScope(session) },
+      { label: "Team", value: teamSummary(session) },
+      { label: "Timeline", value: timelineSummary(session) },
+    ],
+    sections: [{ heading: "What happened", body: escapeMarkdown(message) }],
+    actions: [
+      {
+        id: projectSetupId(session.id, PROJECT_SETUP_ACTIONS.CREATE),
+        label: "Try creating project",
+        style: "primary",
+      },
+      {
+        id: projectSetupId(session.id, PROJECT_SETUP_ACTIONS.BACK_DETAILS),
+        label: "Back to details",
+        style: "secondary",
+      },
+      {
+        id: projectSetupId(session.id, PROJECT_SETUP_ACTIONS.CANCEL),
+        label: "Cancel setup",
+        style: "danger",
+      },
+    ],
+    audience: "actor",
+  });
 }
 
 export { MAX_NATIVE_SELECTIONS as PROJECT_SETUP_SELECTION_LIMIT };

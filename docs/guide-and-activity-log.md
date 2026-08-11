@@ -79,9 +79,10 @@ Entries consistently contain:
 4. Only the meaningful visible details of the resulting change.
 5. `Performed by @actor`.
 
-Use `➕`/green for create, add, and assign; `✏️`/amber for update, rename, and move;
-`➖`/red for remove; and `✅`/blue or purple for close or complete. Discord's own timestamp is
-sufficient. Update entries show only actual visible differences as `old -> new`.
+Use `🟢`/green for create, add, and assign; `🟠`/orange for update, rename, and move;
+`🔴`/red for remove; and `🔵`/brand blue for close or complete. Discord's own timestamp is
+sufficient. Update entries show only actual visible differences as `old -> new`. The shared event
+renderer owns the marker, color, and fixed field order; domain formatters supply semantic facts.
 
 Formatters accept already-authorized success results and return bounded Discord payloads. They do
 not authorize, mutate state, or accept private note/reason fields. Participant lists and all fields
@@ -103,9 +104,7 @@ must be shortened safely before reaching Discord limits.
 | `/board-remove` | Always after success | Member, removed role, university, and Head division when applicable |
 | `/board-info` | Never | Private lookup |
 | `/project-create` | Always after success | Project, scope, team, timeline, and created channel |
-| `/project-add-member` | Always after success | Project, scope, participant, role, or visible role change |
-| `/project-remove-member` | Always after success | Project, scope, and removed participant |
-| `/project-update` | Only for name, expected-end, or status changes | Project, scope, and each visible `old -> new` change |
+| `/project-update` | For visible project or team changes | Project, scope, visible `old -> new` changes, participant additions/removals, and role changes |
 | Project notes-only update | Never | Durable audit only |
 | `/project-close` | Always after success | Project, scope, shared outcome, completed status, and archive/history channel |
 | `/project-info` or `/guide` | Never | Private response |

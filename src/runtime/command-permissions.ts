@@ -31,8 +31,6 @@ export const COMMAND_VISIBILITY = Object.freeze({
   'board-remove': 'executive',
   'board-info': 'board',
   'project-create': 'board',
-  'project-add-member': 'project',
-  'project-remove-member': 'project',
   'project-update': 'project',
   'project-close': 'project',
   'project-info': 'project',

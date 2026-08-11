@@ -58,10 +58,10 @@ test('showcase creation applies division and active lifecycle tags without pingi
   assert.equal(thread, createdThread);
   assert.deepEqual(createPayload.appliedTags, ['analysis', 'active']);
   assert.deepEqual(createPayload.message.allowedMentions, { parse: [] });
-  assert.equal(createPayload.message.embeds[0].data.title, '@everyone project');
-  assert.equal(createPayload.message.embeds[0].data.description, 'Public project summary');
+  assert.match(createPayload.message.content, /^## @everyone project/);
+  assert.match(createPayload.message.content, /\*\*Summary\*\*\nPublic project summary/);
   assert.equal(JSON.stringify(createPayload.message).includes('@here private update'), false);
-  assert.doesNotMatch(createPayload.message.embeds[0].data.description, /handover/i);
+  assert.doesNotMatch(createPayload.message.content, /handover/i);
 });
 
 test('a missing or invalid configured showcase forum keeps reconciliation retryable', async () => {
@@ -127,9 +127,8 @@ test('showcase reconciliation edits the starter and lifecycle tags instead of ap
   assert.deepEqual(appliedTags, ['analysis', 'completed']);
   assert.equal(sent, false);
   assert.deepEqual(editedPayload.allowedMentions, { parse: [] });
-  const embed = editedPayload.embeds[0].data;
-  assert.equal(embed.fields.find((field) => field.name === 'Conclusion').value, 'Published the final report.');
-  assert.equal(JSON.stringify(embed).includes('PRIVATE HANDOVER'), false);
+  assert.match(editedPayload.content, /\*\*Conclusion\*\*\nPublished the final report\./);
+  assert.equal(editedPayload.content.includes('PRIVATE HANDOVER'), false);
 });
 
 test('project home reconciliation edits and pins one canonical overview', async () => {
@@ -164,7 +163,7 @@ test('project home reconciliation edits and pins one canonical overview', async 
   assert.match(pinReason, /canonical project 42 overview/);
   assert.deepEqual(editedPayload.allowedMentions, { parse: [] });
   assert.equal(editedPayload.embeds, undefined);
-  assert.match(editedPayload.content, /^\*\*@everyone project\*\*/);
+  assert.match(editedPayload.content, /^## @everyone project/);
   assert.match(editedPayload.content, /\*\*Division:\*\* 🟧 Analysis/);
   assert.match(editedPayload.content, /Pinned project record · Updates automatically$/);
 });
@@ -203,7 +202,7 @@ test('project workspace guide is a separate pinned normal message', async () => 
   assert.equal(sent, false);
   assert.match(pinReason, /project 42 workspace guide/);
   assert.deepEqual(editedPayload.allowedMentions, { parse: [] });
-  assert.match(editedPayload.content, /^\*\*How to use this space\*\*/);
+  assert.match(editedPayload.content, /^## How to use this space/);
   assert.match(editedPayload.content, /`\/project-info`/);
   assert.match(editedPayload.content, /Pinned workspace guide$/);
 });

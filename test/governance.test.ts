@@ -146,17 +146,11 @@ test('governanceCommands exposes only the approved v1 governance commands', () =
   ]);
 });
 
-test('division-create requires a head and both channel booleans', () => {
+test('division-create opens a zero-argument private panel flow', () => {
   const divisionCreate = governanceCommands.find((entry) => entry.data.name === 'division-create');
   const json = divisionCreate.data.toJSON();
-
-  assert.equal(option(json, 'head').required, true);
-  assert.equal(option(json, 'create_text_channel').required, true);
-  assert.equal(option(json, 'create_voice_channel').required, true);
-  assert.deepEqual(option(json, 'color').choices.map((choice) => choice.value), [
-    'red', 'orange', 'yellow', 'green', 'blue', 'pink', 'brown', 'black',
-  ]);
-  assert.equal(option(json, 'color').choices.find((choice) => choice.value === 'pink').name, 'Pink 🟪');
+  assert.deepEqual(json.options, []);
+  assert.match(json.description, /private guided division setup/i);
 });
 
 test('division colors accept both slash-command values and displayed choice labels', () => {
@@ -184,20 +178,14 @@ test('division Heads receive both the ordinary division role and the scoped Head
   );
 });
 
-test('division-update uses current_name and supports independent name and color changes', () => {
+test('division-update opens a zero-argument private panel flow', () => {
   const divisionUpdate = governanceCommands.find((entry) => entry.data.name === 'division-update');
   const json = divisionUpdate.data.toJSON();
-
-  assert.ok(option(json, 'current_name'));
-  assert.equal(option(json, 'old_name'), undefined);
-  assert.equal(option(json, 'new_name').required, false);
-  assert.equal(option(json, 'color').required, false);
-  assert.deepEqual(option(json, 'color').choices.map((choice) => choice.value), [
-    'red', 'orange', 'yellow', 'green', 'blue', 'pink', 'brown', 'black',
-  ]);
+  assert.deepEqual(json.options, []);
+  assert.match(json.description, /private guided division update panel/i);
 });
 
-test('division-update reconciles renamed and recolored roles, channels, and persisted state', async () => {
+test('division-update reconciles case-only renames and recolors across roles, channels, and persisted state', async () => {
   const accessRole = testRole('access-role', 'Bocconi - Projects', divisionColorDetails('blue').hex);
   const headRole = testRole('head-role', 'Bocconi - Head of Projects', divisionColorDetails('blue').hex);
   const textChannel = testChannel('text-channel', '🟦-projects', ChannelType.GuildText);
@@ -254,7 +242,7 @@ test('division-update reconciles renamed and recolored roles, channels, and pers
     {
       university: 'Bocconi',
       currentName: 'Projects',
-      newName: 'Innovation',
+      newName: 'PROJECTS',
       color: 'green',
     },
     { db },
@@ -263,23 +251,23 @@ test('division-update reconciles renamed and recolored roles, channels, and pers
   assert.deepEqual(result, {
     university: { id: 2, name: 'Bocconi', category_id: 'bocconi-category' },
     oldName: 'Projects',
-    newName: 'Innovation',
+    newName: 'PROJECTS',
     oldColor: 'blue',
     newColor: 'green',
   });
-  assert.equal(accessRole.name, 'Bocconi - Innovation');
-  assert.equal(headRole.name, 'Bocconi - Head of Innovation');
+  assert.equal(accessRole.name, 'Bocconi - PROJECTS');
+  assert.equal(headRole.name, 'Bocconi - Head of PROJECTS');
   assert.equal(accessRole.hexColor, divisionColorDetails('green').hex);
   assert.equal(headRole.hexColor, divisionColorDetails('green').hex);
-  assert.equal(textChannel.name, '🟩-innovation');
-  assert.equal(voiceChannel.name, '🟩-innovation-room');
+  assert.equal(textChannel.name, '🟩-projects');
+  assert.equal(voiceChannel.name, '🟩-projects-room');
 
   const update = transactionQueries.find((query) => query.text.includes('UPDATE divisions'));
-  assert.deepEqual(update.values, ['Innovation', 'innovation', 'green', accessRole.id, headRole.id, 7]);
+  assert.deepEqual(update.values, ['PROJECTS', 'projects', 'green', accessRole.id, headRole.id, 7]);
   const audit = transactionQueries.find((query) => query.text.includes('INSERT INTO audit_log'));
   assert.equal(audit.values[1], 'division.update');
   assert.equal(audit.values[5], JSON.stringify({ name: 'Projects', color: 'blue' }));
-  assert.equal(audit.values[6], JSON.stringify({ name: 'Innovation', color: 'green' }));
+  assert.equal(audit.values[6], JSON.stringify({ name: 'PROJECTS', color: 'green' }));
 });
 
 test('division-update restores an already-renamed channel when a later channel rename fails', async () => {
@@ -1330,9 +1318,11 @@ test('governance autocomplete cache loads only active universities and divisions
   assert.deepEqual(snapshot.divisions, [{ university_name: 'Bocconi', name: 'Robotics', color: 'green' }]);
 });
 
-test('member-info follows the stored-message embed design system', () => {
+test('member-info follows the workspace-document design system', () => {
+  const target = { user: { tag: 'Global#0001' } };
+  Object.defineProperty(target, 'id', { enumerable: false, get: () => '100' });
   const payload = formatMemberInfo({
-    target: { id: '100', user: { tag: 'Global#0001' } },
+    target,
     member: { full_name: 'Ada Lovelace', member_type: MEMBER_TYPES.RESEARCHER, university_name: 'Bocconi' },
     divisions: [{ name: 'Robotics', color: 'yellow' }],
     boardRoles: [{ role: BOARD_ROLES.GLOBAL_PRESIDENT, university_name: null, division_name: null }],
@@ -1340,18 +1330,14 @@ test('member-info follows the stored-message embed design system', () => {
   });
 
   assert.deepEqual(payload.allowedMentions, { parse: [] });
-  assert.equal(payload.embeds.length, 1);
-
-  const embed = payload.embeds[0].toJSON();
-  assert.equal(embed.title, '🔵 Member information');
-  assert.equal(embed.color, 0x5865f2);
-  assert.deepEqual(embed.fields, [
-    { name: 'Member', value: 'Ada Lovelace (<@100>)', inline: false },
-    { name: 'Type', value: 'Researcher', inline: false },
-    { name: 'Affiliation', value: 'Bocconi › 🟨 Robotics', inline: false },
-    { name: 'Board roles', value: 'Global President', inline: false },
-    { name: 'Projects', value: 'Research sprint — Member, Active', inline: false },
-  ]);
+  assert.equal(payload.embeds, undefined);
+  assert.match(payload.content, /^## Member information/);
+  assert.match(payload.content, /\*\*Member:\*\* Ada Lovelace \(<@100>\)/);
+  assert.match(payload.content, /\*\*Type:\*\* Researcher/);
+  assert.match(payload.content, /\*\*Affiliation:\*\* Bocconi › 🟨 Robotics/);
+  assert.match(payload.content, /\*\*Board roles\*\*\nGlobal President/);
+  assert.match(payload.content, /\*\*Projects\*\*\nResearch sprint — Member, Active/);
+  assert.match(payload.content, /Member record · Current database state$/);
 });
 
 test('member-info keeps empty assignments compact and readable', () => {
@@ -1362,16 +1348,14 @@ test('member-info keeps empty assignments compact and readable', () => {
     boardRoles: [],
     projects: [],
   });
-  const fields = payload.embeds[0].toJSON().fields;
-
-  assert.equal(fields.find((field) => field.name === 'Member').value, 'Not recorded (<@100>)');
-  assert.equal(fields.find((field) => field.name === 'Type').value, 'Alumni');
-  assert.equal(fields.find((field) => field.name === 'Affiliation').value, 'Not assigned');
-  assert.equal(fields.find((field) => field.name === 'Board roles').value, 'None');
-  assert.equal(fields.find((field) => field.name === 'Projects').value, 'None');
+  assert.match(payload.content, /\*\*Member:\*\* Not recorded \(<@100>\)/);
+  assert.match(payload.content, /\*\*Type:\*\* Alumni/);
+  assert.match(payload.content, /\*\*Affiliation:\*\* Not assigned/);
+  assert.match(payload.content, /\*\*Board roles\*\*\nNone/);
+  assert.match(payload.content, /\*\*Projects\*\*\nNone/);
 });
 
-test('member-info keeps every stored-message field within Discord limits', () => {
+test('member-info keeps the complete workspace document within Discord limits', () => {
   const payload = formatMemberInfo({
     target: { id: '100', user: { tag: 'Greek#0001' } },
     member: { full_name: 'Greek', member_type: MEMBER_TYPES.RESEARCHER, university_name: 'Bocconi' },
@@ -1386,10 +1370,9 @@ test('member-info keeps every stored-message field within Discord limits', () =>
       status: 'active',
     })),
   });
-  const fields = payload.embeds[0].toJSON().fields;
-
-  assert.ok(fields.every((field) => field.value.length <= 1_024));
-  assert.match(fields.find((field) => field.name === 'Projects').value, /more/);
+  assert.ok(payload.content.length <= 2_000);
+  assert.match(payload.content, /more/);
+  assert.match(payload.content, /Member record · Current database state$/);
 });
 
 test('member removal cleanup targets project channel overwrites once', () => {

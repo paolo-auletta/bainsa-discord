@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MessageFlags } from 'discord.js';
+import { ComponentType, MessageFlags } from 'discord.js';
 
 import { commands } from '../src/commands/index.js';
 import { buildGuideAccess, guideScopeLabel } from '../src/guide/access.js';
@@ -26,6 +26,31 @@ function universityScope(name = 'BOCCONI') {
   return { kind: 'university', universityName: name };
 }
 
+function guideComponents(payload) {
+  return payload.components.map((component) => component.toJSON?.() ?? component);
+}
+
+function guideText(payload) {
+  const queue = [...guideComponents(payload)];
+  const content = [];
+  while (queue.length > 0) {
+    const component = queue.shift();
+    if (component.type === ComponentType.TextDisplay) content.push(component.content);
+    if (component.components) queue.push(...component.components);
+  }
+  return content.join('\n');
+}
+
+function guideComponent(payload, predicate) {
+  const queue = [...guideComponents(payload)];
+  while (queue.length > 0) {
+    const component = queue.shift();
+    if (predicate(component)) return component;
+    if (component.components) queue.push(...component.components);
+  }
+  return null;
+}
+
 test('guide catalogue deliberately covers every operational command', () => {
   const registered = commands.map((command) => command.data.name).filter((name) => name !== 'guide').sort();
   assert.deepEqual([...GUIDE_COMMAND_NAMES].sort(), registered);
@@ -47,11 +72,9 @@ test('a division Head sees only Head commands in the owned division scope', () =
       'division-add-member',
       'division-remove-member',
       'member-info',
-      'project-add-member',
       'project-close',
       'project-create',
       'project-info',
-      'project-remove-member',
       'project-update',
     ],
   );
@@ -93,8 +116,8 @@ test('President and Global President guides expose the intended wider tiers', ()
   assert.equal(guideScopeLabel(global), 'All universities');
 
   const members = topicPayload({ user: { id: '42' } }, global, 'members');
-  assert.equal(members.embeds[0].toJSON().title, 'Members and divisions');
-  assert.match(members.embeds[0].toJSON().description, /\/division-create/);
+  assert.match(guideText(members), /^\*\*Members and divisions\*\*/);
+  assert.match(guideText(members), /\/division-create/);
 });
 
 test('guide access denies ordinary members and cross-university board roles', () => {
@@ -124,20 +147,19 @@ test('guide home and topics render one private navigable message payload', () =>
   });
 
   const home = homePayload(interaction, access);
-  const homeJson = home.embeds[0].toJSON();
-  assert.equal(homeJson.title, 'BAINSA Bot Guide');
+  assert.match(guideText(home), /^\*\*BAINSA Bot Guide\*\*/);
+  assert.match(guideText(home), /\*\*Working scope\*\*\nBocconi › Culture/);
   assert.equal(
-    homeJson.fields.find((field) => field.name === 'Working scope').value,
-    'Bocconi › Culture',
+    guideComponent(home, (component) => component.label === 'Manage Culture members')?.label,
+    'Manage Culture members',
   );
-  assert.equal(home.components[0].components[0].data.label, 'Manage Culture members');
-  assert.ok(home.components[0].components.length >= 4);
+  assert.ok(guideComponents(home)[0].components.length <= 10);
 
   const projects = topicPayload(interaction, access, 'projects');
-  const projectJson = projects.embeds[0].toJSON();
-  assert.equal(projectJson.title, 'Manage Culture projects');
-  assert.match(projectJson.description, /\/project-create/);
-  assert.equal(projects.components.length, 2);
+  assert.match(guideText(projects), /^\*\*Manage Culture projects\*\*/);
+  assert.match(guideText(projects), /\/project-create/);
+  assert.ok(guideComponent(projects, (component) => component.type === ComponentType.StringSelect));
+  assert.ok(guideComponent(projects, (component) => component.label === 'Guide home'));
 });
 
 test('/guide defers an ephemeral response and never sends to the channel', async () => {
@@ -162,7 +184,7 @@ test('/guide defers an ephemeral response and never sends to the channel', async
   await showGuide(interaction);
 
   assert.deepEqual(deferred, { flags: MessageFlags.Ephemeral });
-  assert.equal(edited.embeds[0].toJSON().title, 'BAINSA Bot Guide');
+  assert.match(guideText(edited), /^\*\*BAINSA Bot Guide\*\*/);
 });
 
 test('/guide accepts scoped board roles under provisioned uppercase university categories', async () => {
@@ -178,7 +200,7 @@ test('/guide accepts scoped board roles under provisioned uppercase university c
       },
     });
 
-    assert.equal(edited.embeds[0].toJSON().title, 'BAINSA Bot Guide');
+    assert.match(guideText(edited), /^\*\*BAINSA Bot Guide\*\*/);
   }
 });
 
@@ -199,7 +221,7 @@ test('guide component ids are bound to the initiating member and update in place
     value: 'projects',
   });
   await guideInteractions.handleComponent(interaction);
-  assert.equal(interaction.updated.embeds[0].toJSON().title, 'Manage Culture projects');
+  assert.match(guideText(interaction.updated), /^\*\*Manage Culture projects\*\*/);
 });
 
 test('guide component navigation rechecks roles and rejects stale access', async () => {

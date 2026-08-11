@@ -212,6 +212,13 @@ or scraping, external table/export, phone or social-contact extras, endorsements
 staff editing of another member's profile, or contact tracking. This section documents the intended
 product behavior; release readiness still depends on the full quality gate.
 
+## Design references
+
+- [Bot message design system](docs/bot-message-design-system.md)
+- [Command and permission contract](docs/commands.md)
+- [Guide and activity-log contract](docs/guide-and-activity-log.md)
+- [Engineering invariants](docs/engineering-invariants.md)
+
 ## Development
 
 ```bash

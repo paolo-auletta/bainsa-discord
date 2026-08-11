@@ -434,8 +434,8 @@ test('project setup keeps a committed project closed when acknowledgement delive
   });
 
   assert.equal(createCalls, 1);
-  assert.match(followUp.content, /Created \*\*Native project\*\* \(#8\)/);
-  assert.equal(followUp.flags, MessageFlags.Ephemeral);
+  assert.match(allText(followUp), /Created \*\*Native project\*\* \(#8\)/);
+  assert.equal(followUp.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2);
   await assert.rejects(
     () => service.handleButton({
       ...baseInteraction(createId),

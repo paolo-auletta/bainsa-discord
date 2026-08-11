@@ -6,6 +6,17 @@ import { UserFacingError } from '../src/errors.js';
 import { assertUniqueCommandNames, buildCommandMap, serializeCommands } from '../src/runtime/command-registry.js';
 import { createInteractionDispatcher, routeInteraction } from '../src/runtime/dispatcher.js';
 
+function payloadText(payload) {
+  const queue = [...(payload.components ?? []).map((component) => component.toJSON?.() ?? component)];
+  const content = [];
+  while (queue.length > 0) {
+    const component = queue.shift();
+    if (component.content) content.push(component.content);
+    if (component.components) queue.push(...component.components);
+  }
+  return content.join('\n');
+}
+
 test('command registry rejects duplicate command names', () => {
   assert.throws(
     () => assertUniqueCommandNames([{ name: 'test-command' }, { data: { name: 'test-command' } }]),
@@ -246,7 +257,8 @@ test('deferred ephemeral replies edit the original response', async () => {
     followUp: async () => assert.fail('deferred reply should be edited'),
   }, 'Completed.');
 
-  assert.deepEqual(edited, { content: 'Completed.' });
+  assert.match(payloadText(edited), /^\*\*Update\*\*\nCompleted\.$/);
+  assert.deepEqual(edited.allowedMentions, { parse: [] });
 });
 
 test('board activity replies are posted once with a private acknowledgement', async () => {
@@ -269,7 +281,7 @@ test('board activity replies are posted once with a private acknowledgement', as
     allowedMentions: { parse: [] },
     embeds: [{ title: 'Activity' }],
   });
-  assert.deepEqual(edited, { content: 'Activity posted in this channel.' });
+  assert.match(payloadText(edited), /^\*\*Change saved\*\*\nActivity posted in this channel\.$/);
 });
 
 test('project-channel mutations can route governance activity to the scoped bot log', async () => {
@@ -288,7 +300,7 @@ test('project-channel mutations can route governance activity to the scoped bot 
     allowedMentions: { parse: [] },
     embeds: [{ title: 'Activity' }],
   });
-  assert.equal(edited.content, 'Activity posted in <#bot-log>.');
+  assert.match(payloadText(edited), /Activity posted in <#bot-log>\./);
 });
 
 test('private-only updates never send a board activity message', async () => {
@@ -308,7 +320,7 @@ test('private-only updates never send a board activity message', async () => {
   }, null);
 
   assert.equal(sent, false);
-  assert.deepEqual(edited, { content: 'Update saved. No board-visible fields changed.' });
+  assert.match(payloadText(edited), /^\*\*Update saved\*\*\nNo board-visible fields changed\.$/);
 });
 
 test('activity delivery failures report that the change was saved', async () => {
@@ -328,8 +340,8 @@ test('activity delivery failures report that the change was saved', async () => 
     },
   }, { embeds: [{ title: 'Activity' }] });
 
-  assert.match(edited.content, /change was saved/);
-  assert.match(edited.content, /could not be posted/);
+  assert.match(payloadText(edited), /Change saved; activity delivery failed/);
+  assert.match(payloadText(edited), /could not be posted/);
 });
 
 test('dispatcher routes onboarding buttons by custom id', async () => {

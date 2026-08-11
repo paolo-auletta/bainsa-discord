@@ -12,8 +12,11 @@ import { installGracefulShutdown } from './runtime/shutdown.js';
 import { config } from './config.js';
 import { createProfileService } from './profiles/index.js';
 import { createProfileReconciliationWorker } from './profiles/reconciliation.js';
+import { boardRoleRemovalConfirmation } from './services/governance/confirmations.js';
+import { governanceCommandPanels } from './services/governance/panels.js';
 import { hideDepartedMemberProfile, warmGovernanceAutocompleteCache } from './services/governance/service.js';
 import { projectCreateSetup, warmProjectAutocompleteCache } from './services/projects/index.js';
+import { projectManagementPanels } from './services/projects/management-panels.js';
 import { createProjectReconciliationWorker } from './services/projects/reconciliation.js';
 
 const client = createBotClient();
@@ -21,7 +24,9 @@ const onboarding = createOnboardingService();
 const profiles = createProfileService();
 const dispatchInteraction = createInteractionDispatcher({
   commands,
+  componentHandlers: [governanceCommandPanels, projectManagementPanels],
   onboarding,
+  governance: boardRoleRemovalConfirmation,
   guide: guideInteractions,
   projectSetup: projectCreateSetup,
   profiles,
