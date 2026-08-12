@@ -1700,6 +1700,7 @@ test('member-info renders a compact informational card from a direct Discord use
   assert.deepEqual(embed.fields, [
     { name: 'Member', value: 'Ada Lovelace (<@100>)', inline: true },
     { name: 'Type', value: 'Researcher', inline: true },
+    { name: '\u200b', value: '\u200b', inline: true },
     { name: 'University', value: 'Bocconi', inline: true },
     { name: 'Divisions', value: '🟨 Robotics', inline: true },
     { name: 'Board roles', value: 'Global President', inline: false },

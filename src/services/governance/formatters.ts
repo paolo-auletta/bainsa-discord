@@ -119,6 +119,10 @@ function infoField(label, value, inline = false) {
   return { label, value: truncateText(value), inline };
 }
 
+function inlineFieldSpacer() {
+  return { label: '\u200b', value: '\u200b', inline: true };
+}
+
 function summaryBody(body) {
   return Array.isArray(body) ? body.join('\n') : String(body ?? '');
 }
@@ -155,6 +159,9 @@ export function formatMemberInfo(info) {
     subject: { ...summary.metadata[0], inline: true },
     details: [
       { ...summary.metadata[1], inline: true },
+      // Discord lays out inline fields in three columns. Reserve the final
+      // column so identity sits together above university membership.
+      inlineFieldSpacer(),
       { ...summary.metadata[2], inline: true },
       { ...summary.metadata[3], inline: true },
       ...summary.sections.map((section) => infoField(section.heading, summaryBody(section.body))),
