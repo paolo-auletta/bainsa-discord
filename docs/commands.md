@@ -52,12 +52,19 @@ The bot reads the caller's current board roles and command-channel scope, then s
 
 The guide is organised by workflow:
 
-- Manage members and divisions.
+- Manage members.
+- Manage divisions.
+- Board appointments.
 - Manage projects.
 - Look up information.
 - Review role-specific rules and limits.
 
 Buttons and command selectors update the same ephemeral message in place. Every component interaction rechecks current roles, so an already-open guide cannot preserve access after a role changes. Running or navigating `/guide` never creates a board-visible activity entry.
+
+Every command detail shows the current scope, prerequisites, expected result, confirmation behavior,
+and recovery route. Private recovery states always explain what happened, what was preserved, how to
+correct it, and where to continue. Validation, authorization, and stale-control failures make no
+shared change; a saved change with pending Discord reconciliation says so and must not be repeated.
 
 ### Scope rules
 

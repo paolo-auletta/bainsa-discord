@@ -4,6 +4,8 @@ import {
   ephemeralReplyPayload,
   interactionEditPayload,
   interactionOutcome,
+  interactionRecovery,
+  recoveryKindForMessage,
   renderInteractionPanel,
 } from '../messages/index.js';
 
@@ -47,7 +49,16 @@ export async function postBoardActivity(interaction, payload, { channel = intera
 export async function replyBoardActivity(
   interaction,
   payload,
-  options: { channel?: unknown; channels?: unknown[] } = {},
+  options: {
+    channel?: unknown;
+    channels?: unknown[];
+    recovery?: {
+      whatHappened: string;
+      preservedState?: string;
+      correction?: string;
+      continueWith?: string;
+    };
+  } = {},
 ) {
   const channels = Array.isArray(options.channels) && options.channels.length
     ? options.channels
@@ -55,6 +66,20 @@ export async function replyBoardActivity(
   const [delivery] = await Promise.all(
     channels.map((channel) => postBoardActivity(interaction, payload, { channel })),
   );
+  if (options.recovery) {
+    const activityNote = delivery.status === 'posted'
+      ? 'The shared activity record was posted.'
+      : delivery.status === 'failed'
+        ? 'The shared activity record could not be posted.'
+        : 'This channel could not accept the shared activity record.';
+    return replyEphemeral(interaction, renderInteractionPanel(interactionRecovery({
+      kind: 'reconciliation',
+      whatHappened: `${options.recovery.whatHappened} ${activityNote}`,
+      preservedState: options.recovery.preservedState,
+      correction: options.recovery.correction,
+      continueWith: options.recovery.continueWith,
+    })));
+  }
   if (delivery.status === 'no-change') {
     return replyEphemeral(interaction, renderInteractionPanel(interactionOutcome({
       outcome: 'no-change',
@@ -90,11 +115,14 @@ export async function handleInteractionError(interaction, error) {
     error: error instanceof Error ? error.message : String(error),
     stack: expected ? undefined : error?.stack,
   });
-  const message = expected ? error.message : 'Something went wrong. The action was not completed.';
-  await replyEphemeral(interaction, renderInteractionPanel(interactionOutcome({
-    outcome: expected ? 'validation' : 'unexpected',
-    title: expected ? 'Action could not be completed' : 'Something went wrong',
-    description: message,
-    status: expected ? 'Review the details and try again.' : 'Nothing was changed. Try again, or contact a President if this continues.',
+  const recovery = expected ? error.recovery : null;
+  await replyEphemeral(interaction, renderInteractionPanel(interactionRecovery({
+    kind: recovery?.kind ?? (expected ? recoveryKindForMessage(error.message) : 'unexpected'),
+    title: recovery?.title,
+    whatHappened: expected ? error.message : 'The action could not be completed.',
+    preservedState: recovery?.preservedState,
+    correction: recovery?.correction,
+    continueWith: recovery?.continueWith
+      ?? (interaction.commandName ? `Run /${interaction.commandName} again when you are ready.` : undefined),
   }))).catch(() => undefined);
 }

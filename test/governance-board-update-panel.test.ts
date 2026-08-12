@@ -8,6 +8,7 @@ import {
   BOARD_UPDATE_HANDOFF_CONCURRENCY,
   createBoardUpdatePanelService,
 } from '../src/services/governance/board-update-panel.js';
+import { UserFacingError } from '../src/errors.js';
 
 const ACTOR_ID = '100000000000000001';
 const PRESIDENT_ID = '100000000000000002';
@@ -273,6 +274,38 @@ test('board update bounds handoff DMs and reports only failed deliveries', async
   assert.equal(maxInFlight, BOARD_UPDATE_HANDOFF_CONCURRENCY);
   assert.deepEqual(attempted.sort(), changes.map((change) => change.target.id).sort());
   assert.match(text(payload), /1 affected member handoff\(s\) could not be delivered/);
+});
+
+test('a stale board save preserves the proposed roster and gives a concrete recovery route', async () => {
+  const panel = service({
+    updateOperation: async () => {
+      throw new UserFacingError('The board changed while this panel was open. Reload the current roster before saving.');
+    },
+  });
+  let payload = await startEditor(panel);
+  await panel.handleUserSelect({
+    ...interaction({ customId: action(payload, 'h2').custom_id }),
+    values: [HEAD_ID, SECOND_HEAD_ID],
+    async update(next) { payload = next; },
+  });
+  await panel.handleButton({
+    ...interaction({ customId: action(payload, BOARD_UPDATE_PANEL_ACTIONS.REVIEW).custom_id }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
+  await panel.handleButton({
+    ...interaction({ customId: action(payload, BOARD_UPDATE_PANEL_ACTIONS.SAVE).custom_id }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
+
+  assert.match(text(payload), /Board update not saved/);
+  assert.match(text(payload), /What happened[\s\S]*board changed/);
+  assert.match(text(payload), /What was preserved[\s\S]*No board appointment was changed/);
+  assert.match(text(payload), /How to correct it[\s\S]*Reload the roster/);
+  assert.match(text(payload), /Where to continue[\s\S]*return to positions/);
+  assert.ok(action(payload, BOARD_UPDATE_PANEL_ACTIONS.SAVE));
+  assert.ok(action(payload, BOARD_UPDATE_PANEL_ACTIONS.BACK_EDIT));
 });
 
 test('board review places each leadership group roster on a new line', async () => {

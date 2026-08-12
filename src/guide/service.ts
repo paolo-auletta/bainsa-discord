@@ -10,7 +10,9 @@ import { GUIDE_CATALOG, GUIDE_TOPICS, guideEntry } from './catalog.js';
 
 const GUIDE_PREFIX = 'guide:v1:';
 const TOPICS = Object.freeze([
-  Object.freeze({ id: GUIDE_TOPICS.MEMBERS, label: 'Members and divisions', emoji: '👥' }),
+  Object.freeze({ id: GUIDE_TOPICS.MEMBERS, label: 'Manage members', emoji: '👥' }),
+  Object.freeze({ id: GUIDE_TOPICS.DIVISIONS, label: 'Manage divisions', emoji: '🧭' }),
+  Object.freeze({ id: GUIDE_TOPICS.APPOINTMENTS, label: 'Board appointments', emoji: '🏛️' }),
   Object.freeze({ id: GUIDE_TOPICS.PROJECTS, label: 'Manage projects', emoji: '📁' }),
   Object.freeze({ id: GUIDE_TOPICS.LOOKUPS, label: 'Look up information', emoji: '🔎' }),
   Object.freeze({ id: GUIDE_TOPICS.RULES, label: 'Rules and limits', emoji: '📌' }),
@@ -21,8 +23,8 @@ function topicLabel(topic, access) {
     && !access.president
     && !access.vicePresident
     && access.divisions.length === 1;
-  if (scopedHead && topic.id === GUIDE_TOPICS.MEMBERS) {
-    return `Manage ${access.divisions[0]} members`;
+  if (scopedHead && topic.id === GUIDE_TOPICS.DIVISIONS) {
+    return `Manage ${access.divisions[0]} division access`;
   }
   if (scopedHead && topic.id === GUIDE_TOPICS.PROJECTS) {
     return `Manage ${access.divisions[0]} projects`;
@@ -188,7 +190,9 @@ function commandPayload(interaction, access, commandName) {
     sections: [
       { heading: 'Before you start', body: item.before.map((line) => `• ${line}`) },
       { heading: 'What you provide', body: item.inputs.map((line) => `• ${line}`) },
+      { heading: 'Confirmation and safeguards', body: item.confirmation },
       { heading: 'What happens after success', body: [item.success, item.activity] },
+      { heading: 'If something stops the workflow', body: item.recovery },
     ],
     actions: [
       interactionAction({

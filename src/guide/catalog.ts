@@ -1,5 +1,7 @@
 export const GUIDE_TOPICS = Object.freeze({
-  MEMBERS: 'members',
+  MEMBERS: 'member-management',
+  DIVISIONS: 'division-management',
+  APPOINTMENTS: 'board-appointments',
   PROJECTS: 'projects',
   LOOKUPS: 'lookups',
   RULES: 'rules',
@@ -13,8 +15,10 @@ function entry({
   scopeKind,
   before,
   inputs,
+  confirmation = 'Nothing changes while you work through this private flow. The final review re-checks the current record, eligibility, and your scope before saving.',
   success,
   activity,
+  recovery = 'If a validation, authority, or stale-state check stops the workflow, no shared change is saved. Correct the condition, then return to the previous step or run the command again.',
 }) {
   return Object.freeze({
     command,
@@ -24,8 +28,10 @@ function entry({
     scopeKind,
     before: Object.freeze(before),
     inputs: Object.freeze(inputs),
+    confirmation,
     success,
     activity,
+    recovery,
   });
 }
 
@@ -49,8 +55,10 @@ export const GUIDE_CATALOG = Object.freeze([
     scopeKind: 'university',
     before: ['Confirm the target carefully; this immediately removes them from the server.'],
     inputs: ['Member', 'Optional private reason'],
+    confirmation: 'After validating the target and your authority, this command removes the member immediately; it does not open a separate review panel.',
     success: 'Membership, board assignments, divisions, and project access are cleaned up.',
     activity: 'The removal is posted in #bot-log without the private reason.',
+    recovery: 'If validation stops the removal, the member remains active. Correct the target or scope and run /member-remove again. If the member record was removed but Discord cleanup is pending, do not repeat the removal; follow the private recovery message instead.',
   }),
   entry({
     command: 'member-info',
@@ -60,13 +68,15 @@ export const GUIDE_CATALOG = Object.freeze([
     scopeKind: 'university',
     before: ['The target must be inside your permitted university scope.'],
     inputs: ['Optional member; when omitted, the bot uses you where supported'],
+    confirmation: 'This is a private lookup. It does not change records, roles, or access.',
     success: 'The member information is shown only to you.',
     activity: 'Nothing is posted in #bot-log.',
+    recovery: 'If access or the selected record has changed, no data is changed. Return to the lookup and choose a member in your current scope.',
   }),
   entry({
     command: 'division-create',
     title: 'Create a division',
-    topic: GUIDE_TOPICS.MEMBERS,
+    topic: GUIDE_TOPICS.DIVISIONS,
     summary: 'Create a division, its roles, its first Head, and optional channels.',
     scopeKind: 'university',
     before: ['The command opens a private setup and infers the university from a university bot-log.'],
@@ -77,7 +87,7 @@ export const GUIDE_CATALOG = Object.freeze([
   entry({
     command: 'division-update',
     title: 'Update a division',
-    topic: GUIDE_TOPICS.MEMBERS,
+    topic: GUIDE_TOPICS.DIVISIONS,
     summary: 'Update a division name or color and reconcile managed Discord roles and channels.',
     scopeKind: 'university',
     before: ['The command opens a private panel. Choose an unused name when renaming and stage at least one real change.'],
@@ -88,7 +98,7 @@ export const GUIDE_CATALOG = Object.freeze([
   entry({
     command: 'division-add-member',
     title: 'Add a division member',
-    topic: GUIDE_TOPICS.MEMBERS,
+    topic: GUIDE_TOPICS.DIVISIONS,
     summary: 'Review an active Researcher and add one of the division memberships you are allowed to manage.',
     scopeKind: 'division',
     before: ['The member is selected first; their active university is derived from the canonical record.', 'A local bot-log must match that university. Global Presidents can act across active universities.'],
@@ -99,7 +109,7 @@ export const GUIDE_CATALOG = Object.freeze([
   entry({
     command: 'division-remove-member',
     title: 'Remove a division member',
-    topic: GUIDE_TOPICS.MEMBERS,
+    topic: GUIDE_TOPICS.DIVISIONS,
     summary: 'Review every division a member belongs to and remove one you are allowed to manage.',
     scopeKind: 'division',
     before: ['The member is selected first; their active university is derived from the canonical record.', 'A read-only division may be outside your scope, required by a Head role, or required by an active project.'],
@@ -110,7 +120,7 @@ export const GUIDE_CATALOG = Object.freeze([
   entry({
     command: 'board-update',
     title: 'Update a university board',
-    topic: GUIDE_TOPICS.MEMBERS,
+    topic: GUIDE_TOPICS.APPOINTMENTS,
     summary: 'Edit Presidents, the Vice President, and every active division Head from one university roster.',
     scopeKind: 'university',
     before: ['A university bot-log supplies its university. The global bot-log asks Global Presidents to choose one before loading the roster.', 'A Vice President can view but cannot edit the President position.', 'Every active division appears, including occupied and newly created divisions.'],
@@ -126,8 +136,10 @@ export const GUIDE_CATALOG = Object.freeze([
     scopeKind: 'university',
     before: ['A university bot-log supplies its university. Global Presidents choose one privately before the roster loads.'],
     inputs: ['University selector in the global bot-log only'],
+    confirmation: 'This is a private lookup. It does not change appointments or Discord roles.',
     success: 'The board roster is shown only to you.',
     activity: 'Nothing is posted in #bot-log.',
+    recovery: 'If the roster or your scope is no longer current, no data is changed. Reopen /board-info and load the latest board.',
   }),
   entry({
     command: 'project-create',
@@ -175,8 +187,10 @@ export const GUIDE_CATALOG = Object.freeze([
     scopeKind: 'project',
     before: ['The project picker only returns projects you may view. Inside a project channel, that project is inferred.'],
     inputs: ['Project (optional inside its channel)'],
+    confirmation: 'This is a private lookup. It does not change the project, team, or channel access.',
     success: 'The project information is shown only to you.',
     activity: 'Nothing is posted in #bot-log.',
+    recovery: 'If the project is unavailable or your access changed, no data is changed. Reopen /project-info and choose a project you can currently view.',
   }),
 ]);
 

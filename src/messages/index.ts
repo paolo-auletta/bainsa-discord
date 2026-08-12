@@ -7,6 +7,7 @@ export * from './render-handoff-message.js';
 export * from './render-interaction-panel.js';
 export * from './render-interaction-modal.js';
 export * from './render-workspace-document.js';
+export * from './recovery.js';
 export * from './render.js';
 export * from './text.js';
 export * from './tokens.js';

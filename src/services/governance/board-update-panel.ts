@@ -1,4 +1,3 @@
-import { escapeMarkdown } from 'discord.js';
 
 import { assertNotBotUser, hasGlobalAuthority } from '../../authorization.js';
 import { formatBoardActivity } from '../../activity/formatters.js';
@@ -12,7 +11,9 @@ import {
   ephemeralReplyPayload,
   interactionEditPayload,
   interactionOutcome,
+  interactionRecovery,
   renderInteractionPanel,
+  recoveryKindForMessage,
 } from '../../messages/index.js';
 import type { InteractionActionSpec, InteractionControlSpec } from '../../messages/types.js';
 import { botCommandChannelScope } from '../../runtime/command-channels.js';
@@ -472,20 +473,22 @@ function pendingPayload(title: string, description: string) {
   });
 }
 
-function failurePayload(session: BoardUpdateSession, message: string) {
-  return renderInteractionPanel({
-    kind: 'interaction-panel',
-    tone: 'danger',
+function failurePayload(session: BoardUpdateSession, error: unknown) {
+  const expected = error instanceof UserFacingError;
+  const message = expected ? error.message : `${config.botName} could not save this board update. Try again.`;
+  return renderInteractionPanel(interactionRecovery({
+    kind: expected ? recoveryKindForMessage(message) : 'unexpected',
     title: 'Board update not saved',
-    description: 'The proposed roster is still available. Review the problem before trying again.',
-    sections: [{ heading: 'What happened', body: escapeMarkdown(message) }],
+    whatHappened: message,
+    preservedState: 'No board appointment was changed. The proposed roster is still available.',
+    correction: 'Review the listed condition. Reload the roster if a member, position, or your authority changed while the panel was open.',
+    continueWith: 'Use the controls below to try again, return to positions, or cancel this private flow.',
     actions: [
       { id: customId(session, ACTIONS.SAVE), label: 'Try again', style: 'primary' },
       { id: customId(session, ACTIONS.BACK_EDIT), label: 'Back to positions', style: 'secondary' },
       { id: customId(session, ACTIONS.CANCEL), label: 'Cancel update', style: 'danger' },
     ],
-    audience: 'actor',
-  });
+  }));
 }
 
 function desiredAssignments(session: BoardUpdateSession) {
@@ -712,10 +715,7 @@ export function createBoardUpdatePanelService({
       });
     } catch (error) {
       session.busy = false;
-      await interaction.editReply(interactionEditPayload(failurePayload(
-        session,
-        error instanceof UserFacingError ? error.message : `${config.botName} could not save this board update. Try again.`,
-      )));
+      await interaction.editReply(interactionEditPayload(failurePayload(session, error)));
       return;
     }
 

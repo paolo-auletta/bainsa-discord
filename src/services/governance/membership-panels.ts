@@ -21,8 +21,10 @@ import {
   ephemeralReplyPayload,
   interactionEditPayload,
   interactionOutcome,
+  interactionRecovery,
   renderInteractionModal,
   renderInteractionPanel,
+  recoveryKindForMessage,
   truncateText,
   userReference,
 } from '../../messages/index.js';
@@ -491,20 +493,22 @@ function pendingPayload(session: MembershipPanelSession) {
   });
 }
 
-function failurePayload(session: MembershipPanelSession, message: string) {
-  return renderInteractionPanel({
-    kind: 'interaction-panel',
-    tone: 'danger',
+function failurePayload(session: MembershipPanelSession, error: unknown) {
+  const expected = error instanceof UserFacingError;
+  const message = expected ? error.message : `${config.botName} could not save this division membership change. Try again.`;
+  return renderInteractionPanel(interactionRecovery({
+    kind: expected ? recoveryKindForMessage(message) : 'unexpected',
     title: 'Division membership not changed',
-    description: 'The proposed change is still available. Review the problem before trying again.',
-    sections: [{ heading: 'What happened', body: escapeMarkdown(message) }],
+    whatHappened: message,
+    preservedState: 'No division membership was changed. The proposed change is still available.',
+    correction: 'Review the member, division, and current eligibility. Choose a valid in-scope option before trying again.',
+    continueWith: 'Use the controls below to try again, return to division choices, or cancel this private flow.',
     actions: [
       { id: id(session, ACTIONS.SAVE), label: 'Try again', style: 'primary' },
       { id: id(session, ACTIONS.BACK_CHOICE), label: 'Back to choices', style: 'secondary' },
       { id: id(session, ACTIONS.CANCEL), label: 'Cancel', style: 'danger' },
     ],
-    audience: 'actor',
-  });
+  }));
 }
 
 async function defaultSendHandoff(target: DiscordMemberReference, payload: unknown) {
@@ -651,10 +655,7 @@ export function createGovernanceMembershipPanelService({
       });
     } catch (error) {
       session.busy = false;
-      await interaction.editReply(interactionEditPayload(failurePayload(
-        session,
-        error instanceof UserFacingError ? error.message : `${config.botName} could not save this division membership change. Try again.`,
-      )));
+      await interaction.editReply(interactionEditPayload(failurePayload(session, error)));
       return;
     }
 

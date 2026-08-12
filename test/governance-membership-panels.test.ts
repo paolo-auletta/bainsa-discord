@@ -7,6 +7,7 @@ import {
   createGovernanceMembershipPanelService,
   GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS,
 } from '../src/services/governance/membership-panels.js';
+import { UserFacingError } from '../src/errors.js';
 
 const ACTOR_ID = '100000000000000001';
 const TARGET_ID = '100000000000000002';
@@ -193,6 +194,38 @@ test('division addition previews the new affiliation and saves only after review
     async editReply(next) { payload = next; },
   });
   assert.equal(operationInput.division, 'Culture');
+});
+
+test('a denied division change preserves the proposed membership and directs the actor back to safe choices', async () => {
+  const member = context({ divisions: [allDivisions[0]] });
+  const panel = service({
+    loadMemberContext: async () => member,
+    addDivisionMemberOperation: async () => {
+      throw new UserFacingError('Only a board member of Bocconi can manage this division membership.');
+    },
+  });
+  let payload = await loadMember(panel, panel.startDivisionAddMember);
+  await panel.handleStringSelect({
+    ...baseInteraction({ customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.DIVISION).custom_id }),
+    values: ['d-culture'],
+    async update(next) { payload = next; },
+  });
+  await panel.handleButton({
+    ...baseInteraction({ customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.REVIEW).custom_id }),
+    async update(next) { payload = next; },
+  });
+  await panel.handleButton({
+    ...baseInteraction({ customId: action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.SAVE).custom_id }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
+
+  assert.match(panelText(payload), /Division membership not changed/);
+  assert.match(panelText(payload), /Only a board member of Bocconi/);
+  assert.match(panelText(payload), /What was preserved[\s\S]*No division membership was changed/);
+  assert.match(panelText(payload), /How to correct it[\s\S]*valid in-scope option/);
+  assert.match(panelText(payload), /Where to continue[\s\S]*return to division choices/);
+  assert.equal(action(payload, GOVERNANCE_MEMBERSHIP_PANEL_ACTIONS.BACK_CHOICE).label, 'Back to choices');
 });
 
 test('division removal explains project and last-division blockers before review', async () => {

@@ -13,8 +13,10 @@ import {
   ephemeralReplyPayload,
   interactionEditPayload,
   interactionOutcome,
+  interactionRecovery,
   renderInteractionModal,
   renderInteractionPanel,
+  recoveryKindForMessage,
 } from '../../messages/index.js';
 import type { InteractionControlSpec } from '../../messages/types.js';
 import { botCommandChannelScope } from '../../runtime/command-channels.js';
@@ -857,7 +859,14 @@ function cancelledPayload(noun: string) {
   }));
 }
 
-function failurePayload(session: GovernancePanelSession, message: string) {
+function failurePayload(session: GovernancePanelSession, error: unknown) {
+  const expected = error instanceof UserFacingError;
+  const message = expected ? error.message : `${config.botName} could not save this change. Try again.`;
+  const preservedState = session.kind === 'division-create'
+    ? 'No division record was saved. Your staged setup is still available.'
+    : session.kind === 'division-update'
+      ? 'The canonical division was not changed. Your staged update is still available.'
+      : 'The member record was not changed. Your staged update is still available.';
   const actions = session.kind === 'division-create'
     ? [
         { id: id(session, ACTIONS.DIVISION_CREATE_SAVE), label: 'Try creating again', style: 'primary' as const },
@@ -875,15 +884,15 @@ function failurePayload(session: GovernancePanelSession, message: string) {
           { id: id(session, ACTIONS.MEMBER_UPDATE_BACK_DETAILS), label: 'Back to changes', style: 'secondary' as const },
           { id: id(session, ACTIONS.MEMBER_UPDATE_CANCEL), label: 'Cancel update', style: 'danger' as const },
         ];
-  return renderInteractionPanel({
-    kind: 'interaction-panel',
-    tone: 'danger',
+  return renderInteractionPanel(interactionRecovery({
+    kind: expected ? recoveryKindForMessage(message) : 'unexpected',
     title: 'Change not saved',
-    description: 'Review the problem below. Your setup is still available.',
-    sections: [{ heading: 'What happened', body: escapeMarkdown(message) }],
+    whatHappened: message,
+    preservedState,
+    correction: 'Review the listed condition. If the current scope or record changed, return to the previous step and revise the staged change.',
+    continueWith: 'Use the controls below to try again, return to the prior step, or cancel this private flow.',
     actions,
-    audience: 'actor',
-  });
+  }));
 }
 
 async function respondToModal(interaction, payload) {
@@ -1076,10 +1085,7 @@ export function createGovernancePanelService({
       });
     } catch (error) {
       session.busy = false;
-      await interaction.editReply(interactionEditPayload(failurePayload(
-        session,
-        error instanceof UserFacingError ? error.message : `${config.botName} could not create the division. Try again.`,
-      )));
+      await interaction.editReply(interactionEditPayload(failurePayload(session, error)));
       return;
     }
     store.remove(session);
@@ -1114,10 +1120,7 @@ export function createGovernancePanelService({
       });
     } catch (error) {
       session.busy = false;
-      await interaction.editReply(interactionEditPayload(failurePayload(
-        session,
-        error instanceof UserFacingError ? error.message : `${config.botName} could not update the division. Try again.`,
-      )));
+      await interaction.editReply(interactionEditPayload(failurePayload(session, error)));
       return;
     }
     store.remove(session);
@@ -1157,10 +1160,7 @@ export function createGovernancePanelService({
       });
     } catch (error) {
       session.busy = false;
-      await interaction.editReply(interactionEditPayload(failurePayload(
-        session,
-        error instanceof UserFacingError ? error.message : `${config.botName} could not update the member. Try again.`,
-      )));
+      await interaction.editReply(interactionEditPayload(failurePayload(session, error)));
       return;
     }
     store.remove(session);

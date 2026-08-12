@@ -56,8 +56,21 @@ async function postActivity(interaction, commandName, result) {
       result,
     });
   const universityName = result.university?.name ?? result.universityName;
+  const discordRemovalPending = result.discordRemoval?.status === 'pending_recovery';
+  const projectAccessCleanupPending = result.overwriteCleanup?.failures?.length > 0;
+  const recovery = commandName === 'member-remove' && (discordRemovalPending || projectAccessCleanupPending)
+    ? {
+        whatHappened: discordRemovalPending
+          ? 'The member record was removed, but Discord could not complete the server removal. Managed access cleanup is queued for reconciliation.'
+          : 'The member record was removed, but one or more project-channel access updates need reconciliation.',
+        preservedState: 'The member record remains removed. The completed removal was not repeated.',
+        correction: 'Do not run /member-remove again. Let reconciliation finish, then contact a President or administrator if access still remains.',
+        continueWith: 'Check the member’s remaining Discord access after reconciliation completes.',
+      }
+    : undefined;
   await replyBoardActivity(interaction, payload, {
     channels: universityActivityChannels(interaction, universityName),
+    recovery,
   });
 }
 

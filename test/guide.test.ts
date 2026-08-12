@@ -5,8 +5,9 @@ import { ComponentType, MessageFlags } from 'discord.js';
 
 import { commands } from '../src/commands/index.js';
 import { buildGuideAccess, guideScopeLabel } from '../src/guide/access.js';
-import { GUIDE_CATALOG, GUIDE_COMMAND_NAMES } from '../src/guide/catalog.js';
+import { GUIDE_CATALOG, GUIDE_COMMAND_NAMES, GUIDE_TOPICS } from '../src/guide/catalog.js';
 import {
+  commandPayload,
   guideInteractions,
   homePayload,
   parseCustomId,
@@ -117,9 +118,38 @@ test('President and Global President guides expose the intended wider tiers', ()
   assert.equal(global.availableCommands.has('division-remove-member'), true);
   assert.equal(guideScopeLabel(global), 'All universities');
 
-  const members = topicPayload({ user: { id: '42' } }, global, 'members');
-  assert.match(guideText(members), /^\*\*Members and divisions\*\*/);
-  assert.match(guideText(members), /\/division-create/);
+  const divisions = topicPayload({ user: { id: '42' } }, global, GUIDE_TOPICS.DIVISIONS);
+  assert.match(guideText(divisions), /^\*\*Manage divisions\*\*/);
+  assert.match(guideText(divisions), /\/division-create/);
+});
+
+test('guide separates member, division, and appointment work and explains confirmation plus recovery', () => {
+  const interaction = { user: { id: '42' } };
+  const access = buildGuideAccess({
+    member: memberWithRoles(['Bocconi - President']),
+    channelScope: universityScope(),
+  });
+
+  const members = guideText(topicPayload(interaction, access, GUIDE_TOPICS.MEMBERS));
+  assert.match(members, /\/member-update/);
+  assert.match(members, /\/member-remove/);
+  assert.doesNotMatch(members, /\/division-create|\/board-update/);
+
+  const divisions = guideText(topicPayload(interaction, access, GUIDE_TOPICS.DIVISIONS));
+  assert.match(divisions, /\/division-create/);
+  assert.match(divisions, /\/division-remove-member/);
+  assert.doesNotMatch(divisions, /\/member-update|\/board-update/);
+
+  const appointments = guideText(topicPayload(interaction, access, GUIDE_TOPICS.APPOINTMENTS));
+  assert.match(appointments, /\/board-update/);
+  assert.doesNotMatch(appointments, /\/member-update|\/division-create/);
+
+  const detail = guideText(commandPayload(interaction, access, 'board-update'));
+  assert.match(detail, /\*\*Your scope\*\*[\s\S]*Bocconi/);
+  assert.match(detail, /\*\*Before you start\*\*/);
+  assert.match(detail, /\*\*Confirmation and safeguards\*\*/);
+  assert.match(detail, /\*\*What happens after success\*\*/);
+  assert.match(detail, /\*\*If something stops the workflow\*\*/);
 });
 
 test('guide access denies ordinary members and cross-university board roles', () => {
@@ -152,8 +182,8 @@ test('guide home and topics render one private navigable message payload', () =>
   assert.match(guideText(home), /^\*\*BAINSA Bot Guide\*\*/);
   assert.match(guideText(home), /\*\*Working scope\*\*\nBocconi › Culture/);
   assert.equal(
-    guideComponent(home, (component) => component.label === 'Manage Culture members')?.label,
-    'Manage Culture members',
+    guideComponent(home, (component) => component.label === 'Manage Culture division access')?.label,
+    'Manage Culture division access',
   );
   assert.ok(guideComponents(home)[0].components.length <= 10);
 

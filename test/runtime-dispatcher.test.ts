@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { commands } from '../src/commands/index.js';
 import { postUniversityBoardActivity } from '../src/activity/router.js';
-import { replyBoardActivity, replyEphemeral } from '../src/discord/reply.js';
+import { handleInteractionError, replyBoardActivity, replyEphemeral } from '../src/discord/reply.js';
 import { UserFacingError } from '../src/errors.js';
 import { guideInteractions } from '../src/guide/service.js';
 import { createOnboardingService } from '../src/onboarding/service.js';
@@ -201,6 +201,43 @@ test('dispatcher blocks bot-targeting commands before execution', async () => {
 
   assert.equal(executed, false);
   assert.match(captured.message, /cannot be managed or assigned/);
+});
+
+test('private error recovery distinguishes authorization, stale controls, and committed reconciliation state', async () => {
+  const replies = [];
+  const interaction = {
+    commandName: 'board-update',
+    user: { id: 'actor' },
+    async reply(payload) { replies.push(payload); },
+  };
+
+  await handleInteractionError(interaction, new UserFacingError('Choose a valid division before continuing.'));
+  assert.match(payloadText(replies.at(-1)), /Action needs attention/);
+  assert.match(payloadText(replies.at(-1)), /No shared BAINSA state was changed/);
+  assert.match(payloadText(replies.at(-1)), /Correct the condition described above/);
+
+  await handleInteractionError(interaction, new UserFacingError('Only a President can update this board.'));
+  assert.match(payloadText(replies.at(-1)), /outside your current access/i);
+  assert.match(payloadText(replies.at(-1)), /What was preserved/);
+
+  await handleInteractionError(interaction, new UserFacingError('The board changed while this panel was open. Reload it.'));
+  assert.match(payloadText(replies.at(-1)), /no longer current/i);
+  assert.match(payloadText(replies.at(-1)), /Reload the current record or roster/i);
+
+  await handleInteractionError(interaction, new UserFacingError(
+    'The member record was removed, but Discord access cleanup is pending.',
+    {
+      recovery: {
+        kind: 'reconciliation',
+        preservedState: 'The member record remains removed; access cleanup is queued.',
+        correction: 'Do not repeat the removal. Wait for reconciliation or contact an administrator.',
+        continueWith: 'Check the member’s Discord access after reconciliation completes.',
+      },
+    },
+  ));
+  assert.match(payloadText(replies.at(-1)), /Change saved; Discord follow-up needs attention/);
+  assert.match(payloadText(replies.at(-1)), /member record remains removed/);
+  assert.match(payloadText(replies.at(-1)), /Do not repeat the removal/);
 });
 
 function autocompleteInteraction({ member, channel }) {
@@ -435,6 +472,26 @@ test('activity delivery failures report that the change was saved', async () => 
 
   assert.match(payloadText(edited), /Change saved; activity delivery failed/);
   assert.match(payloadText(edited), /could not be posted/);
+});
+
+test('committed activity with pending Discord recovery tells the actor not to repeat the mutation', async () => {
+  let reply;
+  await replyBoardActivity({
+    channel: { send: async () => undefined },
+    async reply(payload) { reply = payload; },
+  }, { content: 'activity' }, {
+    recovery: {
+      whatHappened: 'The member record was removed, but Discord access cleanup is queued.',
+      preservedState: 'The member record remains removed.',
+      correction: 'Do not run /member-remove again.',
+      continueWith: 'Check access after reconciliation completes.',
+    },
+  });
+
+  assert.match(payloadText(reply), /Change saved; Discord follow-up needs attention/);
+  assert.match(payloadText(reply), /member record remains removed/);
+  assert.match(payloadText(reply), /Do not run \/member-remove again/);
+  assert.match(payloadText(reply), /shared activity record was posted/);
 });
 
 test('dispatcher routes onboarding buttons by custom id', async () => {

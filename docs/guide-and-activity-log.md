@@ -13,10 +13,11 @@ authorization or the durable PostgreSQL audit log.
 university `#bot-log`, renders one message, and updates that message in place as the caller selects
 topics or command details. It must not create a normal channel message or an activity entry.
 
-The guide is organized by outcomes rather than an alphabetical command list. Every relevant view
-states the caller's scope in plain language, such as `Bocconi > Culture`, and explains the most
-important prerequisites, inputs, success effects, and whether success normally creates an
-activity entry.
+The guide is organized by jobs rather than an alphabetical command list. Member management,
+division management, and board appointments are separate topics; projects, lookups, and rules
+remain separate supporting topics. Every command detail states the caller's scope in plain
+language, such as `Bocconi > Culture`, then explains prerequisites, inputs, confirmation and
+safeguards, success effects, and the recovery route if the workflow cannot continue.
 
 ### Effective access
 
@@ -42,17 +43,20 @@ again.
 
 ### Content and navigation
 
-The home view contains a compact role/scope summary and a small topic selector. Topic views group
-related outcomes such as managing members, managing projects, looking up information, and rules or
-limits. Command detail views use this order:
+The home view contains a compact role/scope summary and a small topic selector. Topic views keep
+member management, division management, and board appointments distinct, then group projects,
+lookups, and rules or limits separately. Command detail views use this order:
 
 1. Plain-language action and slash-command name.
 2. What the command does.
 3. The caller's applicable scope.
 4. Key prerequisites and constraints.
 5. Required and important optional inputs.
-6. State, Discord, audit, and activity-feed effects after success.
-7. Back and guide-home navigation.
+6. What the final review confirms, or whether the command acts immediately.
+7. State, Discord, audit, and activity-feed effects after success.
+8. What remains unchanged after a failed validation, authorization, or stale-state check, and
+   where to resume safely.
+9. Back and guide-home navigation.
 
 Provisioning maintains one pinned message in each university `#bot-log` telling board members to
 run `/guide`. It must not pin role-specific command lists, because those become stale and can
@@ -114,6 +118,23 @@ Never include internal member notes, removal reasons, division-removal reasons, 
 reasons, project notes, project final notes, raw database IDs, stack traces, exception details, or
 reconciliation diagnostics in a board-visible entry. A project close may show the shared recorded
 outcome, but not private final notes.
+
+### Recovery messages
+
+Private recovery panels use one fixed order so a stressed board member can scan them quickly:
+
+1. **What happened** — a concise, user-safe reason; never an internal exception or audit detail.
+2. **What was preserved** — the canonical state or staged work that did not change.
+3. **How to correct it** — the concrete condition to fix, refresh, or delegate.
+4. **Where to continue** — the safe prior step, retry, command restart, or operator escalation.
+
+Validation, authorization, and stale-control failures must say that no shared change was made.
+Panel save failures additionally state that the proposed setup, roster, or membership choice remains
+available. A committed change with pending Discord reconciliation instead says that the canonical
+record remains saved and explicitly tells the actor not to repeat the completed mutation.
+
+Recovery panels are private. They must not disclose private notes, reasons, protected assignment
+data, reconciliation diagnostics, or internal audit information.
 
 ### Partial Discord outcomes
 

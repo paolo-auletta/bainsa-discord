@@ -10,6 +10,7 @@ import {
   renderEventCard,
   renderHandoffMessage,
   renderInteractionPanel,
+  interactionRecovery,
   renderWorkspaceDocument,
   userReference,
 } from '../src/messages/index.js';
@@ -170,6 +171,27 @@ test('interaction panel loading actions are relabeled and disabled by the shared
   const button = allComponents(payload).find((component) => component.custom_id === 'continue');
   assert.equal(button.label, 'Loading…');
   assert.equal(button.disabled, true);
+});
+
+test('recovery panels explain the failure, preserved state, correction, and continuation safely', () => {
+  const payload = renderInteractionPanel(interactionRecovery({
+    kind: 'stale',
+    whatHappened: 'The board changed while this panel was open: *current roster changed*.',
+    preservedState: 'No board appointment was changed. The proposed roster is still available.',
+    correction: 'Reload the roster and review the changed position.',
+    continueWith: 'Return to positions, then save the reviewed roster again.',
+    actions: [{ id: 'back', label: 'Back to positions', style: 'secondary' }],
+  }));
+
+  assert.match(componentText(payload), /\*\*What happened\*\*/);
+  assert.match(componentText(payload), /\*\*What was preserved\*\*/);
+  assert.match(componentText(payload), /\*\*How to correct it\*\*/);
+  assert.match(componentText(payload), /\*\*Where to continue\*\*/);
+  assert.match(componentText(payload), /No board appointment was changed/);
+  assert.match(componentText(payload), /Reload the roster/);
+  assert.match(componentText(payload), /\\\*current roster changed\\\*/);
+  assert.ok(allComponents(payload).some((component) => component.custom_id === 'back'));
+  assert.deepEqual(payload.allowedMentions, { parse: [] });
 });
 
 test('interaction panels keep field guidance directly above reusable body controls', () => {
