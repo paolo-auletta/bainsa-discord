@@ -73,12 +73,9 @@ export function canDiscoverCommand({ commandName, member, channelScope }) {
   const visibility = COMMAND_VISIBILITY[commandName];
   if (!visibility || !channelScope || !member) return false;
   if (channelScope.kind === 'project') return visibility === 'project';
-  // Global authority is exercised from the dedicated global bot log. Keeping
-  // this boundary here makes command discovery and execution agree even when
-  // a university channel overwrite is accidentally broadened.
-  if (hasGlobalAuthority(member)) {
-    return channelScope.kind === 'global';
-  }
+  // Cross-university authority is exercised from the dedicated global bot log.
+  // A member who also has a role for this university retains that local route.
+  if (channelScope.kind === 'global') return hasGlobalAuthority(member);
   if (channelScope.kind !== 'university' || !channelScope.universityName) return false;
   return hasScopedBoardRole(member, channelScope.universityName, visibility);
 }

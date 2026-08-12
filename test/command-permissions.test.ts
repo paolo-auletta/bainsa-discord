@@ -56,6 +56,27 @@ test('board update is visible to university Vice Presidents', () => {
   assert.equal(canDiscoverCommand({ commandName: 'board-update', member: vicePresident, channelScope: scope }), true);
 });
 
+test('a Global President who also holds a local board role can use both bot logs', () => {
+  const member = memberWithRoles(['Global President', 'Bocconi - President']);
+
+  assert.equal(
+    canDiscoverCommand({
+      commandName: 'board-update',
+      member,
+      channelScope: { kind: 'global' },
+    }),
+    true,
+  );
+  assert.equal(
+    canDiscoverCommand({
+      commandName: 'board-update',
+      member,
+      channelScope: { kind: 'university', universityName: 'Bocconi' },
+    }),
+    true,
+  );
+});
+
 test('global Presidents can discover every membership and board panel', () => {
   const globalPresident = memberWithRoles(['Global President']);
   const scope = { kind: 'global' };
