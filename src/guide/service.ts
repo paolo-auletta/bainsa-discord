@@ -1,5 +1,6 @@
 import { MessageFlags } from 'discord.js';
 
+import { config } from '../config.js';
 import { replyEphemeral } from '../discord/reply.js';
 import { UserFacingError } from '../errors.js';
 import { interactionAction, interactionOutcome, renderInteractionPanel } from '../messages/index.js';
@@ -89,7 +90,7 @@ function homePayload(interaction, access) {
   return renderInteractionPanel({
     kind: 'interaction-panel',
     tone: 'brand',
-    title: 'BAINSA Bot Guide',
+    title: `${config.botName} Bot Guide`,
     description: 'This private guide only shows commands available to your current board roles.',
     facts: [
       { label: 'Your access', value: access.roleLabels.join('\n') },

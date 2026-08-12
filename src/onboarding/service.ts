@@ -9,6 +9,7 @@ import {
 
 import { assertUniversityAuthority } from '../authorization.js';
 import { writeAudit } from '../audit.js';
+import { config } from '../config.js';
 import { BOARD_ROLES, divisionLabel, MEMBER_TYPES, ROLE_NAMES } from '../constants.js';
 import { query, transaction } from '../db.js';
 import { UserFacingError, assertUser } from '../errors.js';
@@ -690,7 +691,7 @@ export function createOnboardingService({
     }
     const message = error instanceof UserFacingError
       ? error.message
-      : 'BAINSA could not deliver the application. Please try again.';
+      : `${config.botName} could not deliver the application. Please try again.`;
     await interaction.editReply(
       onboardingSubmissionFailedPayload(current.id, current, university, divisions, message),
     );
@@ -764,7 +765,7 @@ async function finishReviewDecisionWithFailure(
 ) {
   const message = error instanceof UserFacingError
     ? error.message
-    : 'BAINSA could not complete this decision. Please try again.';
+    : `${config.botName} could not complete this decision. Please try again.`;
   logger[error instanceof UserFacingError ? 'warn' : 'error']('Onboarding review decision failed', {
     requestId: request?.id,
     decision,

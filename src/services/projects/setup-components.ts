@@ -17,6 +17,7 @@ import {
 } from "discord.js";
 
 import { divisionLabel } from "../../constants.js";
+import { config } from "../../config.js";
 import {
   interactionOutcome,
   renderInteractionPanel,
@@ -538,7 +539,7 @@ export function creatingPayload(session) {
     kind: "interaction-panel",
     tone: "pending",
     title: `Creating ${escapeMarkdown(session.name || "project")}`,
-    description: "BAINSA is checking eligibility, saving the project, and preparing its private Discord channel.",
+    description: `${config.botName} is checking eligibility, saving the project, and preparing its private Discord channel.`,
     status: "This message will update when the project is ready. Do not submit it again.",
     audience: "actor",
   });

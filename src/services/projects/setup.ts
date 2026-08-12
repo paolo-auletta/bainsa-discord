@@ -5,6 +5,7 @@ import { MessageFlags } from 'discord.js';
 import { formatBoardActivity } from '../../activity/formatters.js';
 import { postUniversityBoardActivity } from '../../activity/router.js';
 import { assertNoBotUserIds } from '../../authorization.js';
+import { config } from '../../config.js';
 import { UserFacingError, assertUser } from '../../errors.js';
 import { logger } from '../../logger.js';
 import {
@@ -231,7 +232,7 @@ export function createProjectSetupService({
         kind: 'interaction-panel',
         tone: 'pending',
         title: `Loading ${session.university} divisions`,
-        description: 'BAINSA is confirming your scope before loading active divisions.',
+        description: `${config.botName} is confirming your scope before loading active divisions.`,
         status: 'This private setup will update when the divisions are ready.',
         audience: 'actor',
       }));
@@ -349,7 +350,7 @@ export function createProjectSetupService({
       touch(session);
       const message = error instanceof UserFacingError
         ? error.message
-        : 'BAINSA could not create the project. Review the setup and try again.';
+        : `${config.botName} could not create the project. Review the setup and try again.`;
       await interaction.editReply(creationFailedPayload(session, message));
       return;
     }

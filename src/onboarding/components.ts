@@ -9,6 +9,7 @@ import {
 } from "discord.js";
 
 import { divisionLabel, MEMBER_TYPES } from "../constants.js";
+import { config } from "../config.js";
 import { PROFILE_CUSTOM_IDS } from "../profiles/custom-ids.js";
 import { onboardingId, ONBOARDING_ACTIONS } from "./custom-ids.js";
 import { pageItems } from "./state.js";
@@ -285,7 +286,7 @@ export function reviewDecisionProgressPayload(decision) {
     embeds: [
       new EmbedBuilder()
         .setColor(EMBED_COLORS.PENDING)
-        .setAuthor({ name: "BAINSA · Onboarding review" })
+        .setAuthor({ name: `${config.botName} · Onboarding review` })
         .setTitle(approving ? "Approving access" : "Declining application")
         .setDescription(
           approving
@@ -303,7 +304,7 @@ export function reviewDecisionFailedPayload(request, university, divisions, deci
   const base = request && university ? reviewPayload(request, university, divisions) : null;
   const embed = base
     ? EmbedBuilder.from(base.embeds[0])
-    : new EmbedBuilder().setAuthor({ name: "BAINSA · Onboarding review" });
+    : new EmbedBuilder().setAuthor({ name: `${config.botName} · Onboarding review` });
 
   embed
     .setColor(EMBED_COLORS.DANGER)
@@ -358,7 +359,7 @@ export function applicationStatusPayload({ request, university, divisions, links
     color = EMBED_COLORS.PENDING;
     description = [
       "Your university board has received the application.",
-      "BAINSA will try to send the decision by DM. You can also return to #onboarding and use **Check application status** at any time.",
+      `${config.botName} will try to send the decision by DM. You can also return to #onboarding and use **Check application status** at any time.`,
     ].join("\n\n");
   } else if (status === "approved") {
     title = "Application approved";
@@ -447,7 +448,7 @@ export function memberSpacesPayload({
     embeds: [
       new EmbedBuilder()
         .setColor(EMBED_COLORS.BRAND)
-        .setAuthor({ name: "BAINSA" })
+        .setAuthor({ name: config.botName })
         .setTitle("Find your place in BAINSA")
         .setDescription("Your map to the community. Keep conversations in the narrowest useful space.")
         .addFields(...fields),
@@ -477,7 +478,7 @@ export function reviewPayload(request, university, divisions) {
     embeds: [
       new EmbedBuilder()
         .setColor(EMBED_COLORS.PENDING)
-        .setAuthor({ name: "BAINSA · Onboarding review" })
+        .setAuthor({ name: `${config.botName} · Onboarding review` })
         .setTitle("New access request")
         .setDescription(
           `**<@${request.discord_user_id}>** is waiting for a review.`,
@@ -558,7 +559,7 @@ export function reviewedPayload(
 function onboardingEmbed(title) {
   return new EmbedBuilder()
     .setColor(EMBED_COLORS.BRAND)
-    .setAuthor({ name: "BAINSA · Membership application" })
+    .setAuthor({ name: `${config.botName} · Membership application` })
     .setTitle(title);
 }
 

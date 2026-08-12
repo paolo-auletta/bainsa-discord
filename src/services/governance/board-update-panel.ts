@@ -3,6 +3,7 @@ import { escapeMarkdown } from 'discord.js';
 import { assertNotBotUser, hasGlobalAuthority } from '../../authorization.js';
 import { formatBoardActivity } from '../../activity/formatters.js';
 import { postUniversityBoardActivity } from '../../activity/router.js';
+import { config } from '../../config.js';
 import { BOARD_ROLES, divisionLabel, ROLE_NAMES } from '../../constants.js';
 import { assertUser, UserFacingError } from '../../errors.js';
 import { createFlowSessionStore, type FlowSessionBase } from '../../flows/session-store.js';
@@ -616,7 +617,7 @@ export function createBoardUpdatePanelService({
       session.busy = true;
       await interaction.update(pendingPayload(
         `Loading the ${session.university.name} board`,
-        'BAINSA is checking your current authority and loading the canonical roster and active divisions.',
+        `${config.botName} is checking your current authority and loading the canonical roster and active divisions.`,
       ));
     }
     try {
@@ -677,7 +678,7 @@ export function createBoardUpdatePanelService({
 
   async function openReview(interaction, session: BoardUpdateSession) {
     session.busy = true;
-    await interaction.update(pendingPayload('Checking the proposed board', 'BAINSA is validating the selected members and your current authority.'));
+    await interaction.update(pendingPayload('Checking the proposed board', `${config.botName} is validating the selected members and your current authority.`));
     try {
       await validateSelections(interaction, session);
       session.busy = false;
@@ -689,7 +690,7 @@ export function createBoardUpdatePanelService({
       session.screen = 'edit';
       session.problem = error instanceof UserFacingError
         ? error.message
-        : 'BAINSA could not validate the selected members. Review the roster and try again.';
+        : `${config.botName} could not validate the selected members. Review the roster and try again.`;
       await interaction.editReply(interactionEditPayload(editPayload(session)));
     }
   }
@@ -701,7 +702,7 @@ export function createBoardUpdatePanelService({
       selectedUniversity: session.university,
     });
     session.busy = true;
-    await interaction.update(pendingPayload('Saving the board update', 'BAINSA is re-checking the roster and reconciling managed Discord roles.'));
+    await interaction.update(pendingPayload('Saving the board update', `${config.botName} is re-checking the roster and reconciling managed Discord roles.`));
     let result;
     try {
       result = await updateOperation(interaction, {
@@ -713,7 +714,7 @@ export function createBoardUpdatePanelService({
       session.busy = false;
       await interaction.editReply(interactionEditPayload(failurePayload(
         session,
-        error instanceof UserFacingError ? error.message : 'BAINSA could not save this board update. Try again.',
+        error instanceof UserFacingError ? error.message : `${config.botName} could not save this board update. Try again.`,
       )));
       return;
     }

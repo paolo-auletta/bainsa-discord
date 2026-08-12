@@ -2,6 +2,7 @@ import { escapeMarkdown } from 'discord.js';
 
 import { formatBoardActivity } from '../../activity/formatters.js';
 import { postUniversityBoardActivity } from '../../activity/router.js';
+import { config } from '../../config.js';
 import {
   OPEN_PROJECT_STATUSES,
   PROJECT_PERSON_ROLES,
@@ -806,7 +807,7 @@ export function createProjectManagementPanelService({
     session.busy = true;
     await interaction.update(pendingPayload(
       `Saving ${escapeMarkdown(session.name ?? session.project.name)}`,
-      'BAINSA is validating the final project record and team, committing them together, and reconciling Discord access.',
+      `${config.botName} is validating the final project record and team, committing them together, and reconciling Discord access.`,
     ));
     let result;
     try {
@@ -827,7 +828,7 @@ export function createProjectManagementPanelService({
       session.busy = false;
       await interaction.editReply(interactionEditPayload(failurePayload(
         session,
-        error instanceof UserFacingError ? error.message : 'BAINSA could not save this project update. Try again.',
+        error instanceof UserFacingError ? error.message : `${config.botName} could not save this project update. Try again.`,
       )));
       return;
     }
@@ -845,7 +846,7 @@ export function createProjectManagementPanelService({
     session.busy = true;
     await interaction.update(pendingPayload(
       `Closing ${escapeMarkdown(session.project.name)}`,
-      'BAINSA is saving the conclusion, updating the durable project record, and moving the workspace to archive/history.',
+      `${config.botName} is saving the conclusion, updating the durable project record, and moving the workspace to archive/history.`,
     ));
     let result;
     try {
@@ -859,7 +860,7 @@ export function createProjectManagementPanelService({
       session.busy = false;
       await interaction.editReply(interactionEditPayload(failurePayload(
         session,
-        error instanceof UserFacingError ? error.message : 'BAINSA could not close this project. Try again.',
+        error instanceof UserFacingError ? error.message : `${config.botName} could not close this project. Try again.`,
       )));
       return;
     }
@@ -909,7 +910,7 @@ export function createProjectManagementPanelService({
         ? projectSelectionPayload(session, { loading: true })
         : pendingPayload(
             'Loading project for closure',
-            'BAINSA is checking your access and loading the current project record and complete team.',
+            `${config.botName} is checking your access and loading the current project record and complete team.`,
           );
       await updateAfterLookup(interaction, session, loadingPayload, async () => {
         const context = await loadProjectContext({

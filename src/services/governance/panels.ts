@@ -2,6 +2,7 @@ import { escapeMarkdown } from 'discord.js';
 
 import { formatBoardActivity } from '../../activity/formatters.js';
 import { postUniversityBoardActivity } from '../../activity/router.js';
+import { config } from '../../config.js';
 import { hasGlobalAuthority } from '../../authorization.js';
 import { BOARD_ROLES, DIVISION_COLORS, MEMBER_TYPES, divisionLabel } from '../../constants.js';
 import { assertUser, UserFacingError } from '../../errors.js';
@@ -584,7 +585,7 @@ function memberTargetPayload(session: MemberUpdateSession, { loading = false } =
     kind: 'interaction-panel',
     tone: 'brand',
     title: 'Update a member',
-    description: 'Choose the member first. BAINSA will load their current record and show only the fields you can manage.',
+    description: `Choose the member first. ${config.botName} will load their current record and show only the fields you can manage.`,
     progress: { label: 'Member update', current: 1, total: 3 },
     facts: session.targetUser
       ? [{ label: 'Selected member', value: `<@${session.targetUser.id}>` }]
@@ -816,7 +817,7 @@ function memberReviewPayload(session: MemberUpdateSession) {
     kind: 'interaction-panel',
     tone: 'changed',
     title: 'Review the member update',
-    description: 'BAINSA will re-check your scope and the member’s active project eligibility before saving.',
+    description: `${config.botName} will re-check your scope and the member’s active project eligibility before saving.`,
     progress: { label: 'Member update', current: 3, total: 3 },
     facts: summary.facts,
     sections: [
@@ -1069,7 +1070,7 @@ export function createGovernancePanelService({
     session.busy = true;
     await interaction.update(pendingPayload(
       `Creating ${escapeMarkdown(session.divisionName)}`,
-      'BAINSA is checking authority, creating managed roles and spaces, and saving the canonical division record.',
+      `${config.botName} is checking authority, creating managed roles and spaces, and saving the canonical division record.`,
     ));
     let result;
     try {
@@ -1085,7 +1086,7 @@ export function createGovernancePanelService({
       session.busy = false;
       await interaction.editReply(interactionEditPayload(failurePayload(
         session,
-        error instanceof UserFacingError ? error.message : 'BAINSA could not create the division. Try again.',
+        error instanceof UserFacingError ? error.message : `${config.botName} could not create the division. Try again.`,
       )));
       return;
     }
@@ -1107,7 +1108,7 @@ export function createGovernancePanelService({
     session.busy = true;
     await interaction.update(pendingPayload(
       `Updating ${escapeMarkdown(session.division.name)}`,
-      'BAINSA is reconciling the canonical division record with its managed roles and channels.',
+      `${config.botName} is reconciling the canonical division record with its managed roles and channels.`,
     ));
     let result;
     try {
@@ -1121,7 +1122,7 @@ export function createGovernancePanelService({
       session.busy = false;
       await interaction.editReply(interactionEditPayload(failurePayload(
         session,
-        error instanceof UserFacingError ? error.message : 'BAINSA could not update the division. Try again.',
+        error instanceof UserFacingError ? error.message : `${config.botName} could not update the division. Try again.`,
       )));
       return;
     }
@@ -1145,7 +1146,7 @@ export function createGovernancePanelService({
     session.busy = true;
     await interaction.update(pendingPayload(
       'Saving the member update',
-      'BAINSA is re-checking scope, active project eligibility, member roles, and the canonical member record.',
+      `${config.botName} is re-checking scope, active project eligibility, member roles, and the canonical member record.`,
     ));
     let result;
     try {
@@ -1163,7 +1164,7 @@ export function createGovernancePanelService({
       session.busy = false;
       await interaction.editReply(interactionEditPayload(failurePayload(
         session,
-        error instanceof UserFacingError ? error.message : 'BAINSA could not update the member. Try again.',
+        error instanceof UserFacingError ? error.message : `${config.botName} could not update the member. Try again.`,
       )));
       return;
     }
@@ -1255,7 +1256,7 @@ export function createGovernancePanelService({
         session.busy = true;
         await interaction.update(pendingPayload(
           `Loading ${escapeMarkdown(session.university.name)} divisions`,
-          'BAINSA is confirming your scope before loading active divisions.',
+          `${config.botName} is confirming your scope before loading active divisions.`,
         ));
         try {
           session.divisions = await loadDivisions(session.university.name) as DivisionRow[];

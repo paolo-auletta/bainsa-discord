@@ -1,6 +1,7 @@
 import { escapeMarkdown } from 'discord.js';
 
 import { hasGlobalAuthority } from '../../authorization.js';
+import { config } from '../../config.js';
 import { assertUser } from '../../errors.js';
 import { flowCustomId, parseFlowCustomId } from '../../flows/custom-id.js';
 import { createFlowSessionStore, type FlowSessionBase } from '../../flows/session-store.js';
@@ -85,7 +86,7 @@ function loadingPayload(universityName: string) {
     kind: 'interaction-panel',
     tone: 'pending',
     title: `Loading the ${escapeMarkdown(universityName)} board`,
-    description: 'BAINSA is checking your current authority, the canonical roster, and managed Discord roles.',
+    description: `${config.botName} is checking your current authority, the canonical roster, and managed Discord roles.`,
     status: 'This private panel will update when the roster is ready.',
     audience: 'actor',
   });

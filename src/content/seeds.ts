@@ -1,3 +1,5 @@
+import { config } from '../config.js';
+
 const MARKER_PREFIX = '<!-- bainsa:seed:';
 
 export function seedMarker(key) {
@@ -59,7 +61,7 @@ export function startHereSeeds() {
         '• Your university — and, for Researchers, one division',
         '',
         '**What happens next**',
-        'Your university board reviews the request and assigns access once the details are confirmed. BAINSA will try to send the decision by DM.',
+        `Your university board reviews the request and assigns access once the details are confirmed. ${config.botName} will try to send the decision by DM.`,
         'Already applied? Use **Check application status** below to see whether your application is in progress, pending, approved, or declined.',
         '',
         'Ready? Use the button below to begin.',
@@ -96,7 +98,7 @@ export function globalSeeds() {
       key: 'global:bot-log',
       title: 'Global Bot Log',
       body: [
-        'Use this channel for BAINSA bot commands that operate across university scope. Only Global Presidents should use this command channel.',
+        `Use this channel for ${config.botName} commands that operate across university scope. Only Global Presidents should use this command channel.`,
         '',
         'Successful shared-state changes are recorded here. Guides, lookups, and errors stay private.',
         'Need help? Run `/guide` here. You will only see commands available to you.',
@@ -169,7 +171,7 @@ export function universitySeeds(universityName) {
       key: `university:${universityName}:bot-log`,
       title: `${universityName} Bot Log`,
       body: [
-        `Use this channel for BAINSA bot commands scoped to ${universityName}. University board members can use the commands here; ordinary discussion belongs in the other university channels.`,
+        `Use this channel for ${config.botName} commands scoped to ${universityName}. University board members can use the commands here; ordinary discussion belongs in the other university channels.`,
         '',
         'Successful shared-state changes are recorded here. Guides, lookups, and errors stay private.',
         'Need help? Run `/guide` here. You will only see commands available to you.',

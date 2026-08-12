@@ -11,6 +11,7 @@ import {
 } from '../../authorization.js';
 import { formatBoardActivity } from '../../activity/formatters.js';
 import { postUniversityBoardActivity } from '../../activity/router.js';
+import { config } from '../../config.js';
 import { MEMBER_TYPES, PROJECT_PERSON_ROLES, ROLE_NAMES, divisionLabel } from '../../constants.js';
 import { assertUser, UserFacingError } from '../../errors.js';
 import { flowCustomId, parseFlowCustomId } from '../../flows/custom-id.js';
@@ -175,8 +176,8 @@ function targetPayload(
     tone: problem ? 'danger' : 'brand',
     title: panelTitle(session.kind),
     description: remove
-      ? `Choose an active${session.university ? ` ${session.university.name}` : ''} member. BAINSA will derive their university and show only safe in-scope removals.`
-      : `Choose an active${session.university ? ` ${session.university.name}` : ''} Researcher. BAINSA will derive their university before loading eligible divisions.`,
+      ? `Choose an active${session.university ? ` ${session.university.name}` : ''} member. ${config.botName} will derive their university and show only safe in-scope removals.`
+      : `Choose an active${session.university ? ` ${session.university.name}` : ''} Researcher. ${config.botName} will derive their university before loading eligible divisions.`,
     progress: { label: panelLabel(), current: 1, total: 3 },
     facts: [
       ...(session.university ? [{ label: 'University', value: session.university.name }] : []),
@@ -484,7 +485,7 @@ function pendingPayload(session: MembershipPanelSession) {
     kind: 'interaction-panel',
     tone: 'pending',
     title: session.kind === 'division-add-member' ? 'Adding division access' : 'Removing division access',
-    description: 'BAINSA is re-checking authority, membership, project eligibility, and managed Discord roles.',
+    description: `${config.botName} is re-checking authority, membership, project eligibility, and managed Discord roles.`,
     status: 'This panel will update when the operation finishes. Do not submit it again.',
     audience: 'actor',
   });
@@ -614,7 +615,7 @@ export function createGovernanceMembershipPanelService({
       session.busy = false;
       const message = error instanceof UserFacingError
         ? error.message
-        : 'BAINSA could not load that member. Review your selection and try again.';
+        : `${config.botName} could not load that member. Review your selection and try again.`;
       if (!(error instanceof UserFacingError)) {
         logger.error('Division membership context could not be loaded', {
           command: session.kind,
@@ -652,7 +653,7 @@ export function createGovernanceMembershipPanelService({
       session.busy = false;
       await interaction.editReply(interactionEditPayload(failurePayload(
         session,
-        error instanceof UserFacingError ? error.message : 'BAINSA could not save this division membership change. Try again.',
+        error instanceof UserFacingError ? error.message : `${config.botName} could not save this division membership change. Try again.`,
       )));
       return;
     }

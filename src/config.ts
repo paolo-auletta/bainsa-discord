@@ -20,6 +20,9 @@ export function loadConfig(env = process.env) {
     discordGuildId: env.DISCORD_GUILD_ID,
     databaseUrl: env.DATABASE_URL,
     databaseSslCa: resolveDatabaseSslCa(env),
+    // This controls only the name the application uses when speaking to members.
+    // It does not rename BAINSA roles, channels, or other community structure.
+    botName: env.BOT_NAME?.trim() || 'BAINSA',
     logLevel: env.LOG_LEVEL?.trim() || 'info',
   });
 }
