@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ChannelType, ForumLayoutType, PermissionFlagsBits } from 'discord.js';
+import { ButtonStyle, ChannelType, ForumLayoutType, PermissionFlagsBits } from 'discord.js';
 
 import { BOARD_ROLES, ROLE_COLORS, ROLE_NAMES } from '../src/constants.js';
 import { globalSeeds } from '../src/content/seeds.js';
@@ -765,8 +765,11 @@ test('directory provisioning attaches the profile guide buttons from the profile
 
   const [, key, , options] = guideCalls.find(([, candidate]) => candidate === 'global:people-directory');
   assert.equal(key, 'global:people-directory');
-  const componentIds = options.components[0].toJSON().components.map((component) => component.custom_id);
+  const profileActions = options.components[0].toJSON().components;
+  const componentIds = profileActions.map((component) => component.custom_id);
   assert.deepEqual(componentIds, [PROFILE_CUSTOM_IDS.START, PROFILE_CUSTOM_IDS.UNPUBLISH]);
+  assert.equal(profileActions[0].style, ButtonStyle.Primary);
+  assert.equal(profileActions[1].style, ButtonStyle.Secondary);
 });
 
 test('division voice channels grant event creation only to scoped board roles', () => {

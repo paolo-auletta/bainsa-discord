@@ -111,12 +111,12 @@ Areas · Technology, Industry</pre></article>
         <section id="private" class="view">
           <div class="intro"><h2>Private editing is a guided checklist, not the public card in edit mode.</h2><p>Owner-centric language belongs here. The wizard preserves the current private, actor-bound workflow while its review screen makes the public boundary explicit.</p></div>
           <div class="wizard-shell">
-            <nav class="steps" aria-label="Profile setup steps"><div class="step done"><span>✓</span>Where you are now</div><div class="step done"><span>✓</span>What you want to explore</div><div class="step done"><span>✓</span>Tags</div><div class="step done"><span>✓</span>Contact</div><div class="step current"><span>5</span>Review &amp; publish</div></nav>
+            <nav class="steps" aria-label="Profile setup steps"><div class="step done"><span>✓</span>Where you are now</div><div class="step done"><span>✓</span>Where you want to go</div><div class="step done"><span>✓</span>Tags</div><div class="step done"><span>✓</span>Contact</div><div class="step current"><span>5</span>Review &amp; publish</div></nav>
             <article class="private-card">
               <div class="private-head"><b>Private to you</b><span>PROFILE REVIEW</span></div>
               <div class="private-body">
                 <h3>Review your public profile</h3><p>Everything below will be visible to approved BAINSA members after you publish.</p>
-                <div class="review"><div class="review-row"><b>Where you are now</b><span>Researcher building practical AI systems<br>Research assistant · Applied AI Lab · Milan</span></div><div class="review-row"><b>What you want to explore</b><span>Applied machine learning, responsible deployment, and research-to-organisation collaboration.</span></div><div class="review-row"><b>Areas</b><span>Bocconi · Technology · Industry · Entrepreneurship</span></div><div class="review-row"><b>Contact</b><span>Discord is always available. LinkedIn is included because you chose to add it.</span></div></div>
+                <div class="review"><div class="review-row"><b>Where you are now</b><span>Researcher building practical AI systems<br>Research assistant · Applied AI Lab · Milan</span></div><div class="review-row"><b>Where you want to go</b><span>Applied machine learning, responsible deployment, and research-to-organisation collaboration.</span></div><div class="review-row"><b>Areas</b><span>Bocconi · Technology · Industry · Entrepreneurship</span></div><div class="review-row"><b>Contact</b><span>Discord is always available. LinkedIn is included because you chose to add it.</span></div></div>
                 <div class="privacy-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span><strong>Private until you publish.</strong> Cancelling changes nothing. You can update or unpublish the profile later.</span></div>
                 <div class="private-actions"><div class="action-group"><button class="button ghost" type="button" data-view="private">Back to contact</button><button class="button danger" type="button" data-toast="Profile editing cancelled. Nothing changed.">Cancel</button></div><button class="button primary" type="button" data-toast="Concept only — profile published.">Publish profile</button></div>
               </div>
@@ -137,7 +137,7 @@ Areas · Technology, Industry</pre></article>
           <div class="rule"></div>
           <h2 class="section-title">Recommended implementation slice</h2>
           <ul class="change-list">
-            <li>Split the current shared <code>formatProfileSummary</code> into a private review formatter and a public post formatter. The current “Your BAINSA people database profile” heading is valid only for the private review.</li>
+            <li>Use <code>formatProfileReview</code> for the owner-only wizard and a separate public post formatter for the reader-facing card. Owner-centric “your profile” language stays private.</li>
             <li>In the public formatter, lead with the canonical full name and an identity line: <code>Researcher · Bocconi · Analysis</code>. Build that line only from reconciliation-loaded membership facts.</li>
             <li>Keep division conditional: researchers with a current division display it; alumni do not receive a blank or placeholder division row.</li>
             <li>Render authored sections after canonical context, and omit optional fields that are absent. Keep Markdown escaping and <code>allowedMentions: { parse: [] }</code> unchanged.</li>

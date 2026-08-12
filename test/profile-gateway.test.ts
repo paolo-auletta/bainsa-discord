@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ChannelType, MessageFlags } from 'discord.js';
+import { ChannelType, ComponentType, MessageFlags } from 'discord.js';
 
 import { deleteProfileForumPosts, upsertProfileForumPost } from '../src/profiles/gateway.js';
 
 const post = Object.freeze({
   threadName: 'Ada Lovelace — Researcher building practical AI systems',
-  content: '**Discord:** <@owner>',
+  sections: [
+    '## Ada Lovelace\n**Discord** · <@owner>',
+    '### Current focus\nMSc student',
+    '### Looking to explore\nApplied AI',
+  ],
+  content: '## Ada Lovelace\n**Discord** · <@owner>\n\n### Current focus\nMSc student\n\n### Looking to explore\nApplied AI',
   appliedTagLabels: ['Bocconi', 'AI & Data'],
   allowedMentions: { parse: [] },
 });
@@ -53,8 +58,12 @@ test('creates one no-ping forum starter post and persists both current API ident
   assert.deepEqual(createPayload.message.allowedMentions, { parse: [] });
   assert.equal(createPayload.message.content, undefined);
   assert.equal(createPayload.message.flags, MessageFlags.IsComponentsV2);
-  assert.equal(createPayload.message.components[0].toJSON().accent_color, 0x5865f2);
-  assert.equal(createPayload.message.components[0].toJSON().components[0].content, post.content);
+  assert.equal(createPayload.message.components.length, 1);
+  const card = createPayload.message.components[0].toJSON();
+  assert.equal(card.accent_color, 0x5865f2);
+  assert.deepEqual(card.components.filter((component) => component.type === ComponentType.TextDisplay).map((component) => component.content), post.sections);
+  assert.equal(card.components.filter((component) => component.type === ComponentType.Separator).length, 2);
+  assert.ok(card.components.length < 30);
 });
 
 test('updates the existing starter in place after unarchiving and changing tags', async () => {
@@ -79,15 +88,23 @@ test('updates the existing starter in place after unarchiving and changing tags'
   };
   const guild = forumWith({ async fetchActive() { return { threads: new Map() }; }, async fetchArchived() { return { threads: new Map() }; } });
   guild.add(thread);
-  const identity = await upsertProfileForumPost({ guild, ownerId: 'owner', post, forumThreadId: 'thread-1', forumMessageId: 'old-message' });
+  const updatedPost = {
+    ...post,
+    sections: [post.sections[0], '### Current focus\nUpdated role', post.sections[2]],
+    content: post.content.replace('MSc student', 'Updated role'),
+  };
+  const identity = await upsertProfileForumPost({ guild, ownerId: 'owner', post: updatedPost, forumThreadId: 'thread-1', forumMessageId: 'old-message' });
   assert.equal(identity.created, false);
   assert.equal(unarchived, 1);
   assert.equal(edited, 2);
-  assert.equal(name, post.threadName);
+  assert.equal(name, updatedPost.threadName);
   assert.deepEqual(tags, ['bocconi', 'ai']);
   assert.deepEqual(starterEdits[0], { content: null, embeds: [], components: [] });
   assert.equal(starterEdits[1].flags, MessageFlags.IsComponentsV2);
-  assert.equal(starterEdits[1].components[0].toJSON().components[0].content, post.content);
+  const updatedText = starterEdits[1].components[0].toJSON().components
+    .filter((component) => component.type === ComponentType.TextDisplay)
+    .map((component) => component.content);
+  assert.deepEqual(updatedText, updatedPost.sections);
   assert.deepEqual(deletedSections, ['section-1', 'section-2']);
 });
 

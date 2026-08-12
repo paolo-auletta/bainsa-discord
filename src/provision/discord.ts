@@ -1299,7 +1299,7 @@ function peopleDirectoryButtonRow() {
     new ButtonBuilder()
       .setCustomId(PROFILE_CUSTOM_IDS.UNPUBLISH)
       .setLabel('Unpublish my profile')
-      .setStyle(ButtonStyle.Danger),
+      .setStyle(ButtonStyle.Secondary),
   );
 }
 

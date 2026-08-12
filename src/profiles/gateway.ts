@@ -2,6 +2,8 @@ import {
   ChannelType,
   ContainerBuilder,
   MessageFlags,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
   TextDisplayBuilder,
 } from 'discord.js';
 
@@ -173,9 +175,19 @@ async function recoverOwnedThread({ forum, ownerId, botId }) {
 }
 
 function profileCard(post) {
-  return new ContainerBuilder()
-    .setAccentColor(PROFILE_CARD_COLOR)
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(post.content));
+  const sections = Array.isArray(post.sections) && post.sections.length > 0
+    ? post.sections
+    : [post.content];
+  const container = new ContainerBuilder().setAccentColor(PROFILE_CARD_COLOR);
+  sections.forEach((section, index) => {
+    if (index > 0) {
+      container.addSeparatorComponents(
+        new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+      );
+    }
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(section));
+  });
+  return container;
 }
 
 function starterPayload(post) {
