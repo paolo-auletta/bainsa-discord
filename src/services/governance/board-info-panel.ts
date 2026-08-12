@@ -105,16 +105,27 @@ function boardPayload(info) {
   const issueSummary = consistencyIssues.length
     ? `${consistencyIssues.length} member${consistencyIssues.length === 1 ? '' : 's'} need Discord-role recovery. Open \`/board-update\` and save the roster again.`
     : 'Discord roles match the recorded board roster.';
+  const deliveryHealth = info.notificationHealth ?? { pending: 0, failed: 0, uncertain: 0 };
+  const deliveryProblems = Number(deliveryHealth.failed ?? 0) + Number(deliveryHealth.uncertain ?? 0);
+  const deliverySummary = deliveryHealth.unavailable
+    ? 'Notification delivery status is temporarily unavailable.'
+    : deliveryProblems
+      ? `${deliveryHealth.failed} handoff(s) failed and ${deliveryHealth.uncertain} have an uncertain outcome. Canonical governance state is still committed; contact those members through a safe shared route.`
+      : deliveryHealth.pending
+        ? `${deliveryHealth.pending} private handoff(s) are queued for automatic delivery.`
+        : 'No unresolved private handoffs are recorded.';
 
   return renderInteractionPanel({
     kind: 'interaction-panel',
-    tone: consistencyIssues.length ? 'warning' : (info.rows.length ? 'brand' : 'warning'),
+    tone: consistencyIssues.length || deliveryProblems || deliveryHealth.unavailable
+      ? 'warning'
+      : (info.rows.length ? 'brand' : 'warning'),
     title: summary.title,
     description: summary.description,
     facts: summary.leadership,
     sections: [{ heading: 'Division Heads', body: divisions }],
     detailsDensity: 'compact-groups',
-    status: issueSummary,
+    status: `${issueSummary} ${deliverySummary}`,
     audience: 'actor',
   });
 }

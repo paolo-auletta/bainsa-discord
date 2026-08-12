@@ -16,7 +16,7 @@ spacing, field order, component limits, provenance, and no-ping defaults.
 | Event card | A shared-state event belongs in chronological activity, or a transient lookup needs a compact read-only summary | Embed | Semantic marker/color, title, subject, ordered details, and event-only state/actor fields when applicable |
 | Workspace document | People will return to a canonical record or guide | Plain text | Title, metadata, sections, quiet provenance footer |
 | Interaction panel | The actor must choose, confirm, wait, recover, or see a private outcome | Components V2 | Accent, title/context, optional facts/progress, controls/actions, status |
-| Handoff message | A change affects a person who needs context and a next action | Plain DM | Direct title, changed access/context, private details when allowed, up to three next actions, links |
+| Handoff message | A change affects a person who needs context and a next action | Plain DM | Direct title, explicit state label, effective-access change, what remains, private details when allowed, up to three next actions, links, safe help route |
 
 `renderBotMessage` accepts the union contract when the caller needs polymorphism. Domain-specific
 formatters can call `renderEventCard`, `renderWorkspaceDocument`, `renderInteractionPanel`, or
@@ -46,7 +46,8 @@ hex color or choose an arbitrary emoji.
   Markdown. Native user and channel references use `userReference` and `channelReference`.
 - Event cards enforce the 6,000-character aggregate embed limit and fixed field order.
 - Workspace documents and handoffs fit in one 2,000-character message and retain their provenance
-  footer when content is shortened.
+  footer when content is shortened. Handoffs reserve their limit for recovery actions and fallback
+  guidance before allocating space to long detail sections.
 - Interaction panels bound text displays, custom IDs, select options, controls, action rows, and the
   ten-child container limit.
 - Private reasons and internal notes are decided at the domain boundary. A renderer does not make
@@ -114,10 +115,19 @@ disable or remove actions while busy, and avoid offering a retry after the datab
 
 ### Handoff message
 
-Use a handoff after onboarding decisions, project assignments/removals, and board access changes.
-Lead with what changed, name the scope and role, then give at most three concrete next actions. A
-private reason may appear only in the affected person's DM and the audit record—never in the shared
-event card.
+Use a handoff after onboarding decisions, project assignments/removals, membership or division
+scope changes, board appointments/removals, and full member removal. Lead with what changed, name
+the resulting effective access and responsibility, state what remains, then give at most three
+concrete next actions and a help route the recipient can still use. A private reason may appear only
+when domain policy explicitly marks it shareable with the affected person. Internal board notes and
+audit-only reasons never enter the payload or shared event card.
+
+Every consequential handoff is recorded in `transition_notifications` in the same transaction as
+its mutation audit. Delivery is a separate post-commit claim. Explicit delivery failures may retry;
+delivered rows cannot be claimed again. A process interruption after a send was claimed becomes
+`uncertain` and is never replayed automatically, because avoiding duplicate human messages is more
+important than guessing. `/board-info` surfaces queued, failed, and uncertain delivery health
+without misrepresenting the committed governance state.
 
 ## Current migration boundary
 
@@ -132,7 +142,7 @@ navigation instead of building one-off Components V2 containers.
 | `/board-update` | Paginated roster editor | University, every active division, current-to-new position holders, and hierarchy-safe controls |
 | `/division-add-member` | Migrated member-first panel | University, member type, current memberships, and actor-manageable divisions |
 | `/division-remove-member` | Migrated member-first panel | University, every membership, scope, Head/project requirements, and remaining-division invariant |
-| `/member-remove` | Pending panel migration | Existing inline target and reason remain until its dedicated slice |
+| `/member-remove` | Inline destructive command with durable handoff/recovery outcomes | Canonical membership, removed scopes, policy-safe private notification, project cleanup, and Discord-removal state |
 
 Discord string-select options have no per-option disabled state. Removal panels therefore show the
 complete role or division state in the summary with `Removable`, `Read only`, or `Blocked` labels,

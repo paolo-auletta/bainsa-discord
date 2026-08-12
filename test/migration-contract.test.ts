@@ -72,6 +72,11 @@ const coUniversityBoardSeatsMigrationUrl = projectPath(
   'migrations',
   '021_allow_co_vice_presidents_and_heads.sql',
 );
+const transitionNotificationsMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '022_transition_notifications.sql',
+);
 
 async function migrationSql() {
   return readFile(migrationUrl, 'utf8');
@@ -149,6 +154,10 @@ async function projectHomePlainMessageMigrationSql() {
   return readFile(projectHomePlainMessageMigrationUrl, 'utf8');
 }
 
+async function transitionNotificationsMigrationSql() {
+  return readFile(transitionNotificationsMigrationUrl, 'utf8');
+}
+
 function assertIncludes(sql, snippet) {
   assert.ok(sql.includes(snippet), `Expected migration to include: ${snippet}`);
 }
@@ -178,7 +187,17 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '019_project_workspace_guide.sql',
     '020_render_project_home_as_plain_message.sql',
     '021_allow_co_vice_presidents_and_heads.sql',
+    '022_transition_notifications.sql',
   ]);
+});
+
+test('adds durable, idempotent transition notification delivery state', async () => {
+  const sql = await transitionNotificationsMigrationSql();
+  assertIncludes(sql, 'CREATE TABLE IF NOT EXISTS transition_notifications');
+  assertIncludes(sql, 'UNIQUE (audit_id, recipient_discord_user_id, kind)');
+  assertIncludes(sql, "status IN ('pending', 'sending', 'delivered', 'failed', 'uncertain')");
+  assertIncludes(sql, 'transition_notifications_delivery_idx');
+  assertIncludes(sql, 'transition_notifications_university_health_idx');
 });
 
 test('adds a durable canonical project-home message identity', async () => {

@@ -18,6 +18,10 @@ import {
   persistProjectShowcaseThreadId,
   persistProjectWorkspaceGuideMessageId,
 } from './repository.js';
+import {
+  prepareAndDeliverProjectNotifications,
+  preparePendingProjectNotifications,
+} from './notifications.js';
 const REPAIR_LIMIT = 10;
 
 interface ReconciliationWorkerOptions {
@@ -171,6 +175,17 @@ export async function reconcileProject({ projectId, guild, db, allowStaleProcess
     if (!await completeProjectReconciliation(db, projectId, generation)) {
       return { status: 'superseded', projectId, generation };
     }
+    try {
+      await prepareAndDeliverProjectNotifications({ db, guild, project });
+    } catch (notificationError) {
+      // Project state is already reconciled. The worker separately discovers
+      // unprepared handoffs for succeeded projects, so this failure remains a
+      // notification concern and never rewrites canonical project truth.
+      logger.warn('Project reconciliation completed but handoff preparation remains queued', {
+        projectId: String(projectId),
+        error: notificationError instanceof Error ? notificationError.message : String(notificationError),
+      });
+    }
     logger.info('Project reconciliation succeeded', { projectId: String(projectId), generation: String(generation) });
     return { status: 'succeeded', projectId, generation, project, people };
   } catch (error) {
@@ -210,7 +225,9 @@ export function createProjectReconciliationWorker({
     if (running || stopped) return [];
     running = true;
     try {
-      return await retryProjectReconciliations({ guild, db, limit });
+      const reconciliations = await retryProjectReconciliations({ guild, db, limit });
+      await preparePendingProjectNotifications({ guild, db, limit });
+      return reconciliations;
     } catch (error) {
       logger.error('Project reconciliation worker failed', { error: error instanceof Error ? error.message : String(error) });
       return [];

@@ -40,8 +40,10 @@ state before applying Discord changes must expose the difference between these o
 Project reconciliation rows are operational state. Preserve them with their projects so
 `status`, `attempts`, `last_error`, generations, and timestamps remain available for diagnosis.
 Only idempotent desired-state operations belong in replay. Canonical project and showcase messages
-are stored and edited by identity, so they belong in reconciliation. Assignment DMs and
-chronological transition messages remain best-effort and must not be duplicated by a retry.
+are stored and edited by identity, so they belong in reconciliation. Personal handoffs use a
+separate durable claim: explicit failures may retry, delivered claims cannot replay, and stale
+in-flight claims become `uncertain` for operator review. Chronological transition messages remain
+best-effort and must not be duplicated by reconciliation.
 
 ### Authorization and scope
 

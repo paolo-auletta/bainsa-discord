@@ -492,6 +492,14 @@ test('member updates enqueue published profiles only when canonical directory fa
     [target.id],
   );
   assert.deepEqual(divisions.rows, [{ name: 'Culture' }]);
+  const accessHandoff = await database.query(
+    `SELECT tn.kind, tn.status
+       FROM transition_notifications tn
+       JOIN audit_log a ON a.id = tn.audit_id
+      WHERE a.action = 'member.update' AND a.target_id = $1`,
+    [target.id],
+  );
+  assert.deepEqual(accessHandoff.rows.map((row) => row.kind), ['member.access_updated']);
 });
 
 test('member removal rolls profile visibility and reconciliation back when its transaction fails before Discord side effects', async () => {
@@ -616,14 +624,13 @@ test('member removal keeps canonical departure and project reconciliation intent
   const actor = globalPresident('kick-failure-actor');
   guild.members = { async fetch(id) { return String(id) === target.id ? target : actor; } };
 
-  await assert.rejects(
-    removeMember(
-      { guild, user: { id: actor.id }, member: actor },
-      { user: { id: target.id } },
-      { db: database as never },
-    ),
-    /membership record was removed, but Discord could not complete/i,
+  const firstRemoval = await removeMember(
+    { guild, user: { id: actor.id }, member: actor },
+    { user: { id: target.id } },
+    { db: database as never },
   );
+  assert.equal(firstRemoval.discordRemoval.status, 'pending_recovery');
+  assert.equal(firstRemoval.discordRemoval.managedRolesRemoved, true);
   assert.equal(target.roles.cache.has('researcher-role'), false);
   assert.equal(target.roles.cache.has('bocconi-role'), false);
   assert.equal(target.roles.cache.has('analysis-role'), false);
@@ -637,15 +644,23 @@ test('member removal keeps canonical departure and project reconciliation intent
   assert.equal(((await database.query(
     'SELECT status FROM project_reconciliation WHERE project_id = $1', [projectId],
   )).rows[0] as unknown as { status: string }).status, 'failed');
-
-  await assert.rejects(
-    removeMember(
-      { guild, user: { id: actor.id }, member: actor },
-      { user: { id: target.id } },
-      { db: database as never },
-    ),
-    /membership record was removed, but Discord could not complete/i,
+  const removalHandoff = await database.query(
+    `SELECT kind, status, payload->>'content' AS content
+       FROM transition_notifications
+      WHERE recipient_discord_user_id = $1`,
+    [target.id],
   );
+  assert.equal(removalHandoff.rows.length, 1);
+  assert.equal(removalHandoff.rows[0].kind, 'member.removed');
+  assert.match(removalHandoff.rows[0].content, /Server membership removed/);
+  assert.doesNotMatch(removalHandoff.rows[0].content, /Discord REST internal details/);
+
+  const repairAttempt = await removeMember(
+    { guild, user: { id: actor.id }, member: actor },
+    { user: { id: target.id } },
+    { db: database as never },
+  );
+  assert.equal(repairAttempt.discordRemoval.status, 'pending_recovery');
   assert.equal(((await database.query(
     "SELECT count(*)::int AS count FROM audit_log WHERE action = 'member.remove' AND target_id = $1",
     [target.id],

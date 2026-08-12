@@ -15,6 +15,8 @@ import { query, transaction } from '../db.js';
 import { UserFacingError, assertUser } from '../errors.js';
 import { logger } from '../logger.js';
 import { renderHandoffMessage } from '../messages/index.js';
+import { enqueueTransitionNotification } from '../notifications/repository.js';
+import { deliverTransitionNotification } from '../notifications/service.js';
 import { divisionRoleName, divisionTextChannelName, universityCategoryName } from '../naming.js';
 import { hasPublishedProfile } from '../profiles/repository.js';
 import {
@@ -59,9 +61,7 @@ import {
 
 const DISCORD_NICKNAME_LIMIT = 32;
 
-/** Sends the member-facing approval handoff only after approval has committed. */
-export async function notifyApprovedMemberAboutDirectory({ guild, userId, request, university, divisions = [] }) {
-  const member = await guild.members.fetch(String(userId));
+export function approvedMemberHandoff({ guild, request, university, divisions = [] }) {
   const directory = guild.channels?.cache?.find((channel) => channel?.name === 'people-database');
   const directoryLink = channelUrl(guild, directory);
   const links = approvedStartLinks(guild, university, divisions);
@@ -69,10 +69,11 @@ export async function notifyApprovedMemberAboutDirectory({ guild, userId, reques
   const spaces = links.length > 0
     ? links.map((line) => `• ${line}`)
     : ['• Open the newly available Global BAINSA and university spaces to get started.'];
-  await member.send(renderHandoffMessage({
+  return renderHandoffMessage({
     kind: 'handoff-message',
     tone: 'success',
     title: 'Your BAINSA application was approved',
+    statusLabel: 'Membership access added',
     sections: [
       { heading: 'Your access', body: access },
       { heading: 'Spaces now available', body: spaces },
@@ -80,19 +81,26 @@ export async function notifyApprovedMemberAboutDirectory({ guild, userId, reques
     nextActions: [directoryLink
       ? `Create your profile in <#${directory.id}>. It helps members find you for research, projects, and collaboration.`
       : 'Create your profile in the people database. It helps members find you for research, projects, and collaboration.'],
+    fallback: 'If a listed space is missing, return to onboarding and use “Check application status”, then contact your university board.',
     provenance: 'BAINSA onboarding · Access handoff',
     audience: 'member',
-  }));
+  });
 }
 
-export async function notifyRejectedApplicant({ guild, userId, request, university, divisions = [] }) {
+/** Sends the member-facing approval handoff only after approval has committed. */
+export async function notifyApprovedMemberAboutDirectory({ guild, userId, request, university, divisions = [] }) {
   const member = await guild.members.fetch(String(userId));
+  await member.send(approvedMemberHandoff({ guild, request, university, divisions }));
+}
+
+export function rejectedApplicantHandoff({ guild, request, university, divisions = [] }) {
   const onboarding = guild.channels?.cache?.find((channel) => channel?.name === 'onboarding');
   const onboardingLink = channelUrl(guild, onboarding);
-  await member.send(renderHandoffMessage({
+  return renderHandoffMessage({
     kind: 'handoff-message',
     tone: 'danger',
     title: 'Your BAINSA application was declined',
+    statusLabel: 'Application decision recorded',
     sections: [
       { heading: 'Application', body: accessSummary(request, university, divisions) },
       { heading: 'Reason shared by the reviewer', body: escapeMarkdown(request.review_reason || 'No reason was provided.') },
@@ -101,9 +109,15 @@ export async function notifyRejectedApplicant({ guild, userId, request, universi
       ? 'Open onboarding to review the decision and your current application status.'
       : 'Return to #onboarding in the BAINSA server to review the decision.'],
     links: onboardingLink ? [{ label: 'Open onboarding', url: onboardingLink }] : [],
+    fallback: 'If onboarding is unavailable, contact the university board through your existing contact route.',
     provenance: 'BAINSA onboarding · Decision handoff',
     audience: 'member',
-  }));
+  });
+}
+
+export async function notifyRejectedApplicant({ guild, userId, request, university, divisions = [] }) {
+  const member = await guild.members.fetch(String(userId));
+  await member.send(rejectedApplicantHandoff({ guild, request, university, divisions }));
 }
 
 export function createOnboardingService({
@@ -400,6 +414,7 @@ export function createOnboardingService({
     let pendingRequest;
     let university;
     let divisions = [];
+    let notificationId = null;
     let rollbackDiscordState = null;
 
     try {
@@ -423,7 +438,7 @@ export function createOnboardingService({
         );
         await upsertActiveMember(client, request);
         reviewed = await markReviewed(client, request.id, ONBOARDING_STATUSES.APPROVED, interaction.user.id);
-        await writeAudit(client, {
+        const auditId = await writeAudit(client, {
           actorId: interaction.user.id,
           action: 'onboarding.approve',
           targetType: 'member',
@@ -434,6 +449,20 @@ export function createOnboardingService({
             memberType: request.member_type,
             divisionIds: normalizeSelectedDivisionIds(request.division_ids),
           },
+        });
+        notificationId = await enqueueTransitionNotification(client, {
+          auditId,
+          recipientId: request.discord_user_id,
+          kind: 'onboarding.approved',
+          universityId: request.university_id,
+          relatedEntityType: 'onboarding_request',
+          relatedEntityId: request.id,
+          payload: approvedMemberHandoff({
+            guild: interaction.guild,
+            request: { ...request, status: ONBOARDING_STATUSES.APPROVED },
+            university,
+            divisions,
+          }),
         });
       });
     } catch (error) {
@@ -463,13 +492,16 @@ export function createOnboardingService({
         error: error instanceof Error ? error.message : String(error),
       });
     });
-    await notifyApprovedMember({
-      guild: interaction.guild,
-      userId: reviewed.discord_user_id,
-      request: reviewed,
-      university,
-      divisions,
-    }).catch(() => {
+    const delivery = notificationId == null
+      ? notifyApprovedMember({
+        guild: interaction.guild,
+        userId: reviewed.discord_user_id,
+        request: reviewed,
+        university,
+        divisions,
+      })
+      : deliverTransitionNotification({ db, guild: interaction.guild, notificationId });
+    await delivery.catch(() => {
       logger.warn('Could not send approved member onboarding decision', {
         requestId: String(requestId),
         userId: String(reviewed.discord_user_id),
@@ -483,6 +515,7 @@ export function createOnboardingService({
     let pendingRequest;
     let university;
     let divisions = [];
+    let notificationId = null;
 
     try {
       await runTransaction(async (client) => {
@@ -494,13 +527,28 @@ export function createOnboardingService({
         divisions = await listDivisionsByIds(client, request.university_id, request.division_ids);
         await assertReviewer(interaction, university.name);
         reviewed = await markReviewed(client, request.id, ONBOARDING_STATUSES.REJECTED, interaction.user.id, reason);
-        await writeAudit(client, {
+        const auditId = await writeAudit(client, {
           actorId: interaction.user.id,
           action: 'onboarding.reject',
           targetType: 'onboarding_request',
           targetId: request.id,
           universityId: request.university_id,
           reason,
+        });
+        notificationId = await enqueueTransitionNotification(client, {
+          auditId,
+          recipientId: request.discord_user_id,
+          kind: 'onboarding.rejected',
+          universityId: request.university_id,
+          relatedEntityType: 'onboarding_request',
+          relatedEntityId: request.id,
+          payload: rejectedApplicantHandoff({
+            guild: interaction.guild,
+            request: { ...request, status: ONBOARDING_STATUSES.REJECTED, review_reason: reason },
+            university,
+            divisions,
+          }),
+          metadata: { reasonSharedPrivately: true },
         });
       });
     } catch (error) {
@@ -521,13 +569,16 @@ export function createOnboardingService({
         error: error instanceof Error ? error.message : String(error),
       });
     });
-    await notifyRejectedMember({
-      guild: interaction.guild,
-      userId: reviewed.discord_user_id,
-      request: reviewed,
-      university,
-      divisions,
-    }).catch(() => {
+    const delivery = notificationId == null
+      ? notifyRejectedMember({
+        guild: interaction.guild,
+        userId: reviewed.discord_user_id,
+        request: reviewed,
+        university,
+        divisions,
+      })
+      : deliverTransitionNotification({ db, guild: interaction.guild, notificationId });
+    await delivery.catch(() => {
       logger.warn('Could not send rejected member onboarding decision', {
         requestId: String(requestId),
         userId: String(reviewed.discord_user_id),
@@ -598,12 +649,14 @@ export function createOnboardingService({
         kind: 'handoff-message',
         tone: 'brand',
         title: 'Welcome to BAINSA',
+        statusLabel: 'Application not started',
         context: 'Your application is private and can be resumed if you leave before submitting it.',
         nextActions: [
           'Open #onboarding and start your application.',
           'Use Check application status there whenever you want to return to it.',
         ],
         links: onboardingLink ? [{ label: 'Open onboarding', url: onboardingLink }] : [],
+        fallback: 'If onboarding is unavailable, contact a BAINSA board member through your existing route.',
         provenance: 'BAINSA onboarding · Getting started',
         audience: 'member',
       }));

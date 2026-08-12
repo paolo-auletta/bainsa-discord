@@ -110,9 +110,9 @@ dependencies that must be removed or reassigned first.
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `user` | Yes | Member to remove from the server |
-| `reason` | No | Audit reason and Discord kick reason |
+| `reason` | No | Audit and Discord moderation reason; never copied into the member handoff |
 
-The bot validates authority, immediately kicks the member from Discord, deactivates their application records and assignments, removes managed access, cleans direct project-channel overwrites, and writes an audit entry. The Bot and protected Global President accounts cannot be removed by university officers.
+The bot validates authority and atomically commits the canonical removal, audit entry, project/profile reconciliation, and private notification intent. It then attempts a policy-safe handoff before the kick closes the member's guild route, removes direct project access, reconciles affected projects, and attempts the server removal. The command and board activity distinguish the committed membership change, handoff delivery, access cleanup, and Discord kick outcome. A failed DM or kick never rolls back or hides the committed removal. The command `reason` remains audit-only; internal board notes are never copied into the member handoff. The Bot and protected Global President accounts cannot be removed by university officers.
 
 ### `/member-info`
 
@@ -234,7 +234,7 @@ The project name remains at the top of every setup card after it is entered. Bac
 
 The selected university and division remain authoritative: the database rejects a person who does not meet the appropriate project eligibility rule, rejects duplicate people across the two groups, and rejects the Bot account. A project has at most 994 unique direct participants across members, supervisors, and board liaisons; the team can be changed later through `/project-update`. This reserves six of Discord's 1,000 permission overwrites for `@everyone`, the Bot, Global President, and the scoped Head, Vice President, and President roles. Discord documents this limit as error 30060, “Maximum number of channel permission overwrites reached (1000)”: [Discord API error codes](https://discord.com/developers/topics/opcodes-and-status-codes).
 
-When valid, the bot atomically commits the project, participant records, audit entry, and pending reconciliation intent to PostgreSQL. It then immediately runs an idempotent reconciliation that creates or repairs the private project channel, its scoped access, its two pinned messages (the canonical project record and workspace guide), the university showcase starter, and the division/lifecycle tags. If Discord work fails, the committed project is reported as pending and retries automatically. Once access is ready, assigned people receive a best-effort role-aware handoff DM with links and a recommended first step.
+When valid, the bot atomically commits the project, participant records, audit entry, pending reconciliation intent, and one durable handoff intent per affected participant to PostgreSQL. It then immediately runs an idempotent reconciliation that creates or repairs the private project channel, its scoped access, its two pinned messages (the canonical project record and workspace guide), the university showcase starter, and the division/lifecycle tags. If Discord work fails, the committed project is reported as pending and retries automatically. Once access is ready, the bot refreshes each queued handoff with current workspace links and claims it for delivery.
 
 ### `/project-update`
 

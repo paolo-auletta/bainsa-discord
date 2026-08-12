@@ -249,14 +249,15 @@ test('approval handoff leads with access, native channel links, and a profile ca
 
   assert.deepEqual(dm.allowedMentions, { parse: [] });
   assert.match(dm.content, /application was approved/i);
-  assert.match(dm.content, /approved\*\*\n\n\*\*Your access\*\*/);
+  assert.match(dm.content, /approved\*\*\n\n\*\*Status\*\*\nMembership access added/);
   assert.match(dm.content, /Your access.*Researcher.*Bocconi.*Analysis/s);
   assert.match(dm.content, /Global general/);
   assert.match(dm.content, /Bocconi general/);
   assert.match(dm.content, /Your division: <#analysis-channel>/);
   assert.match(dm.content, /Create your profile in <#database>/);
-  assert.ok(dm.content.indexOf('**Start here**') < dm.content.indexOf('Create your profile'));
-  assert.doesNotMatch(dm.content, /optional|Check application status/i);
+  assert.ok(dm.content.indexOf('**What to do next**') < dm.content.indexOf('Create your profile'));
+  assert.doesNotMatch(dm.content, /optional/i);
+  assert.match(dm.content, /Check application status/);
 });
 
 test('Find my spaces opens a channel guide and only prompts members without a profile', async () => {

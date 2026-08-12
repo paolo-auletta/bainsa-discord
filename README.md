@@ -151,7 +151,7 @@ Do not use this override in a production deployment: members could otherwise see
 
 New members can only see the read-only `START HERE` area. The onboarding flow collects a full name, member type, university, and exactly one division for Researchers. Alumni choose no division. Every private step keeps the current choices and provides a clearly named Continue, Back, and Cancel path; the final review can return to the last editable step.
 
-A Division Head, Vice President, or President from that university—or a Global President—must approve the request before roles are assigned. Submission, approval, and rejection show an explicit in-progress message while work is running. The applicant can use **Check application status** in `#onboarding` at any time, so a closed DM does not hide the final decision. Approval sends a best-effort orientation DM with the member's access and useful starting spaces, then directly asks them to create a profile so members can find them for research, projects, and collaboration. Rejection requires a member-facing reason and offers a new-application recovery path.
+A Division Head, Vice President, or President from that university—or a Global President—must approve the request before roles are assigned. Submission, approval, and rejection show an explicit in-progress message while work is running. The applicant can use **Check application status** in `#onboarding` at any time, so a closed DM does not hide the final decision. Approval records and attempts a durable orientation handoff with the member's access and useful starting spaces, then directly asks them to create a profile so members can find them for research, projects, and collaboration. Rejection requires a member-facing reason and offers a new-application recovery path.
 
 Approval also sets the member's server nickname from the recorded onboarding name so Discord-native user selectors can find them by name; names longer than Discord's 32-character nickname limit remain complete in PostgreSQL and are truncated only in the nickname. Board roles cannot be requested through onboarding.
 
@@ -159,7 +159,7 @@ Approval also sets the member's server nickname from the recorded onboarding nam
 
 `people-database` is a global forum beside `resources`. It is visible only to approved
 Researchers and Alumni, and participation is opt-in: approval grants normal server access, but
-never publishes a profile. After approval, the bot may send a best-effort DM linking to the forum;
+never publishes a profile. After approval, the bot records a recoverable DM linking to the forum;
 the same entry point is always in its `Start here` post.
 
 Members use **Create or update my profile** in `Start here`, not a slash command. The private
@@ -273,10 +273,13 @@ The bot retries up to ten pending or failed projects on startup and once per min
 for the full reconciliation serializes workers and project mutations, so an older attempt cannot
 mark a newer generation complete. Replays use idempotent channel identity/name/parent/overwrite
 operations plus the canonical pinned project overview, canonical showcase starter, and showcase
-lifecycle tags. Assignment DMs and chronological transition messages are deliberately best-effort
-and are not retried, preventing duplicate notifications. Retain `project_reconciliation` rows alongside
-the project record for operational observability; `status`, `attempts`, `last_error`, and timestamps
-identify items needing investigation.
+lifecycle tags. Participant handoffs are stored separately in `transition_notifications`, become
+deliverable only after access reconciliation succeeds, and are refreshed with the current workspace
+links before delivery. Explicit failures retry with bounded backoff; delivered rows cannot replay.
+An interrupted in-flight delivery becomes `uncertain` and requires operator review instead of risking
+a duplicate DM. Retain both reconciliation and notification rows for operational observability;
+`/board-info` reports unresolved handoff health without conflating it with canonical project or
+governance state.
 
 The bot logs structural actions in `audit_log` and sends operational messages to the configured log channels. Seeded channel messages contain no internal marker comments; their Discord message IDs are tracked in `provisioned_messages` for safe future updates. Project close operations preserve history; v1 has no project delete or separate archive command.
 

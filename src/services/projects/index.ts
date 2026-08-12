@@ -58,8 +58,6 @@ import { enqueueProjectReconciliation } from './repository.js';
 import {
   assertGuildMembers,
   findProjectParentId,
-  notifyProjectAssignment,
-  notifyProjectRemoval,
   sendProjectTransition,
 } from './gateway.js';
 import {
@@ -74,7 +72,10 @@ import { canManageProject, canViewProject } from './policy.js';
 import { projectCommandChannelScope } from '../../runtime/command-channels.js';
 import { projectInfoMessage, projectSuccessMessage, projectTransitionPayload } from './formatters.js';
 import { createProjectSetupService } from './setup.js';
-import { mapWithConcurrency } from './concurrency.js';
+import {
+  queueProjectAssignmentNotification,
+  queueProjectRemovalNotification,
+} from './notifications.js';
 
 const DEFAULT_DB = { query, transaction };
 type ProjectDependencies = { db?: typeof DEFAULT_DB };
@@ -92,20 +93,6 @@ function assertProjectManagementAuthority(member, project, people) {
 
 function assertProjectViewAuthority(member, project, people) {
   assertUser(canViewProject(member, project, people), `You do not have permission to view ${project.name}.`);
-}
-
-async function notifyAssignments(guild, project, people, previousRole = null) {
-  await mapWithConcurrency(people, 5, async (person) => {
-    try {
-      await notifyProjectAssignment(guild, project, person, previousRole);
-    } catch (error) {
-      logger.warn('Project assignment DM could not be delivered', {
-        projectId: project.id,
-        userId: person.discord_user_id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  });
 }
 
 async function sendTransition(guild, project, payload) {
@@ -223,17 +210,22 @@ export async function createProject(input, deps: ProjectDependencies = {}) {
     const created = { ...createdRecord, ...divisionRecord };
     await insertProjectPeople(client, created.id, people);
     await enqueueProjectReconciliation(client, created.id);
-    await writeAudit(client, {
+    const auditId = await writeAudit(client, {
       actorId: interaction.user.id, action: 'project.create', targetType: 'project', targetId: created.id,
       universityId: created.university_id, after: { ...created, people },
     });
+    for (const person of people) {
+      await queueProjectAssignmentNotification(client, {
+        auditId,
+        guildId: guild.id,
+        project: created,
+        person,
+      });
+    }
     return created;
   });
 
   const reconciliation = await reconcileCommittedProject({ projectId: project.id, guild, db });
-  if (reconciliation.status === 'succeeded') {
-    await notifyAssignments(guild, reconciliation.project, reconciliation.people);
-  }
   return projectResult(reconciliation);
 }
 
@@ -267,7 +259,7 @@ export async function addProjectMember(input, deps: ProjectDependencies = {}) {
     ]);
     await insertProjectPeople(client, lockedProject.id, [{ discord_user_id: input.user.id, role }]);
     await enqueueProjectReconciliation(client, lockedProject.id);
-    await writeAudit(client, {
+    const auditId = await writeAudit(client, {
       actorId: input.interaction.user.id,
       action: 'project.add_member',
       targetType: 'project',
@@ -275,16 +267,17 @@ export async function addProjectMember(input, deps: ProjectDependencies = {}) {
       universityId: lockedProject.university_id,
       after: { user_id: input.user.id, role },
     });
+    await queueProjectAssignmentNotification(client, {
+      auditId,
+      guildId: input.interaction.guild.id,
+      project: lockedProject,
+      person: { discord_user_id: input.user.id, role },
+      previousRole,
+    });
   });
   const reconciliation = await reconcileCommittedProject({ projectId: project.id, guild: input.interaction.guild, db });
   if (reconciliation.status === 'succeeded') {
     await Promise.all([
-      notifyAssignments(
-        input.interaction.guild,
-        reconciliation.project,
-        [{ discord_user_id: input.user.id, role }],
-        previousRole,
-      ),
       sendTransition(
         input.interaction.guild,
         reconciliation.project,
@@ -294,7 +287,7 @@ export async function addProjectMember(input, deps: ProjectDependencies = {}) {
           summary: `<@${input.user.id}> ${previousRole ? `is now a **${role}**` : `joined as a **${role}**`}.`,
           detail: previousRole
             ? `Their previous project role was **${previousRole}**.`
-            : 'They received a direct handoff with this workspace and the recommended first step.',
+            : 'Their access changed and a private handoff was recorded with the workspace and recommended first step.',
         }),
       ),
     ]);
@@ -327,7 +320,7 @@ export async function removeProjectMember(input, deps: ProjectDependencies = {})
     previousRole = existingPerson?.role ?? null;
     await removeProjectPerson(client, lockedProject.id, input.user.id);
     await enqueueProjectReconciliation(client, lockedProject.id);
-    await writeAudit(client, {
+    const auditId = await writeAudit(client, {
       actorId: input.interaction.user.id,
       action: 'project.remove_member',
       targetType: 'project',
@@ -336,22 +329,18 @@ export async function removeProjectMember(input, deps: ProjectDependencies = {})
       after: { user_id: input.user.id },
       reason: input.reason ?? null,
     });
+    await queueProjectRemovalNotification(client, {
+      auditId,
+      guildId: input.interaction.guild.id,
+      project: lockedProject,
+      userId: input.user.id,
+      previousRole,
+      reason: input.reason ?? null,
+    });
   });
   const reconciliation = await reconcileCommittedProject({ projectId: project.id, guild: input.interaction.guild, db });
   if (reconciliation.status === 'succeeded') {
     await Promise.all([
-      notifyProjectRemoval(
-        input.interaction.guild,
-        reconciliation.project,
-        input.user.id,
-        input.reason,
-      ).catch((error) => {
-        logger.warn('Project removal DM could not be delivered', {
-          projectId: reconciliation.project.id,
-          userId: input.user.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }),
       sendTransition(
         input.interaction.guild,
         reconciliation.project,
@@ -359,7 +348,7 @@ export async function removeProjectMember(input, deps: ProjectDependencies = {})
           project: reconciliation.project,
           title: 'Project team updated',
           summary: `<@${input.user.id}> is no longer assigned to this project.`,
-          detail: 'Their project-channel access was removed. Any private reason was shared only with the affected member and retained in the audit record.',
+          detail: 'Their project-channel access was removed. Any private reason is retained in audit and included only in the affected member’s recorded private handoff.',
         }),
       ),
     ]);
@@ -537,7 +526,8 @@ export async function updateProjectWithPeople(input, deps: ProjectDependencies =
     await updateProjectRecord(client, lockedProject.id, patch);
     await replaceProjectPeople(client, lockedProject.id, requestedPeople);
     await enqueueProjectReconciliation(client, lockedProject.id);
-    await writeAudit(client, {
+    const participantChanges = projectParticipantChanges(lockedPeople, requestedPeople);
+    const auditId = await writeAudit(client, {
       actorId: input.interaction.user.id,
       action: 'project.update',
       targetType: 'project',
@@ -546,7 +536,27 @@ export async function updateProjectWithPeople(input, deps: ProjectDependencies =
       before: { project: lockedProject, people: lockedPeople },
       after: { project: patch, people: requestedPeople },
     });
-    return { before: lockedProject, beforePeople: lockedPeople };
+    const notificationProject = { ...lockedProject, ...patch };
+    for (const change of [...participantChanges.added, ...participantChanges.roleChanged]) {
+      await queueProjectAssignmentNotification(client, {
+        auditId,
+        guildId: input.interaction.guild.id,
+        project: notificationProject,
+        person: { discord_user_id: change.userId, role: change.role },
+        previousRole: change.previousRole ?? null,
+      });
+    }
+    for (const change of participantChanges.removed) {
+      await queueProjectRemovalNotification(client, {
+        auditId,
+        guildId: input.interaction.guild.id,
+        project: notificationProject,
+        userId: change.userId,
+        previousRole: change.previousRole ?? change.role ?? null,
+        reason: input.removalReasons?.[change.userId] ?? null,
+      });
+    }
+    return { before: lockedProject, beforePeople: lockedPeople, participantChanges };
   });
 
   const reconciliation = await reconcileCommittedProject({
@@ -554,41 +564,9 @@ export async function updateProjectWithPeople(input, deps: ProjectDependencies =
     guild: input.interaction.guild,
     db,
   });
-  const participantChanges = projectParticipantChanges(
-    transactionResult.beforePeople,
-    reconciliation.people,
-  );
+  const participantChanges = transactionResult.participantChanges;
 
   if (reconciliation.status === 'succeeded') {
-    await mapWithConcurrency(
-      [...participantChanges.added, ...participantChanges.roleChanged],
-      5,
-      async (change) => {
-        await notifyAssignments(
-          input.interaction.guild,
-          reconciliation.project,
-          [{ discord_user_id: change.userId, role: change.role }],
-          change.previousRole ?? null,
-        );
-      },
-    );
-    await mapWithConcurrency(participantChanges.removed, 5, async (change) => {
-      try {
-        await notifyProjectRemoval(
-          input.interaction.guild,
-          reconciliation.project,
-          change.userId,
-          input.removalReasons?.[change.userId] ?? null,
-        );
-      } catch (error) {
-        logger.warn('Project removal DM could not be delivered', {
-          projectId: reconciliation.project.id,
-          userId: change.userId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    });
-
     const changed = [
       transactionResult.before.name !== reconciliation.project.name ? 'name' : null,
       transactionResult.before.expected_end !== reconciliation.project.expected_end ? 'timeline' : null,

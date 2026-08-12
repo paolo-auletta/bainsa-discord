@@ -159,6 +159,7 @@ export interface HandoffMessageSpec {
   kind: 'handoff-message';
   tone?: MessageTone;
   title: string;
+  statusLabel?: string;
   context?: string;
   sections?: readonly WorkspaceSectionSpec[];
   nextActions?: readonly string[];

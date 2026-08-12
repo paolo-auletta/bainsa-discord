@@ -14,7 +14,7 @@ async function queryOne(db, text, values, missingMessage) {
 export async function getUniversityByName(db, universityName) {
   return queryOne(
     db,
-    `SELECT id, name, category_id
+    `SELECT id, name, category_id, board_channel_id
        FROM universities
       WHERE lower(name) = lower($1)
         AND active = true
@@ -59,7 +59,8 @@ export async function getMemberRecord(db, userId) {
 
 export async function getMemberDivisions(db, userId) {
   const result = await db.query(
-    `SELECT d.id, d.name, d.color, d.university_id, u.name AS university_name
+    `SELECT d.id, d.name, d.color, d.university_id, d.text_channel_id, d.voice_channel_id,
+            u.name AS university_name
        FROM member_divisions md
        JOIN divisions d ON d.id = md.division_id
        JOIN universities u ON u.id = d.university_id
@@ -292,7 +293,9 @@ export async function getBoardAuthorityRoles(db, userId, universityId) {
 
 export async function listActiveDivisionsForBoard(db, universityId) {
   const result = await db.query(
-    `SELECT id, university_id, name, color, member_role_id, head_role_id FROM divisions
+    `SELECT id, university_id, name, color, member_role_id, head_role_id,
+            text_channel_id, voice_channel_id
+       FROM divisions
       WHERE university_id = $1 AND active = true ORDER BY name`,
     [universityId],
   );

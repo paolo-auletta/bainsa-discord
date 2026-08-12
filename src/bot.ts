@@ -13,6 +13,7 @@ import { installGracefulShutdown } from './runtime/shutdown.js';
 import { config } from './config.js';
 import { createProfileService } from './profiles/index.js';
 import { createProfileReconciliationWorker } from './profiles/reconciliation.js';
+import { createTransitionNotificationWorker } from './notifications/service.js';
 import { governanceMembershipPanels } from './services/governance/membership-panels.js';
 import { boardUpdatePanel } from './services/governance/board-update-panel.js';
 import { boardInfoPanel } from './services/governance/board-info-panel.js';
@@ -39,6 +40,7 @@ const dispatchInteraction = createInteractionDispatcher(composeInteractionDispat
 }));
 let projectReconciliationWorker: ReturnType<typeof createProjectReconciliationWorker> | null = null;
 let profileReconciliationWorker: ReturnType<typeof createProfileReconciliationWorker> | null = null;
+let transitionNotificationWorker: ReturnType<typeof createTransitionNotificationWorker> | null = null;
 
 const lifecycle = installGracefulShutdown({
   client,
@@ -47,6 +49,7 @@ const lifecycle = installGracefulShutdown({
     await Promise.all([
       projectReconciliationWorker?.stop(),
       profileReconciliationWorker?.stop(),
+      transitionNotificationWorker?.stop(),
     ]);
   },
 });
@@ -71,6 +74,7 @@ client.once(Events.ClientReady, (readyClient) => {
   if (guild) {
     projectReconciliationWorker = createProjectReconciliationWorker({ guild, db: { query, transaction } });
     profileReconciliationWorker = createProfileReconciliationWorker({ guild, db: { query, transaction } });
+    transitionNotificationWorker = createTransitionNotificationWorker({ guild, db: { query, transaction } });
   } else {
     logger.warn('Reconciliation workers were not started because the configured guild is unavailable');
   }

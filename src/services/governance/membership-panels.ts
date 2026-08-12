@@ -660,9 +660,10 @@ export function createGovernanceMembershipPanelService({
 
     store.remove(session);
     const activity = formatActivity(session.kind, { actorId: interaction.user.id, result });
-    const [activityDelivery, handoffSent] = await Promise.all([
-      postActivity(interaction, activity, result.university.name),
-      sendHandoff(
+    const activityDelivery = await postActivity(interaction, activity, result.university.name);
+    const handoffSent = result.notificationDelivery
+      ? result.notificationDelivery.status === 'delivered'
+      : await sendHandoff(
         result.target,
         formatDivisionMemberHandoff(result, {
           removed: session.kind === 'division-remove-member',
@@ -675,8 +676,7 @@ export function createGovernanceMembershipPanelService({
           error: error instanceof Error ? error.message : String(error),
         });
         return false;
-      }),
-    ]);
+      });
     const warnings = [
       activityDelivery.status !== 'posted' ? 'The governance activity card could not be posted.' : null,
       !handoffSent ? 'The affected member could not be reached by DM.' : null,

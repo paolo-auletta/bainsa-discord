@@ -857,14 +857,6 @@ function cancelledPayload(noun: string) {
   }));
 }
 
-function completedPayload(title: string, description: string, pending = false) {
-  return renderInteractionPanel(interactionOutcome({
-    outcome: pending ? 'reconciliation-pending' : 'success',
-    title,
-    description,
-  }));
-}
-
 function failurePayload(session: GovernancePanelSession, message: string) {
   const actions = session.kind === 'division-create'
     ? [
@@ -917,17 +909,17 @@ async function publishActivity(interaction, commandName: string, result) {
     actorId: interaction.user.id,
     result,
   });
-  if (!activity) return false;
+  if (!activity) return { required: false, posted: false };
   try {
     const universityName = result.university?.name ?? result.universityName;
     const delivery = await postUniversityBoardActivity(interaction, activity, universityName);
-    return delivery.status === 'posted';
+    return { required: true, posted: delivery.status === 'posted' };
   } catch (error) {
     logger.warn('Governance panel activity could not be posted', {
       command: commandName,
       error: error instanceof Error ? error.message : String(error),
     });
-    return false;
+    return { required: true, posted: false };
   }
 }
 
@@ -1091,11 +1083,13 @@ export function createGovernancePanelService({
       return;
     }
     store.remove(session);
-    const posted = await publishActivity(interaction, 'division-create', result);
-    await interaction.editReply(interactionEditPayload(completedPayload(
-      'Division created',
-      `${escapeMarkdown(result.divisionName)} is ready at ${escapeMarkdown(result.university.name)}.${posted ? ' Activity was posted in the university bot-log.' : ' The division is saved, but the activity card could not be posted.'}`,
-    )));
+    const activity = await publishActivity(interaction, 'division-create', result);
+    const handoffFailed = result.notificationDelivery && result.notificationDelivery.status !== 'delivered';
+    await interaction.editReply(interactionEditPayload(renderInteractionPanel(interactionOutcome({
+      outcome: !activity.posted || handoffFailed ? 'delivery-failed' : 'success',
+      title: 'Division created',
+      description: `${escapeMarkdown(result.divisionName)} is ready at ${escapeMarkdown(result.university.name)}.${activity.posted ? ' Activity was posted in the university bot-log.' : ' The division is saved, but the activity card could not be posted.'}${handoffFailed ? ' The initial Head handoff remains queued or needs operator review.' : ' The initial Head received a private authority handoff.'}`,
+    }))));
   }
 
   async function saveDivisionUpdate(interaction, session: DivisionUpdateSession) {
@@ -1127,11 +1121,12 @@ export function createGovernancePanelService({
       return;
     }
     store.remove(session);
-    const posted = await publishActivity(interaction, 'division-update', result);
-    await interaction.editReply(interactionEditPayload(completedPayload(
-      'Division updated',
-      `${escapeMarkdown(result.newName)} now uses the saved name, color, roles, and channel labels.${posted ? ' Activity was posted in the university bot-log.' : ' The update is saved, but the activity card could not be posted.'}`,
-    )));
+    const activity = await publishActivity(interaction, 'division-update', result);
+    await interaction.editReply(interactionEditPayload(renderInteractionPanel(interactionOutcome({
+      outcome: activity.posted ? 'success' : 'delivery-failed',
+      title: 'Division updated',
+      description: `${escapeMarkdown(result.newName)} now uses the saved name, color, roles, and channel labels.${activity.posted ? ' Activity was posted in the university bot-log.' : ' The update is saved, but the activity card could not be posted.'}`,
+    }))));
   }
 
   async function saveMemberUpdate(interaction, session: MemberUpdateSession) {
@@ -1169,13 +1164,17 @@ export function createGovernancePanelService({
       return;
     }
     store.remove(session);
-    const posted = await publishActivity(interaction, 'member-update', result);
-    await interaction.editReply(interactionEditPayload(completedPayload(
-      'Member updated',
-      posted
+    const activity = await publishActivity(interaction, 'member-update', result);
+    const handoffFailed = result.notificationDelivery && result.notificationDelivery.status !== 'delivered';
+    await interaction.editReply(interactionEditPayload(renderInteractionPanel(interactionOutcome({
+      outcome: (activity.required && !activity.posted) || handoffFailed ? 'delivery-failed' : 'success',
+      title: 'Member updated',
+      description: `${activity.posted
         ? 'The member record, roles, and divisions are current. Activity was posted in the university bot-log.'
-        : 'The member record, roles, and divisions are current. No board-visible activity was needed for private-only changes.',
-    )));
+        : activity.required
+          ? 'The member record, roles, and divisions are current, but the governance activity card could not be posted.'
+          : 'The member record, roles, and divisions are current. No board-visible activity was needed for private-only changes.'}${handoffFailed ? ' The affected member handoff remains queued or needs operator review.' : result.notificationDelivery ? ' The affected member received a private access handoff.' : ''}`,
+    }))));
   }
 
   async function handleButton(interaction) {

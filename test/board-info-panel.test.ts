@@ -41,6 +41,7 @@ test('board-info keeps the completed roster in Components V2 after choosing a un
         division_id: null,
         missingRoles: [],
       }],
+      notificationHealth: { pending: 0, failed: 2, uncertain: 1 },
     }),
   });
   const channel = { name: 'bot-log', parent: { name: 'LOGS' } };
@@ -82,4 +83,6 @@ test('board-info keeps the completed roster in Components V2 after choosing a un
   assert.equal(completed.flags, MessageFlags.IsComponentsV2);
   assert.match(panelText(completed), /Bocconi board/);
   assert.match(panelText(completed), /Discord roles match the recorded board roster/);
+  assert.match(panelText(completed), /2 handoff\(s\) failed and 1 have an uncertain outcome/);
+  assert.match(panelText(completed), /Canonical governance state is still committed/);
 });

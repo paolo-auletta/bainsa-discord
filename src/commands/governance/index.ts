@@ -72,7 +72,7 @@ const memberUpdate = {
 const memberRemove = {
   data: command('member-remove', 'Remove a member from the server immediately.')
     .addUserOption((option) => option.setName('user').setDescription('Member to kick').setRequired(true))
-    .addStringOption((option) => option.setName('reason').setDescription('Optional removal reason').setRequired(false)),
+    .addStringOption((option) => option.setName('reason').setDescription('Optional audit-only reason; never sent to the member').setRequired(false)),
   execute: (interaction) =>
     run(interaction, async () => {
       const result = await removeMember(interaction, {

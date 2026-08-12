@@ -757,9 +757,9 @@ test('project assignment DM has a compact desktop-first hierarchy', () => {
   };
   const handoff = projectAssignmentMessage('guild', project, PROJECT_PERSON_ROLES.SUPERVISOR);
   assert.deepEqual(handoff.allowedMentions, { parse: [] });
-  assert.match(handoff.content, /^\*\*You joined Signals\*\*\n\n?Bocconi/);
+  assert.match(handoff.content, /^\*\*You joined Signals\*\*\n\n\*\*Status\*\*\nProject access added\n\nBocconi/);
   assert.match(handoff.content, /\*\*Role\*\*\nSupervisor/);
-  assert.match(handoff.content, /\*\*Start here\*\*\n1\. Open the project workspace\./);
+  assert.match(handoff.content, /\*\*What to do next\*\*\n1\. Open the project workspace\./);
   assert.match(handoff.content, /2\. Read the pinned project record and workspace guide\./);
   assert.match(handoff.content, /\[View shareable record\]/);
   assert.doesNotMatch(handoff.content, /Project workspace:|Shareable project record:/);

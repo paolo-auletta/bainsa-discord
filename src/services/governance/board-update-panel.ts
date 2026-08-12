@@ -722,7 +722,9 @@ export function createBoardUpdatePanelService({
     store.remove(session);
     const activity = formatActivity('board-update', { actorId: interaction.user.id, result });
     const activityDelivery = await postActivity(interaction, activity, result.university.name);
-    const handoffResults = await sendBoardUpdateHandoffs(result, sendHandoff);
+    const handoffResults = result.notificationDeliveries?.length
+      ? result.notificationDeliveries.map((delivery) => delivery?.status === 'delivered')
+      : await sendBoardUpdateHandoffs(result, sendHandoff);
     const missedHandoffs = handoffResults.filter((sent) => !sent).length;
     const warnings = [
       activityDelivery.status !== 'posted' ? 'The governance activity card could not be posted.' : null,

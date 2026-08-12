@@ -148,6 +148,7 @@ Showcase reconciliation is required. If a university has no configured showcase 
 configured forum is missing, or the configured channel is not a forum, reconciliation fails and
 remains retryable instead of completing without the public canonical record.
 
-Direct handoff DMs and chronological transition messages remain best effort because replaying them
-would create duplicate human notifications. Their delivery failure does not roll back a committed
-project mutation.
+Direct handoff DMs are now backed by durable transition claims. Explicit failures may retry, while
+delivered or uncertain in-flight claims cannot replay; this preserves recovery without creating
+duplicate human notifications. Chronological transition messages remain best effort. Neither
+delivery outcome rolls back a committed project mutation.

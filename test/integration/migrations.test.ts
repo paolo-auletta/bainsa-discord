@@ -48,10 +48,10 @@ test.after(async () => {
 test('runs every migration against a fresh database and keeps the final contract idempotent', async () => {
   const first = await resetAndMigrate();
   assert.equal(first.pending, 0);
-  assert.equal(first.appliedNow.length, 19);
+  assert.equal(first.appliedNow.length, 20);
   assert.deepEqual(first.status.map((row) => row.status), [
     'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
-    'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
+    'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
   ]);
 
   const tables = await database.query(`
@@ -74,6 +74,7 @@ test('runs every migration against a fresh database and keeps the final contract
     'project_reconciliation',
     'provisioned_messages',
     'schema_migrations',
+    'transition_notifications',
     'universities',
   ]) {
     assert.ok(tables.rows.some((row) => row.table_name === table), `missing ${table}`);

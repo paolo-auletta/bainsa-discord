@@ -133,13 +133,27 @@ function memberRemove({ actorId, result }) {
   const cleanupWarning = result.overwriteCleanup?.failures?.length
     ? 'The member was removed. Some project-channel access cleanup requires review.'
     : 'The member was removed from the server.';
+  const discordState = result.discordRemoval?.status === 'pending_recovery'
+    ? result.discordRemoval.managedRolesRemoved
+      ? 'Canonical membership is removed. The server kick is pending recovery; managed roles were removed.'
+      : 'Canonical membership is removed. The server kick and some managed-role cleanup need immediate recovery.'
+    : 'The server removal completed.';
+  const handoffState = result.notificationDelivery?.status === 'delivered'
+    ? 'Private policy-safe handoff delivered before server removal.'
+    : result.notificationDelivery
+      ? 'Private handoff was not confirmed; review notification health in `/board-info`.'
+      : 'No new handoff delivery record was created for this repair attempt.';
   return activity({
     kind: 'remove',
     title: 'Member removed',
     subjectLabel: 'Member',
     subject: mention(result.target),
     universityName: result.universityName,
-    fields: [field('Result', cleanupWarning)],
+    fields: [
+      field('Result', cleanupWarning),
+      field('Member handoff', handoffState),
+      field('Discord state', discordState),
+    ],
     actorId,
   });
 }

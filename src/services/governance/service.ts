@@ -67,12 +67,24 @@ import {
 } from './gateway.js';
 import {
   formatBoardInfo,
+  formatBoardAssignmentHandoff,
+  formatBoardRemovalHandoff,
+  formatBoardUpdateHandoff,
+  formatDivisionHeadHandoff,
+  formatDivisionMemberHandoff,
+  formatMemberAccessHandoff,
   formatMemberInfo,
+  formatMemberRemovalHandoff,
   memberRemovalCleanupPlan,
   projectChannelCleanupTargets,
   resolveDivisionTextForMemberUpdate,
   roleNamesForDivisionHead,
 } from './formatters.js';
+import { enqueueTransitionNotification, transitionNotificationHealth } from '../../notifications/repository.js';
+import {
+  deliverTransitionNotification,
+  deliverTransitionNotifications,
+} from '../../notifications/service.js';
 import {
   addMemberDivisionRow,
   activeDivisionExists,
@@ -523,6 +535,23 @@ async function applyMemberMembership(interaction, options, deps: GovernanceDepen
     removableRoleNames,
     reason,
   );
+  const membershipChanged = hasCanonicalMembershipChange(
+    previousRecord,
+    previousDivisions,
+    memberType,
+    university,
+    divisions,
+  );
+  const handoffResult = {
+    target,
+    university,
+    memberType,
+    divisions,
+    previousRecord,
+    previousDivisions,
+    guildId: interaction.guild.id,
+  };
+  let notificationId = null;
 
   try {
     await db.transaction(async (q) => {
@@ -543,16 +572,10 @@ async function applyMemberMembership(interaction, options, deps: GovernanceDepen
       });
       await upsertMemberRecord(q, target.id, memberType, university.id, options.notes);
       await replaceMemberDivisionRows(q, target.id, divisions);
-      const profileDesiredGeneration = hasCanonicalMembershipChange(
-        previousRecord,
-        previousDivisions,
-        memberType,
-        university,
-        divisions,
-      )
+      const profileDesiredGeneration = membershipChanged
         ? await enqueuePublishedProfileReconciliation(q, target.id)
         : null;
-      await writeAudit(q, {
+      const auditId = await writeAudit(q, {
         actorId: interaction.user.id,
         action: options.auditAction,
         targetType: 'member',
@@ -568,20 +591,28 @@ async function applyMemberMembership(interaction, options, deps: GovernanceDepen
             : { visibility: 'published', desiredGeneration: String(profileDesiredGeneration) },
         },
       });
+      if (membershipChanged) {
+        notificationId = await enqueueTransitionNotification(q, {
+          auditId,
+          recipientId: target.id,
+          kind: 'member.access_updated',
+          universityId: university.id,
+          relatedEntityType: 'member',
+          relatedEntityId: target.id,
+          payload: formatMemberAccessHandoff(handoffResult),
+          metadata: { action: options.auditAction },
+        });
+      }
     });
   } catch (error) {
     await compensateRoles(target, addedRoles, removedRoles, 'Compensating failed governance DB write');
     throw recoveryError(error, 'Discord roles were restored because the membership update could not be saved. Try again.');
   }
 
-  return {
-    target,
-    university,
-    memberType,
-    divisions,
-    previousRecord,
-    previousDivisions,
-  };
+  const notificationDelivery = notificationId == null
+    ? null
+    : await deliverTransitionNotification({ db, guild: interaction.guild, notificationId, recipient: target });
+  return { ...handoffResult, notificationDelivery };
 }
 
 export async function updateMember(interaction, options, deps: GovernanceDependencies = {}) {
@@ -644,6 +675,14 @@ export async function removeMember(interaction, options, deps: GovernanceDepende
   const projects = await getProjectAssignmentsForRemoval(db, target.id);
   const removalPlan = memberRemovalCleanupPlan({ divisions, boardRoles, projects });
   let canonicalRemoval;
+  let notificationId = null;
+  const handoffResult = {
+    target,
+    universityName: member.university_name,
+    divisions,
+    boardRoles,
+    projects,
+  };
 
   try {
     await db.transaction(async (q) => {
@@ -670,7 +709,7 @@ export async function removeMember(interaction, options, deps: GovernanceDepende
         });
       }
       const profile = await hideProfileAndEnqueue(q, target.id);
-      await writeAudit(q, {
+      const auditId = await writeAudit(q, {
         actorId: interaction.user.id,
         action: 'member.remove',
         targetType: 'member',
@@ -693,10 +732,32 @@ export async function removeMember(interaction, options, deps: GovernanceDepende
         },
         reason: options.reason ?? null,
       });
+      notificationId = await enqueueTransitionNotification(q, {
+        auditId,
+        recipientId: target.id,
+        kind: 'member.removed',
+        universityId: member.university_id,
+        relatedEntityType: 'member',
+        relatedEntityId: target.id,
+        payload: formatMemberRemovalHandoff(handoffResult, {
+          // The command reason is an internal audit reason. A distinct field
+          // must be explicitly supplied by policy before any explanation is
+          // included in the affected member's DM.
+          shareableReason: options.memberFacingReason ?? null,
+        }),
+        metadata: { internalReasonShared: Boolean(options.memberFacingReason) },
+      });
     });
   } catch (error) {
     throw recoveryError(error, 'The member was not removed because the membership record could not be saved. No Discord removal was attempted; try again.');
   }
+
+  // The private explanation is attempted before the kick closes the member's
+  // guild-member route. Its durable claim prevents a worker from replaying a
+  // send whose outcome became uncertain during process interruption.
+  const notificationDelivery = notificationId == null
+    ? null
+    : await deliverTransitionNotification({ db, guild: interaction.guild, notificationId, recipient: target });
 
   // A direct deletion closes the rejoin window immediately; the durable
   // reconciliation intent above then converges each channel to the complete
@@ -716,6 +777,10 @@ export async function removeMember(interaction, options, deps: GovernanceDepende
     failures: [...overwriteCleanup.failures, ...reconciliationFailures],
   };
 
+  let discordRemoval: { status: string; managedRolesRemoved: boolean; errorCode?: string } = {
+    status: 'completed',
+    managedRolesRemoved: true,
+  };
   try {
     await target.kick(options.reason ?? 'BAINSA member removal');
   } catch (error) {
@@ -740,15 +805,19 @@ export async function removeMember(interaction, options, deps: GovernanceDepende
         error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
       });
     }
-    throw new UserFacingError(
-      fallbackRolesRemoved
-        ? 'The membership record was removed, but Discord could not complete the server removal. Managed roles were removed and project access cleanup is queued for reconciliation; contact an administrator if the member remains in the server.'
-        : 'The membership record was removed, but Discord could not complete the server removal or fully remove managed roles. Project access cleanup is queued for reconciliation; contact an administrator immediately.',
-      { cause: error },
-    );
+    discordRemoval = {
+      status: 'pending_recovery',
+      managedRolesRemoved: fallbackRolesRemoved,
+      errorCode: error?.code == null ? 'unknown' : String(error.code),
+    };
   }
 
-  return { target, universityName: member.university_name, overwriteCleanup: cleanup };
+  return {
+    ...handoffResult,
+    overwriteCleanup: cleanup,
+    notificationDelivery,
+    discordRemoval,
+  };
 }
 
 /**
@@ -848,6 +917,7 @@ export async function createDivision(interaction, options, deps: GovernanceDepen
   let category;
   let textChannel = null;
   let voiceChannel = null;
+  let notificationId = null;
   try {
     category = await persistedUniversityCategory(interaction.guild, university);
     if (options.createTextChannel) {
@@ -886,7 +956,7 @@ export async function createDivision(interaction, options, deps: GovernanceDepen
       await upsertMemberRecord(q, head.id, MEMBER_TYPES.RESEARCHER, university.id, null);
       await addMemberDivisionRow(q, head.id, divisionId);
       await ensureBoardAssignment(q, { userId: head.id, universityId: university.id, role: BOARD_ROLES.HEAD, divisionId });
-      await writeAudit(q, {
+      const auditId = await writeAudit(q, {
         actorId: interaction.user.id,
         action: 'division.create',
         targetType: 'division',
@@ -903,6 +973,25 @@ export async function createDivision(interaction, options, deps: GovernanceDepen
           voiceChannelId: voiceChannel?.id ?? null,
         },
       });
+      const result = {
+        university,
+        divisionName,
+        divisionColor,
+        head,
+        textChannel,
+        voiceChannel,
+        guildId: interaction.guild.id,
+      };
+      notificationId = await enqueueTransitionNotification(q, {
+        auditId,
+        recipientId: head.id,
+        kind: 'board.head_assigned',
+        universityId: university.id,
+        relatedEntityType: 'division',
+        relatedEntityId: divisionId,
+        payload: formatDivisionHeadHandoff(result),
+        metadata: { role: BOARD_ROLES.HEAD },
+      });
     });
     if (!deps.db) invalidateGovernanceAutocompleteCache();
   } catch (error) {
@@ -915,7 +1004,19 @@ export async function createDivision(interaction, options, deps: GovernanceDepen
     throw recoveryError(error, 'Division creation was rolled back because a later step failed. Try again.');
   }
 
-  return { university, divisionName, divisionColor, head, textChannel, voiceChannel };
+  const notificationDelivery = notificationId == null
+    ? null
+    : await deliverTransitionNotification({ db, guild: interaction.guild, notificationId, recipient: head });
+  return {
+    university,
+    divisionName,
+    divisionColor,
+    head,
+    textChannel,
+    voiceChannel,
+    guildId: interaction.guild.id,
+    notificationDelivery,
+  };
 }
 
 export async function updateDivision(interaction, options, deps: GovernanceDependencies = {}) {
@@ -1067,6 +1168,7 @@ export async function addDivisionMember(interaction, options, deps: GovernanceDe
     ],
     reason,
   );
+  let notificationId = null;
 
   try {
     await db.transaction(async (q) => {
@@ -1096,7 +1198,7 @@ export async function addDivisionMember(interaction, options, deps: GovernanceDe
       });
       await upsertMemberRecord(q, target.id, MEMBER_TYPES.RESEARCHER, university.id, null);
       await addMemberDivisionRow(q, target.id, division.id);
-      await writeAudit(q, {
+      const auditId = await writeAudit(q, {
         actorId: interaction.user.id,
         action: 'division.member.add',
         targetType: 'member',
@@ -1104,13 +1206,28 @@ export async function addDivisionMember(interaction, options, deps: GovernanceDe
         universityId: university.id,
         after: { division: division.name },
       });
+      notificationId = await enqueueTransitionNotification(q, {
+        auditId,
+        recipientId: target.id,
+        kind: 'division.access_added',
+        universityId: university.id,
+        relatedEntityType: 'member',
+        relatedEntityId: target.id,
+        payload: formatDivisionMemberHandoff(
+          { target, university, division, guildId: interaction.guild.id },
+          { removed: false },
+        ),
+      });
     });
   } catch (error) {
     await compensateRoles(target, addedRoles, removedRoles, 'Compensating failed division add member');
     throw recoveryError(error, 'Discord roles were restored because the division membership update could not be saved. Try again.');
   }
 
-  return { target, university, division };
+  const notificationDelivery = notificationId == null
+    ? null
+    : await deliverTransitionNotification({ db, guild: interaction.guild, notificationId, recipient: target });
+  return { target, university, division, guildId: interaction.guild.id, notificationDelivery };
 }
 
 export async function removeDivisionMember(interaction, options, deps: GovernanceDependencies = {}) {
@@ -1157,6 +1274,7 @@ export async function removeDivisionMember(interaction, options, deps: Governanc
     [divisionRoleName(university.name, division.name)],
     reason,
   );
+  let notificationId = null;
 
   try {
     await db.transaction(async (q) => {
@@ -1195,7 +1313,7 @@ export async function removeDivisionMember(interaction, options, deps: Governanc
         divisionIds: remainingDivisions.map((entry) => entry.id),
       });
       await removeMemberDivisionRow(q, target.id, division.id);
-      await writeAudit(q, {
+      const auditId = await writeAudit(q, {
         actorId: interaction.user.id,
         action: 'division.member.remove',
         targetType: 'member',
@@ -1204,13 +1322,29 @@ export async function removeDivisionMember(interaction, options, deps: Governanc
         before: { division: division.name },
         reason: options.reason ?? null,
       });
+      notificationId = await enqueueTransitionNotification(q, {
+        auditId,
+        recipientId: target.id,
+        kind: 'division.access_removed',
+        universityId: university.id,
+        relatedEntityType: 'member',
+        relatedEntityId: target.id,
+        payload: formatDivisionMemberHandoff(
+          { target, university, division, guildId: interaction.guild.id },
+          { removed: true, reason: options.reason ?? null },
+        ),
+        metadata: { reasonSharedPrivately: Boolean(options.reason) },
+      });
     });
   } catch (error) {
     await compensateRoles(target, [], removedRoles, 'Compensating failed division remove member');
     throw recoveryError(error, 'Discord roles were restored because the division membership update could not be saved. Try again.');
   }
 
-  return { target, university, division };
+  const notificationDelivery = notificationId == null
+    ? null
+    : await deliverTransitionNotification({ db, guild: interaction.guild, notificationId, recipient: target });
+  return { target, university, division, guildId: interaction.guild.id, notificationDelivery };
 }
 
 export async function assignBoardRole(interaction, options, deps: GovernanceDependencies = {}) {
@@ -1300,6 +1434,7 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
     reason,
     { removableRoles },
   );
+  let notificationId = null;
 
   try {
     await db.transaction(async (q) => {
@@ -1356,7 +1491,7 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
         insertedAssignment === 1,
         'That board appointment changed while this panel was open. Reload the member before trying again.',
       );
-      await writeAudit(q, {
+      const auditId = await writeAudit(q, {
         actorId: interaction.user.id,
         action: 'board.assign',
         targetType: 'member',
@@ -1364,13 +1499,27 @@ export async function assignBoardRole(interaction, options, deps: GovernanceDepe
         universityId: university.id,
         after: { role, division: division?.name ?? null },
       });
+      const result = { target, university, role, division, guildId: interaction.guild.id };
+      notificationId = await enqueueTransitionNotification(q, {
+        auditId,
+        recipientId: target.id,
+        kind: 'board.authority_assigned',
+        universityId: university.id,
+        relatedEntityType: 'member',
+        relatedEntityId: target.id,
+        payload: formatBoardAssignmentHandoff(result),
+        metadata: { role, division: division?.name ?? null },
+      });
     });
   } catch (error) {
     await compensateRoles(target, addedRoles, removedRoles, 'Compensating failed board assign');
     throw recoveryError(error, 'Discord roles were restored because the board assignment could not be saved. Try again.');
   }
 
-  return { target, university, role, division };
+  const notificationDelivery = notificationId == null
+    ? null
+    : await deliverTransitionNotification({ db, guild: interaction.guild, notificationId, recipient: target });
+  return { target, university, role, division, guildId: interaction.guild.id, notificationDelivery };
 }
 
 export async function removeBoardRole(interaction, options, deps: GovernanceDependencies = {}) {
@@ -1426,6 +1575,9 @@ export async function removeBoardRole(interaction, options, deps: GovernanceDepe
     rolesToRemove,
     options.reason ?? `BAINSA governance: board.remove ${university.name}/${role}`,
   );
+  const removedAssignmentKeys = new Set(matchingRoles.map(boardAssignmentKey));
+  const remainingRoles = currentBoardRoles.filter((assignment) => !removedAssignmentKeys.has(boardAssignmentKey(assignment)));
+  let notificationId = null;
 
   try {
     await db.transaction(async (q) => {
@@ -1460,7 +1612,7 @@ export async function removeBoardRole(interaction, options, deps: GovernanceDepe
         universityId: lockedMember.university_id,
         divisionIds: memberDivisions.map((entry) => entry.id),
       });
-      await writeAudit(q, {
+      const auditId = await writeAudit(q, {
         actorId: interaction.user.id,
         action: 'board.remove',
         targetType: 'member',
@@ -1469,13 +1621,46 @@ export async function removeBoardRole(interaction, options, deps: GovernanceDepe
         before: { role, division: division?.name ?? null },
         reason: options.reason ?? null,
       });
+      const result = {
+        target,
+        university,
+        role,
+        division,
+        remainingRoles,
+        guildId: interaction.guild.id,
+      };
+      notificationId = await enqueueTransitionNotification(q, {
+        auditId,
+        recipientId: target.id,
+        kind: 'board.authority_removed',
+        universityId: university.id,
+        relatedEntityType: 'member',
+        relatedEntityId: target.id,
+        payload: formatBoardRemovalHandoff(result, options.memberFacingReason ?? null),
+        metadata: {
+          role,
+          division: division?.name ?? null,
+          reasonSharedPrivately: Boolean(options.memberFacingReason),
+        },
+      });
     });
   } catch (error) {
     await compensateRoles(target, [], removedRoles, 'Compensating failed board remove');
     throw recoveryError(error, 'Discord roles were restored because the board removal could not be saved. Try again.');
   }
 
-  return { target, university, role, division };
+  const notificationDelivery = notificationId == null
+    ? null
+    : await deliverTransitionNotification({ db, guild: interaction.guild, notificationId, recipient: target });
+  return {
+    target,
+    university,
+    role,
+    division,
+    remainingRoles,
+    guildId: interaction.guild.id,
+    notificationDelivery,
+  };
 }
 
 export async function updateBoardRoster(interaction, options, deps: GovernanceDependencies = {}) {
@@ -1601,6 +1786,14 @@ export async function updateBoardRoster(interaction, options, deps: GovernanceDe
   }
 
   const roleChanges = [];
+  const memberChanges = people.map((person) => ({
+    target: person.target,
+    before: person.currentRoles.map(localBoardAssignmentLabel),
+    after: person.nextRoles.map(localBoardAssignmentLabel),
+    currentRoles: person.currentRoles,
+    nextRoles: person.nextRoles,
+  }));
+  const notificationRecords = [];
   const discordReason = `BAINSA governance: board.update ${university.name}`;
   try {
     for (const person of people) {
@@ -1694,7 +1887,7 @@ export async function updateBoardRoster(interaction, options, deps: GovernanceDe
         });
         assertUser(inserted === 1, 'A selected board position was assigned concurrently. Reload the board.');
       }
-      await writeAudit(q, {
+      const auditId = await writeAudit(q, {
         actorId: interaction.user.id,
         action: 'board.update',
         targetType: 'university',
@@ -1703,6 +1896,24 @@ export async function updateBoardRoster(interaction, options, deps: GovernanceDe
         before: { assignments: currentAssignments },
         after: { assignments: desiredAssignments },
       });
+      const handoffResult = {
+        university,
+        divisions,
+        guildId: interaction.guild.id,
+      };
+      for (const change of memberChanges) {
+        const notificationId = await enqueueTransitionNotification(q, {
+          auditId,
+          recipientId: change.target.id,
+          kind: 'board.authority_changed',
+          universityId: university.id,
+          relatedEntityType: 'member',
+          relatedEntityId: change.target.id,
+          payload: formatBoardUpdateHandoff(handoffResult, change),
+          metadata: { before: change.before, after: change.after },
+        });
+        if (notificationId != null) notificationRecords.push({ notificationId, target: change.target });
+      }
     });
   } catch (error) {
     await Promise.all(roleChanges.map(({ person, addedRoles, removedRoles }) =>
@@ -1711,16 +1922,23 @@ export async function updateBoardRoster(interaction, options, deps: GovernanceDe
     throw recoveryError(error, 'Discord roles were restored because the board update could not be saved. Try again.');
   }
 
+  const recipients = new Map(notificationRecords.map(({ notificationId, target }) => [String(notificationId), target]));
+  const notificationDeliveries = await deliverTransitionNotifications({
+    db,
+    guild: interaction.guild,
+    notificationIds: notificationRecords.map(({ notificationId }) => notificationId),
+    recipients,
+  });
+
   return {
     university,
+    divisions,
+    guildId: interaction.guild.id,
     assignments: desiredAssignments,
     previousAssignments: currentAssignments,
     positionChanges: boardPositionChanges(currentAssignments, desiredAssignments, divisions),
-    memberChanges: people.map((person) => ({
-      target: person.target,
-      before: person.currentRoles.map(localBoardAssignmentLabel),
-      after: person.nextRoles.map(localBoardAssignmentLabel),
-    })),
+    memberChanges,
+    notificationDeliveries,
   };
 }
 
@@ -1738,9 +1956,16 @@ export async function getBoardInfo(interaction, options, deps: GovernanceDepende
     `Only ${university.name} board members can view board info.`,
   );
 
-  const [result, divisions] = await Promise.all([
+  const [result, divisions, notificationHealth] = await Promise.all([
     listBoardInfoAssignments(db, university.id),
     listActiveDivisionsForBoard(db, university.id),
+    transitionNotificationHealth(db, university.id).catch((error) => {
+      logger.warn('Board notification health could not be loaded', {
+        universityId: String(university.id),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { pending: 0, failed: 0, uncertain: 0, unavailable: true };
+    }),
   ]);
   const managedBoardRoleNames = [
     universityBoardRoleName(university.name, 'President'),
@@ -1776,7 +2001,7 @@ export async function getBoardInfo(interaction, options, deps: GovernanceDepende
     rows.push({ ...row, missingRoles, unexpectedRoles });
   }
 
-  return { university, divisions, rows };
+  return { university, divisions, rows, notificationHealth };
 }
 
 export {

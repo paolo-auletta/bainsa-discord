@@ -292,17 +292,138 @@ function boardAccessScope(result) {
     : result.university.name;
 }
 
-export function formatBoardAssignmentHandoff(result) {
+function discordChannelUrl(guildId, channelId) {
+  return guildId && channelId ? `https://discord.com/channels/${guildId}/${channelId}` : null;
+}
+
+function boardResponsibility(roleLabel) {
+  if (roleLabel.startsWith('Head of ')) {
+    return 'Guide the division’s priorities, orient members, and keep project access aligned with active work.';
+  }
+  if (roleLabel === 'President') {
+    return 'Steward the university board, confirm authority changes, and keep governance records aligned with Discord access.';
+  }
+  return 'Coordinate university operations, support division leadership, and help recover access when a workflow cannot complete.';
+}
+
+function handoffLinks(guildId, entries) {
+  return entries
+    .map(({ label, channelId }) => {
+      const url = discordChannelUrl(guildId, channelId);
+      return url ? { label, url } : null;
+    })
+    .filter(Boolean);
+}
+
+export function formatMemberAccessHandoff(result) {
+  const beforeDivisions = result.previousDivisions?.map((division) => safeText(division.name)) ?? [];
+  const afterDivisions = result.divisions?.map((division) => safeText(division.name)) ?? [];
+  const beforeType = result.previousRecord?.member_type
+    ? memberTypeLabel(result.previousRecord.member_type)
+    : 'Not recorded';
+  const afterType = memberTypeLabel(result.memberType);
+  const beforeUniversity = result.previousRecord?.university_name ?? 'Not recorded';
+  const changes = [
+    beforeType !== afterType ? `Member type: ${beforeType} → ${afterType}` : null,
+    beforeUniversity !== result.university.name
+      ? `University: ${safeText(beforeUniversity)} → ${safeText(result.university.name)}`
+      : null,
+    JSON.stringify([...beforeDivisions].sort()) !== JSON.stringify([...afterDivisions].sort())
+      ? `Divisions: ${beforeDivisions.join(', ') || 'None'} → ${afterDivisions.join(', ') || 'None'}`
+      : null,
+  ].filter(Boolean);
+  const links = handoffLinks(result.guildId, result.divisions.map((division) => ({
+    label: `Open ${division.name}`,
+    channelId: division.text_channel_id,
+  })));
+  return renderHandoffMessage({
+    kind: 'handoff-message',
+    tone: 'changed',
+    title: 'Your BAINSA membership access changed',
+    statusLabel: 'Membership scope updated',
+    context: `Your current membership is ${afterType} at ${safeText(result.university.name)}.`,
+    sections: [
+      { heading: 'What changed', body: changes.join('\n') || 'Your recorded access was refreshed.' },
+      { heading: 'Spaces available now', body: afterDivisions.join(', ') || 'University-wide member spaces only' },
+      { heading: 'What remains', body: 'Your active project assignments and board responsibilities were preserved unless a separate handoff says otherwise.' },
+    ],
+    nextActions: ['Open a space available to you and run `/guide` to see the commands for your current access.'],
+    links,
+    fallback: 'If a space listed here is missing, contact your university board through a channel you can still access.',
+    provenance: 'BAINSA governance · Membership access handoff',
+    audience: 'member',
+  });
+}
+
+export function formatMemberRemovalHandoff(result, { shareableReason = null } = {}) {
+  const removedScopes = [
+    ...(result.divisions ?? []).map((division) => `${safeText(division.name)} division`),
+    ...(result.boardRoles ?? []).map((role) => role.role === BOARD_ROLES.HEAD
+      ? `Head of ${safeText(role.division_name, 'a division')}`
+      : boardRoleLabel(role.role)),
+    ...(result.projects ?? []).map((project) => `${safeText(project.name)} project`),
+  ];
+  return renderHandoffMessage({
+    kind: 'handoff-message',
+    tone: 'danger',
+    title: 'Your BAINSA membership access ended',
+    statusLabel: 'Server membership removed',
+    context: `Your membership at ${safeText(result.universityName)} was removed. You will no longer be able to use BAINSA server spaces.`,
+    sections: [
+      { heading: 'Access removed', body: removedScopes.length ? removedScopes.join(', ') : 'BAINSA member spaces' },
+      ...(shareableReason ? [{ heading: 'Explanation shared with you', body: safeText(shareableReason) }] : []),
+      { heading: 'What remains private', body: 'Internal board notes and any non-shareable review details are not included in this message.' },
+    ],
+    nextActions: ['Save any personal records you already hold outside Discord; server content may no longer be available.'],
+    fallback: 'If you believe this was a mistake or need clarification, contact the BAINSA university board through your existing external contact route.',
+    provenance: 'BAINSA governance · Membership removal handoff',
+    audience: 'member',
+  });
+}
+
+export function formatDivisionHeadHandoff(result) {
+  const links = handoffLinks(result.guildId, [
+    { label: 'Open division workspace', channelId: result.textChannel?.id },
+    { label: 'Open university board', channelId: result.university.board_channel_id },
+  ]);
   return renderHandoffMessage({
     kind: 'handoff-message',
     tone: 'success',
-    title: 'Your BAINSA board access changed',
-    context: 'A board role was assigned to you.',
+    title: `You are now Head of ${safeText(result.divisionName)}`,
+    statusLabel: 'Board authority assigned',
+    context: `${safeText(result.university.name)} › ${safeText(result.divisionName)}`,
     sections: [
-      { heading: 'Role', body: boardAccessLabel(result) },
-      { heading: 'Scope', body: boardAccessScope(result) },
+      { heading: 'Spaces available now', body: links.length ? 'Your division workspace and university board space are available.' : 'Your division and university board access is being provisioned.' },
+      { heading: 'Responsibility', body: boardResponsibility(`Head of ${result.divisionName}`) },
+    ],
+    nextActions: [
+      'Open the division workspace and review its current guidance.',
+      'Run `/guide` in the university board space to see your governance commands.',
+    ],
+    links,
+    fallback: 'If either space is missing, contact the university President or Vice President.',
+    provenance: 'BAINSA governance · Initial Head handoff',
+    audience: 'member',
+  });
+}
+
+export function formatBoardAssignmentHandoff(result) {
+  const roleLabel = boardAccessLabel(result);
+  const boardUrl = discordChannelUrl(result.guildId, result.university.board_channel_id);
+  return renderHandoffMessage({
+    kind: 'handoff-message',
+    tone: 'success',
+    title: `You are now ${safeText(roleLabel)}`,
+    statusLabel: 'Board authority assigned',
+    context: `Your authority applies to ${safeText(boardAccessScope(result))}.`,
+    sections: [
+      { heading: 'Role', body: safeText(roleLabel) },
+      { heading: 'Scope', body: safeText(boardAccessScope(result)) },
+      { heading: 'Responsibility', body: boardResponsibility(roleLabel) },
     ],
     nextActions: ['Open the university board space and run `/guide` to see the commands available to your new role.'],
+    links: boardUrl ? [{ label: 'Open university board', url: boardUrl }] : [],
+    fallback: 'If the board space is missing, contact the university President or a Global President.',
     provenance: 'BAINSA governance · Access handoff',
     audience: 'member',
   });
@@ -311,33 +432,61 @@ export function formatBoardAssignmentHandoff(result) {
 export function formatBoardRemovalHandoff(result, reason = null) {
   return renderHandoffMessage({
     kind: 'handoff-message',
-    tone: 'changed',
-    title: 'Your BAINSA board access changed',
+    tone: 'danger',
+    title: 'Your BAINSA board authority changed',
+    statusLabel: 'Board authority removed',
     context: 'A board role was removed. Your base BAINSA membership remains unchanged.',
     sections: [
-      { heading: 'Role removed', body: boardAccessLabel(result) },
-      { heading: 'Scope', body: boardAccessScope(result) },
+      { heading: 'Role removed', body: safeText(boardAccessLabel(result)) },
+      { heading: 'Scope', body: safeText(boardAccessScope(result)) },
       ...(reason ? [{ heading: 'Reason shared by the board', body: safeText(reason) }] : []),
     ],
-    nextActions: ['Run `/guide` in a board command channel to see the commands still available to you.'],
+    nextActions: result.remainingRoles?.length
+      ? ['Open the university board space and run `/guide` to review the commands available to your remaining role.']
+      : ['Continue using the member and division spaces that remain available to you.'],
+    links: result.remainingRoles?.length && result.university.board_channel_id
+      ? [{ label: 'Open university board', url: discordChannelUrl(result.guildId, result.university.board_channel_id) }]
+      : [],
+    fallback: 'If this change is unexpected, contact the university board through a space you still share.',
     provenance: 'BAINSA governance · Access handoff',
     audience: 'member',
   });
 }
 
 export function formatBoardUpdateHandoff(result, change) {
-  const before = change.before?.length ? change.before.join(', ') : 'No board role';
-  const after = change.after?.length ? change.after.join(', ') : 'No board role';
+  const before = change.before?.length ? change.before.map((role) => safeText(role)).join(', ') : 'No board role';
+  const after = change.after?.length ? change.after.map((role) => safeText(role)).join(', ') : 'No board role';
+  const added = change.after?.filter((role) => !change.before?.includes(role)).map((role) => safeText(role)) ?? [];
+  const assigned = added.length > 0;
+  const fullyRemoved = after === 'No board role';
+  const links = handoffLinks(result.guildId, [
+    ...((change.nextRoles ?? []).filter((role) => role.role === BOARD_ROLES.HEAD).map((role) => ({
+      label: `Open ${role.division_name}`,
+      channelId: result.divisions?.find((division) => String(division.id) === String(role.division_id))?.text_channel_id,
+    }))),
+    { label: 'Open university board', channelId: fullyRemoved ? null : result.university.board_channel_id },
+  ]);
   return renderHandoffMessage({
     kind: 'handoff-message',
-    tone: 'changed',
-    title: 'Your BAINSA board access changed',
-    context: `The ${result.university.name} board roster was updated.`,
+    tone: fullyRemoved ? 'danger' : assigned ? 'success' : 'changed',
+    title: fullyRemoved ? 'Your BAINSA board authority ended' : 'Your BAINSA board authority changed',
+    statusLabel: fullyRemoved ? 'Board authority removed' : assigned ? 'Board authority assigned' : 'Board authority updated',
+    context: `The ${safeText(result.university.name)} board roster was updated.`,
     sections: [
       { heading: 'Board roles', body: before === after ? after : `${before} → ${after}` },
-      { heading: 'University', body: result.university.name },
+      { heading: 'University', body: safeText(result.university.name) },
+      ...(added.length ? [{ heading: 'Responsibility added', body: added.map(boardResponsibility).join('\n') }] : []),
+      { heading: 'What remains', body: fullyRemoved
+        ? 'Your base BAINSA membership and eligible member spaces remain unchanged.'
+        : `You retain ${after}.` },
     ],
-    nextActions: ['Run `/guide` in the university board space to see the commands available to your current role.'],
+    nextActions: fullyRemoved
+      ? ['Continue using the member and division spaces available to your base membership.']
+      : ['Open the university board space and run `/guide` to see the commands available to your current authority.'],
+    links,
+    fallback: fullyRemoved
+      ? 'If this change is unexpected, contact the university board through a space you still share.'
+      : 'If a newly available space is missing, contact the university President or a Global President.',
     provenance: 'BAINSA governance · Board update',
     audience: 'member',
   });
@@ -346,19 +495,26 @@ export function formatBoardUpdateHandoff(result, change) {
 export function formatDivisionMemberHandoff(result, { removed = false, reason = null } = {}) {
   return renderHandoffMessage({
     kind: 'handoff-message',
-    tone: removed ? 'changed' : 'success',
+    tone: removed ? 'danger' : 'success',
     title: 'Your BAINSA division access changed',
+    statusLabel: removed ? 'Division access removed' : 'Division access added',
     context: removed
       ? 'A division membership was removed. Your university membership remains unchanged.'
       : 'A division membership was added to your BAINSA access.',
     sections: [
-      { heading: removed ? 'Division removed' : 'Division added', body: result.division.name },
-      { heading: 'University', body: result.university.name },
+      { heading: removed ? 'Division removed' : 'Division added', body: safeText(result.division.name) },
+      { heading: 'University', body: safeText(result.university.name) },
       ...(removed && reason ? [{ heading: 'Reason shared by the board', body: safeText(reason) }] : []),
     ],
     nextActions: removed
-      ? ['Run `/guide` in a board command channel if you still hold board access.']
+      ? ['Continue in the university and division spaces that remain available to you.']
       : ['Open the division space and review its current work before contributing.'],
+    links: !removed && result.division.text_channel_id
+      ? [{ label: 'Open division workspace', url: discordChannelUrl(result.guildId, result.division.text_channel_id) }]
+      : [],
+    fallback: removed
+      ? 'If this change is unexpected, contact the university board through a space you still share.'
+      : 'If the division space is missing, contact the division Head or university board.',
     provenance: 'BAINSA governance · Access handoff',
     audience: 'member',
   });

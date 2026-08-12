@@ -273,6 +273,7 @@ export function projectAssignmentMessage(guildId, project, role, previousRole = 
     kind: 'handoff-message',
     tone: previousRole ? 'changed' : 'success',
     title,
+    statusLabel: previousRole ? 'Project role updated' : 'Project access added',
     context: `${projectText(project.university_name)} · ${projectText(divisionLabel(project.division_name, project.division_color))}`,
     sections: [{ heading: 'Role', body: roleLine }],
     nextActions: [
@@ -290,17 +291,24 @@ export function projectAssignmentMessage(guildId, project, role, previousRole = 
   });
 }
 
-export function projectRemovalMessage(guildId, project, reason = null) {
+export function projectRemovalMessage(guildId, project, reason = null, previousRole = null) {
   const showcaseUrl = project.showcase_thread_id
     ? `https://discord.com/channels/${guildId}/${project.showcase_thread_id}`
     : null;
   return renderHandoffMessage({
     kind: 'handoff-message',
-    tone: 'changed',
+    tone: 'danger',
     title: `Your access to ${projectText(project.name, 'this project')} changed`,
+    statusLabel: 'Project access removed',
     context: `You are no longer assigned to this ${projectText(project.university_name)} project.`,
-    sections: reason ? [{ heading: 'Reason shared by the supervisor or board', body: projectText(reason) }] : [],
+    sections: [
+      ...(previousRole ? [{ heading: 'Previous role', body: projectStatusLabel(previousRole) }] : []),
+      { heading: 'What remains', body: showcaseUrl ? 'The shareable project record remains available.' : 'Your base BAINSA membership is unchanged.' },
+      ...(reason ? [{ heading: 'Reason shared by the supervisor or board', body: projectText(reason) }] : []),
+    ],
+    nextActions: ['Review the shareable record if you need the project’s public context.'],
     links: showcaseUrl ? [{ label: 'View the shareable project record', url: showcaseUrl }] : [],
+    fallback: 'If this change is unexpected, contact the project supervisor or your university board through a space you still share.',
     provenance: `Project #${project.id} · Access handoff`,
     audience: 'member',
   });
