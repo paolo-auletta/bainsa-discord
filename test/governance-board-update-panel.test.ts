@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { ButtonStyle, ComponentType, MessageFlags } from 'discord.js';
 
+import { BOARD_ROLES, ROLE_NAMES } from '../src/constants.js';
 import {
   BOARD_UPDATE_PANEL_ACTIONS,
   BOARD_UPDATE_HANDOFF_CONCURRENCY,
@@ -11,6 +12,7 @@ import {
 import { UserFacingError } from '../src/errors.js';
 
 const ACTOR_ID = '100000000000000001';
+const SECOND_GLOBAL_PRESIDENT_ID = '100000000000000006';
 const PRESIDENT_ID = '100000000000000002';
 const VP_ID = '100000000000000003';
 const HEAD_ID = '100000000000000004';
@@ -169,6 +171,50 @@ test('board update authorizes an active database President without relying on a 
 
   assert.equal(action(payload, 'up').disabled, false);
   assert.match(text(payload), /Update the Bocconi board/);
+});
+
+test('a Global President can appoint another Global President as a university Vice President', async () => {
+  const panel = service({
+    loadMemberContext: async (testInteraction, { user }) => ({
+      target: {
+        id: user.id,
+        roles: {
+          cache: roleCache(
+            [ACTOR_ID, SECOND_GLOBAL_PRESIDENT_ID].includes(user.id)
+              ? [ROLE_NAMES.GLOBAL_PRESIDENT]
+              : ['Researcher', 'Bocconi'],
+          ),
+        },
+      },
+      member: { status: 'active', university_name: 'Bocconi' },
+      divisions: [],
+      boardRoles: [ACTOR_ID, SECOND_GLOBAL_PRESIDENT_ID].includes(user.id)
+        ? [{ role: BOARD_ROLES.GLOBAL_PRESIDENT, university_name: null }]
+        : [],
+      projects: [],
+    }),
+  });
+  let payload = await startEditor(panel, { roles: [ROLE_NAMES.GLOBAL_PRESIDENT] });
+
+  await panel.handleUserSelect({
+    ...interaction({
+      roles: [ROLE_NAMES.GLOBAL_PRESIDENT],
+      customId: action(payload, 'uv').custom_id,
+    }),
+    values: [SECOND_GLOBAL_PRESIDENT_ID],
+    async update(next) { payload = next; },
+  });
+  await panel.handleButton({
+    ...interaction({
+      roles: [ROLE_NAMES.GLOBAL_PRESIDENT],
+      customId: action(payload, BOARD_UPDATE_PANEL_ACTIONS.REVIEW).custom_id,
+    }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
+
+  assert.match(text(payload), /Review the Bocconi board/);
+  assert.doesNotMatch(text(payload), /cannot manage Global President members/i);
 });
 
 test('board update shows current-to-new changes and saves co-Heads as one roster update', async () => {

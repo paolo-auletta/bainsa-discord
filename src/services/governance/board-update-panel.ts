@@ -661,8 +661,10 @@ export function createBoardUpdatePanelService({
       const context = await loadMemberContext(interaction, { user: { id: userId } }) as MemberContext;
       assertUser(!context.target.roles?.cache?.some?.((role) => role.name === ROLE_NAMES.BOT), 'The Bot member cannot be managed.');
       assertUser(
-        !context.target.roles?.cache?.some?.((role) => role.name === ROLE_NAMES.GLOBAL_PRESIDENT)
-          && !(context.boardRoles ?? []).some((role) => role.role === BOARD_ROLES.GLOBAL_PRESIDENT),
+        hasGlobalAuthority(interaction.member) || (
+          !context.target.roles?.cache?.some?.((role) => role.name === ROLE_NAMES.GLOBAL_PRESIDENT)
+          && !(context.boardRoles ?? []).some((role) => role.role === BOARD_ROLES.GLOBAL_PRESIDENT)
+        ),
         'You cannot manage Global President members.',
       );
       assertUser(

@@ -1767,8 +1767,10 @@ export async function updateBoardRoster(interaction, options, deps: GovernanceDe
     ]);
     assertUser(!hasRole(target, ROLE_NAMES.BOT), 'The Bot member cannot be managed.');
     assertUser(
-      !hasRole(target, ROLE_NAMES.GLOBAL_PRESIDENT)
-        && !boardRoles.some((assignment) => assignment.role === BOARD_ROLES.GLOBAL_PRESIDENT),
+      actorGlobal || (
+        !hasRole(target, ROLE_NAMES.GLOBAL_PRESIDENT)
+        && !boardRoles.some((assignment) => assignment.role === BOARD_ROLES.GLOBAL_PRESIDENT)
+      ),
       'You cannot manage Global President members.',
     );
     assertUser(
