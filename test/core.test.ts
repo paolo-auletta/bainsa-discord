@@ -9,6 +9,7 @@ import {
   isGlobalPresident,
 } from '../src/authorization.js';
 import { BOARD_ROLES, ROLE_COLORS, ROLE_NAMES } from '../src/constants.js';
+import { loadConfig } from '../src/config.js';
 import { buildSeedContent } from '../src/content/seeds.js';
 import { UserFacingError } from '../src/errors.js';
 import {
@@ -36,6 +37,18 @@ test('role and channel naming follows the approved model', () => {
   assert.equal(universityCategoryName('Bocconi'), 'BAINSA BOCCONI');
   assert.equal(slugify('AI Safety & Governance'), 'ai-safety-governance');
   assert.equal(projectChannelName(42, 'AI Safety & Governance'), 'project-42-ai-safety-governance');
+});
+
+test('bot display name is configurable without changing the rest of the deployment config', () => {
+  const baseEnv = {
+    DISCORD_TOKEN: 'test-token',
+    DISCORD_CLIENT_ID: 'test-client',
+    DISCORD_GUILD_ID: 'test-guild',
+    DATABASE_URL: 'postgres://localhost/test',
+  };
+
+  assert.equal(loadConfig(baseEnv).botName, 'BAINSA');
+  assert.equal(loadConfig({ ...baseEnv, BOT_NAME: '  Alberto  ' }).botName, 'Alberto');
 });
 
 test('global president bypasses university and division scope', () => {
@@ -72,7 +85,7 @@ test('university and division authority stays scoped', () => {
   );
 });
 
-test('commands cannot target the bot account directly or in project participant lists', () => {
+test('commands cannot target the bot account directly', () => {
   const interaction = {
     client: { user: { id: '99999999999999999' } },
     options: {
@@ -81,13 +94,6 @@ test('commands cannot target the bot account directly or in project participant 
   };
 
   assert.throws(() => assertNoBotCommandTarget(interaction), UserFacingError);
-  assert.throws(
-    () => assertNoBotCommandTarget({
-      ...interaction,
-      options: { data: [{ type: 3, name: 'members', value: '<@99999999999999999>' }] },
-    }),
-    /cannot be managed or assigned/,
-  );
   assert.throws(
     () => assertNotBotUser(interaction, '99999999999999999'),
     /cannot be managed or assigned/,

@@ -1,22 +1,27 @@
 import { handleInteractionError } from '../discord/reply.js';
-import { UserFacingError } from '../errors.js';
+import { assertUser, UserFacingError } from '../errors.js';
 import { assertNoBotCommandTarget } from '../authorization.js';
-import { assertBotCommandChannel, botCommandChannelScope } from './command-channels.js';
+import { assertCommandChannel, commandChannelScope } from './command-channels.js';
 import { canDiscoverCommand } from './command-permissions.js';
 import { buildCommandMap, type CommandDefinition } from './command-registry.js';
 
-interface ComponentHandler {
+export interface ComponentHandler {
   canHandle: (customId: string) => boolean;
   handleButton?: (interaction: unknown) => unknown;
   handleStringSelect?: (interaction: unknown) => unknown;
+  handleUserSelect?: (interaction: unknown) => unknown;
   handleModalSubmit?: (interaction: unknown) => unknown;
   handleComponent?: (interaction: unknown) => unknown;
 }
 
-interface InteractionDispatcherOptions {
+export interface InteractionDispatcherOptions {
   commands?: readonly CommandDefinition[];
+  componentHandlers?: readonly ComponentHandler[];
   onboarding?: ComponentHandler;
+  governance?: ComponentHandler;
   guide?: ComponentHandler;
+  projectSetup?: ComponentHandler;
+  profiles?: ComponentHandler;
   onError?: (interaction: unknown, error: unknown) => Promise<void>;
 }
 
@@ -25,6 +30,7 @@ export function routeInteraction(interaction) {
   if (interaction.isAutocomplete?.()) return 'autocomplete';
   if (interaction.isButton?.()) return 'button';
   if (interaction.isStringSelectMenu?.()) return 'stringSelect';
+  if (interaction.isUserSelectMenu?.()) return 'userSelect';
   if (interaction.isModalSubmit?.()) return 'modalSubmit';
   return 'unknown';
 }
@@ -36,8 +42,12 @@ function requireComponentHandler(handler: ((interaction: unknown) => unknown) | 
 
 export function createInteractionDispatcher({
   commands,
+  componentHandlers = [],
   onboarding,
+  governance,
   guide,
+  projectSetup,
+  profiles,
   onError = handleInteractionError,
 }: InteractionDispatcherOptions = {}) {
   const commandMap = buildCommandMap(commands ?? []);
@@ -49,7 +59,13 @@ export function createInteractionDispatcher({
       if (route === 'chatInput') {
         const command = commandMap.get(interaction.commandName);
         if (!command) throw new UserFacingError(`Unknown command: ${interaction.commandName}`);
-        assertBotCommandChannel(interaction);
+        const channelScope = assertCommandChannel(interaction, interaction.commandName);
+        const allowed = canDiscoverCommand({
+          commandName: interaction.commandName,
+          member: interaction.member,
+          channelScope,
+        });
+        assertUser(allowed, 'This command is not available in this channel.');
         assertNoBotCommandTarget(interaction);
         await command.execute(interaction);
         return;
@@ -61,7 +77,7 @@ export function createInteractionDispatcher({
         const allowed = canDiscoverCommand({
           commandName: interaction.commandName,
           member: interaction.member,
-          channelScope: botCommandChannelScope(interaction.channel),
+          channelScope: commandChannelScope(interaction.channel),
         });
         // Do this before invoking a handler: autocomplete handlers may query
         // Postgres or Discord's guild-member directory.
@@ -70,8 +86,63 @@ export function createInteractionDispatcher({
         return;
       }
 
+      if (['button', 'stringSelect', 'userSelect', 'modalSubmit'].includes(route)) {
+        const handler = componentHandlers.find((candidate) => candidate.canHandle?.(interaction.customId));
+        if (handler) {
+          const method = route === 'button'
+            ? handler.handleButton
+            : route === 'stringSelect'
+              ? handler.handleStringSelect
+              : route === 'userSelect'
+                ? handler.handleUserSelect
+                : handler.handleModalSubmit;
+          await requireComponentHandler(method)(interaction);
+          return;
+        }
+      }
+
       if (route === 'button' && onboarding?.canHandle?.(interaction.customId)) {
         await requireComponentHandler(onboarding.handleButton)(interaction);
+        return;
+      }
+
+      if (route === 'button' && governance?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(governance.handleButton)(interaction);
+        return;
+      }
+
+      if (route === 'button' && profiles?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(profiles.handleButton)(interaction);
+        return;
+      }
+
+      if (route === 'button' && projectSetup?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(projectSetup.handleButton)(interaction);
+        return;
+      }
+
+      if (route === 'userSelect' && projectSetup?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(projectSetup.handleUserSelect)(interaction);
+        return;
+      }
+
+      if (route === 'stringSelect' && projectSetup?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(projectSetup.handleStringSelect)(interaction);
+        return;
+      }
+
+      if (route === 'stringSelect' && profiles?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(profiles.handleStringSelect)(interaction);
+        return;
+      }
+
+      if (route === 'modalSubmit' && projectSetup?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(projectSetup.handleModalSubmit)(interaction);
+        return;
+      }
+
+      if (route === 'modalSubmit' && profiles?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(profiles.handleModalSubmit)(interaction);
         return;
       }
 

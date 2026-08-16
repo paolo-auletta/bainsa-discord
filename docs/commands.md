@@ -8,14 +8,21 @@ Cross-university projects are deliberately excluded from v1. Every project belon
 
 ### Where commands can be used
 
-Commands can only be run in a channel named `bot-log`:
+Governance commands and `/project-create` can only be run in a channel named `bot-log`:
 
 - `LOGS / bot-log` for Global Presidents.
 - The `bot-log` channel inside a university category for that university's board.
 
+Project-scoped commands can also be run in the owning private project channel:
+
+- Every participant can run `/project-info`.
+- Project supervisors and scoped board roles can run `/project-update` and `/project-close`.
+- The owning project is inferred from the bot-managed channel topic. Outside a project channel,
+  the private panel provides a scoped project selector and search.
+
 Autocomplete is subject to the same command-channel, board-tier, and university scope checks before the bot queries Postgres or Discord's member directory. An interaction with missing or stale channel/member context, or an unauthorized caller, receives an empty suggestion list.
 
-The bot checks the channel in the dispatcher before running a command. A command copied into another channel is rejected even if a Discord permission is changed manually.
+The bot checks the channel in the dispatcher before running a command. A command copied into another channel is rejected even if a Discord permission is changed manually. A mutation run in a project channel posts its project transition there but routes its governance activity entry to the owning university `bot-log`.
 
 Successful commands that change shared BAINSA state post a concise board-visible activity entry in that `bot-log` channel. The entry records the affected item, scope, meaningful state change, and command actor. Internal notes, removal reasons, and project final notes are never included.
 
@@ -23,7 +30,7 @@ Successful commands that change shared BAINSA state post a concise board-visible
 
 ### Who sees commands
 
-Discord command visibility is synchronized by the bot when `DISCORD_CLIENT_SECRET` is configured. Normal members see no bot commands. The visibility tiers are:
+Discord command visibility is synchronized by the bot when `DISCORD_CLIENT_SECRET` is configured. The visibility tiers are:
 
 | Tier | Visible commands |
 | --- | --- |
@@ -31,7 +38,7 @@ Discord command visibility is synchronized by the bot when `DISCORD_CLIENT_SECRE
 | University President | President commands and all board/project commands |
 | University Vice President | Executive member commands and all board/project commands |
 | Division Head | Board/project commands; execution is restricted to their division |
-| Researcher or Alumni | No bot commands |
+| Researcher or Alumni | Project-scoped commands; execution succeeds only for projects and roles they currently hold |
 
 Visibility is only the user interface layer. Every command performs a second server-side authorization check when submitted.
 
@@ -45,61 +52,63 @@ The bot reads the caller's current board roles and command-channel scope, then s
 
 The guide is organised by workflow:
 
-- Manage members and divisions.
+- Manage members.
+- Manage divisions.
+- Board appointments.
 - Manage projects.
 - Look up information.
 - Review role-specific rules and limits.
 
 Buttons and command selectors update the same ephemeral message in place. Every component interaction rechecks current roles, so an already-open guide cannot preserve access after a role changes. Running or navigating `/guide` never creates a board-visible activity entry.
 
+Every command detail shows the current scope, prerequisites, expected result, confirmation behavior,
+and recovery route. Private recovery states always explain what happened, what was preserved, how to
+correct it, and where to continue. Validation, authorization, and stale-control failures make no
+shared change; a saved change with pending Discord reconciliation says so and must not be repeated.
+
 ### Scope rules
 
 - Global Presidents can operate across all universities.
 - University Presidents and Vice Presidents can operate only within their university, except where a command explicitly says otherwise.
 - Division Heads can operate only within their assigned division for division and project operations.
-- A university President can assign or remove university board roles. Only a Global President can assign or remove a university President.
+- A university President can assign or remove university board roles, including university Presidents. Vice Presidents can manage Head and Vice President roles only. Multiple active co-Presidents are supported.
 - `member-remove` is limited to university Presidents, university Vice Presidents, and Global Presidents. A Vice President cannot remove their university President.
 - The Bot account cannot be managed, assigned, promoted, removed, or included in a project participant list.
 - Commands do not change the Bot account's status, roles, membership, or permissions.
 
 ### Autocomplete and selection
 
-- University fields search active universities.
+- Panel flows infer the university from a university-specific `bot-log`; the global `bot-log`
+  shows a scoped university selector when one is needed.
+- Commands without a target open a private university selector only in the global `bot-log`; the selector must be confirmed before divisions, members, projects, or board positions load.
 - A division field searches only active divisions belonging to the selected university. The division list is empty until a valid university value has been selected.
-- Project `members` and `supervisors` fields search Discord server members directly, just like the native member picker used by `/member-add`. They are not filtered by project names, divisions, or university names in the autocomplete UI.
-- Project participant fields remain comma-separated string fields because Discord does not provide a multi-user slash-command option. Select or enter one Discord mention at a time, separated by commas. The database validates the final list against the selected project scope.
+- Project selectors show the latest 25 visible matches as `#id Name • University, Division • Status`; `/project-close` limits the matches to active and paused projects. Inside a project channel, autocomplete returns only that project. Discord does not render more than 25 autocomplete choices at once, so typing a narrower name, university, division, or ID searches the full candidate set.
+- Project creation is a private five-step wizard with native Discord modals and selectors. The database validates the selected people against the project scope before creation.
 - Date fields use strict `YYYY-MM-DD` text. Discord slash commands do not provide a native calendar/date option.
-- Autocomplete suggestions never include the Bot account.
+- The Bot account is rejected by both native command targets and project participant selectors.
 
 ## Member Commands
 
-### `/member-add`
-
-**Who can use it:** Global Presidents, university Presidents, and university Vice Presidents. The target must belong to the actor's university unless the actor is a Global President.
-
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `user` | Yes | Discord member to add or initialize |
-| `member_type` | Yes | `Researcher` or `Alumni` |
-| `university` | Yes | University membership scope |
-| `divisions` | No | Comma-separated division names for a Researcher; leave empty for no division |
-| `notes` | No | Internal member notes stored in Postgres |
-
-The bot verifies the target, creates or updates the member record, assigns the base member and university roles, assigns Researcher division roles when requested, removes incompatible roles, and records an audit entry. Alumni cannot receive division roles.
+New members are admitted through the onboarding flow and a board approval. That workflow creates the active member record, applies managed roles, records the review, and sets the verified full-name nickname.
 
 ### `/member-update`
 
 **Who can use it:** Global Presidents, university Presidents, and university Vice Presidents, subject to university scope.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `user` | Yes | Existing member to update |
-| `member_type` | No | Replacement member type |
-| `university` | No | Replacement university; moving a member between universities is a Global President operation |
-| `divisions` | No | Replacement comma-separated division list |
-| `notes` | No | Replacement internal notes |
+The command has no inline fields. It opens a private member-first panel:
 
-The bot updates the database and reconciles Discord roles. Changing a Researcher to Alumni clears division assignments when no replacement divisions are supplied. Existing board assignments must remain compatible with the selected member type.
+1. Select the member.
+2. Review the current type, university, divisions, active-project context, and private-note state.
+3. Change the member type, university where authorized, divisions through a multi-select, or private notes.
+4. Review the complete before/after state and confirm.
+
+University Presidents and Vice Presidents cannot move a member outside their scoped university;
+Global Presidents receive the university selector. The bot rechecks scope and active-project
+eligibility at confirmation, then updates the database and reconciles Discord roles. Changing a
+Researcher to Alumni clears division assignments. Existing board assignments must remain
+compatible with the selected member type. A cross-university move is blocked before mutation while
+the member has university board assignments or active/paused project roles; the panel names the
+dependencies that must be removed or reassigned first.
 
 ### `/member-remove`
 
@@ -108,9 +117,9 @@ The bot updates the database and reconciles Discord roles. Changing a Researcher
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `user` | Yes | Member to remove from the server |
-| `reason` | No | Audit reason and Discord kick reason |
+| `reason` | No | Audit and Discord moderation reason; never copied into the member handoff |
 
-The bot validates authority, immediately kicks the member from Discord, deactivates their application records and assignments, removes managed access, cleans direct project-channel overwrites, and writes an audit entry. The Bot and protected Global President accounts cannot be removed by university officers.
+The bot validates authority and atomically commits the canonical removal, audit entry, project/profile reconciliation, and private notification intent. It then attempts a policy-safe handoff before the kick closes the member's guild route, removes direct project access, reconciles affected projects, and attempts the server removal. The command and board activity distinguish the committed membership change, handoff delivery, access cleanup, and Discord kick outcome. A failed DM or kick never rolls back or hides the committed removal. The command `reason` remains audit-only; internal board notes are never copied into the member handoff. The Bot and protected Global President accounts cannot be removed by university officers.
 
 ### `/member-info`
 
@@ -120,100 +129,97 @@ The bot validates authority, immediately kicks the member from Discord, deactiva
 | --- | --- | --- |
 | `user` | No | Member to inspect; when omitted, the command uses the command actor where supported |
 
-The bot privately shows the recorded full name, member type, university, divisions, board roles, and active project assignments.
+The bot privately shows a compact card in a stable two-row identity layout: Member with Type,
+then University with Divisions, followed by board roles and active project assignments. Empty
+assignment groups state that no active assignment exists instead of leaving the result ambiguous.
+
+```text
+Member                  Type
+Ada Lovelace (@ada)     Researcher
+University              Divisions
+Bocconi                 🟨 Robotics, 🟧 Analysis
+Board roles             Head of 🟨 Robotics
+Active projects         Signals — Supervisor · Active
+```
 
 ## Division Commands
 
 ### `/division-create`
 
-**Who can use it:** Global Presidents and university Presidents for the selected university.
+**Who can use it:** Global Presidents and university Presidents for their command-channel scope.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `university` | Yes | University that owns the new division |
-| `division_name` | Yes | New division display name |
-| `color` | Yes | One of eight square-icon colors: red 🟥, orange 🟧, yellow 🟨, green 🟩, blue 🟦, pink 🟪, brown 🟫, or black ⬛ |
-| `head` | Yes | Discord member who becomes the initial Head |
-| `create_text_channel` | Yes | Whether to create the division text channel |
-| `create_voice_channel` | Yes | Whether to create the division voice channel |
+The command has no inline fields. It opens a private three-step flow for the division name,
+semantic colour, initial Head, optional text/voice spaces, and final review. A university bot-log
+supplies its university automatically; the global bot-log shows the university selector. Nothing
+is created before confirmation.
 
-The bot creates the division record, color-matched access and Head roles, and the requested channels under the university category. It assigns the selected person `Researcher`, the university role, and only the new Head role. The ordinary division access role is intentionally not assigned to a Head. The new Head is also recorded in the board assignments table.
+The bot then creates the division record, colour-matched access and Head roles, and the requested
+channels under the university category. It assigns the selected person `Researcher`, the
+university role, the ordinary division role, and the new Head role. The new Head is also recorded
+in the board assignments table.
 
-### `/division-rename`
+### `/division-update`
 
-**Who can use it:** Global Presidents and university Presidents for the selected university.
+**Who can use it:** Global Presidents and university Presidents for their command-channel scope.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `university` | Yes | University containing the division |
-| `current_name` | Yes | Existing division name to rename |
-| `new_name` | Yes | New division name |
-
-The bot validates uniqueness, renames the persisted division, renames the access and Head roles, renames the linked text/voice channels, and records the change. `current_name` is deliberately used instead of `old_name`.
+The command has no inline fields. Its private panel selects the university when it is not inferred,
+selects the active division, stages a new name and/or colour, and presents a final review. Provide
+at least one real change. On confirmation, the bot validates uniqueness, updates the persisted
+division colour, reconciles the access and Head roles, renames the linked text/voice channels with
+the current colour icon, and records the change.
 
 ### `/division-add-member`
 
-**Who can use it:** Global Presidents, the selected university's President or Vice President, and the Head of the selected division.
+**Who can use it:** Global Presidents across all universities; a university President or Vice President; and a Division Head for their own division.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `user` | Yes | Researcher to add |
-| `university` | Yes | University scope |
-| `division` | Yes | Division inside the selected university |
+The command has no inline fields. It asks for the member first and derives their canonical university before loading divisions. A university `bot-log` must match that affiliation; the global `bot-log` accepts any active university member for a current Global President. The panel then offers only divisions the actor may manage and which the active Researcher has not already joined. Memberships outside a Head's scope remain out of the action control.
 
-The bot verifies that the target can be a Researcher, assigns the university and division access roles, adds the member-division relationship, and records an audit entry.
+The edit and final review summaries show the member’s current affiliation changing to the proposed affiliation. On confirmation, the bot revalidates authority, active Researcher eligibility, university, and current memberships; assigns the managed university/division Discord roles; adds the relationship; posts activity; and sends the member a private handoff.
 
 ### `/division-remove-member`
 
-**Who can use it:** Global Presidents, the selected university's President or Vice President, and the Head of the selected division.
+**Who can use it:** Global Presidents across all universities; a university President or Vice President; and a Division Head for their own division.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `user` | Yes | Member to remove from the division |
-| `university` | Yes | University scope |
-| `division` | Yes | Division inside the selected university |
-| `reason` | No | Audit and Discord role-removal reason |
+The command has no inline fields. Its member-first panel derives the university from the selected member and verifies that it agrees with a university `bot-log` when used locally. A Global President can select members across all active universities. A President or Vice President can act across their university; a Head sees other memberships as read only and can act only on their own division. Because Discord string-select options cannot be disabled individually, only safe actionable divisions appear in the selector while every read-only or blocked division remains visible in the summary with its reason.
 
-The bot blocks removal when the person still has active project access in that division. Otherwise it removes the division relationship and access role while preserving the university membership record.
+Removal is blocked when the division is required by an active Head assignment, by active project membership, or by the rule that a non-executive Researcher must keep at least one division. The actor can add an optional private reason in the panel. The final review shows the remaining divisions. Confirmation revalidates the database state before removing only the selected relationship and managed role; university membership remains intact. Activity omits the reason, while the audit record and affected member's private handoff retain it.
 
 ## Board Commands
 
-### `/board-assign`
+### `/board-update`
 
-**Who can use it:** Global Presidents for all universities; a university President for their university. Only a Global President can assign a university President.
+**Who can use it:** Global Presidents in the global `bot-log`, or a university President or Vice President in their university `bot-log`. A Vice President can view but cannot edit the President position.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `user` | Yes | Member to appoint |
-| `university` | Yes | University board scope |
-| `role` | Yes | `Head`, `Vice President`, or `President` |
-| `division` | Head only | Required division when assigning a Head; must be empty for Vice President or President |
+The command has no inline fields. A university `bot-log` infers the university. In the global `bot-log`, the private panel asks for a university and requires **Continue** before loading the roster. University leadership appears first, followed by one Head position for every active division. Every position supports multiple members. The controls keep current members selected and paginate when the university has more positions than fit safely in one Discord message, so newly created and occupied divisions are never filtered out.
 
-The bot verifies the appointment, reconciles the Researcher, university, board, and Head roles, records the board assignment, and writes an audit entry. A Head receives only the scoped Head role in addition to the base Researcher and university roles.
+As selections change, the summary presents each affected position as `Current → New`. Selecting a member as a Head moves that member out of any other Head division and executive position; selecting an executive removes that member from division leadership. Presidents and Vice Presidents have university-wide division access. The final review shows all changed seats before one optimistic, transaction-backed roster update reconciles the database and managed Discord roles.
 
-### `/board-remove`
-
-**Who can use it:** Global Presidents for all universities; a university President for their university. Only a Global President can remove a university President.
-
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `user` | Yes | Board member to update |
-| `university` | Yes | University board scope |
-| `role` | Yes | Board role to remove |
-| `division` | Head only | Specific Head division, or empty to remove all Head roles for that university |
-| `reason` | No | Audit and Discord role-removal reason |
-
-The bot deactivates the matching board assignment and removes the managed board role. Base Researcher and university roles remain.
+Removing a Head title preserves the member’s ordinary division membership and access role. A Head move changes their working division to the newly selected division, while an executive appointment clears ordinary division roles. Multiple Presidents, Vice Presidents, and Heads of the same division are supported. One member can lead only one division at a time.
 
 ### `/board-info`
 
-**Who can use it:** Global Presidents and any active board member of the selected university.
+**Who can use it:** Global Presidents and any active board member of the resolved university.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `university` | Yes | University board to inspect |
+The command has no inline fields. A university `bot-log` opens its roster directly. The global `bot-log` opens a private university selector and loads the roster only after **View board** is selected.
 
-The bot privately returns the active board roster and reports missing Discord roles or members so the caller can identify synchronization problems.
+The bot privately returns the canonical board roster with Presidents and Vice Presidents grouped
+above a single leadership-to-divisions separator. Every active division appears once with all of
+its current Heads or an explicit empty seat; individual division rows are not separated. Discord
+role or membership drift appears in a separate consistency card so it cannot be mistaken for a
+database roster problem.
+
+```text
+Bocconi board
+Presidents: @maria, @luca
+Vice Presidents: @sofia
+────────────────────
+Division Heads
+🟧 Analysis · @ada
+🟨 Robotics · No active Head
+
+Discord consistency · 1 issue
+@luca · Missing Bocconi President role · Open /board-update and save again
+```
 
 ## Project Commands
 
@@ -223,70 +229,54 @@ All v1 projects are private, university-scoped, and division-scoped. Project cha
 
 **Who can use it:** Global Presidents, the selected university's President or Vice President, and the Head of the selected division.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `name` | Yes | Project name |
-| `university` | Yes | University that owns the project; autocomplete searches active universities |
-| `division` | Yes | Division inside the selected university; autocomplete is filtered to that university |
-| `members` | Yes | One or more server members, entered as comma-separated Discord mentions; final validation requires active Researchers in the selected division |
-| `supervisors` | Yes | One or more server members, entered as comma-separated Discord mentions; final validation requires active members of the selected university and permits active Alumni |
-| `start_date` | Yes | Start date in `YYYY-MM-DD` format |
-| `expected_end` | Yes | Expected end date in `YYYY-MM-DD` format; must not precede the start date |
-| `notes` | No | Project notes |
+The command has no inline arguments. It opens a private guided setup that stays in one ephemeral message:
 
-The member and supervisor suggestions search all non-bot Discord members. The selected university and division are still authoritative: the database rejects a person who does not meet the appropriate project eligibility rule, rejects duplicate people across the two lists, and rejects the Bot account. Duplicate mentions within one field are collapsed. A project has at most 994 unique direct participants across members, supervisors, and board liaisons. This reserves six of Discord's 1,000 permission overwrites for `@everyone`, the Bot, Global President, and the scoped Head, Vice President, and President roles. Discord documents this limit as error 30060, “Maximum number of channel permission overwrites reached (1000)”: [Discord API error codes](https://discord.com/developers/topics/opcodes-and-status-codes).
+1. Enter the project name in a modal.
+2. Confirm the owning university, then select the division. A university `bot-log` supplies and hides the university; the global `bot-log` shows the university selector first.
+3. Select the initial members and supervisors with two Discord-native multi-user selectors.
+4. Enter the start and expected-end dates, add a required public summary, and optionally add private internal working notes.
+5. Review the complete project and press **Create project**.
 
-When valid, the bot atomically commits the project, participant records, audit entry, and pending reconciliation intent to PostgreSQL. It then immediately runs an idempotent reconciliation that creates or repairs the private project channel and its scoped access. If Discord work fails, the committed project is reported as pending and retries automatically. The project introduction and showcase history are one-shot best-effort posts; they are not replayed by reconciliation.
+The project name remains at the top of every setup card after it is entered. Back and edit controls preserve the current draft, Cancel creates nothing, and the project is not persisted until the final confirmation. Each participant selector accepts up to 25 people and searches Discord server nicknames and usernames. Onboarding approval sets the server nickname from the recorded onboarding name, so native user search can find members by that name. Both participant selections are required.
 
-### `/project-add-member`
+The selected university and division remain authoritative: the database rejects a person who does not meet the appropriate project eligibility rule, rejects duplicate people across the two groups, and rejects the Bot account. A project has at most 994 unique direct participants across members, supervisors, and board liaisons; the team can be changed later through `/project-update`. This reserves six of Discord's 1,000 permission overwrites for `@everyone`, the Bot, Global President, and the scoped Head, Vice President, and President roles. Discord documents this limit as error 30060, “Maximum number of channel permission overwrites reached (1000)”: [Discord API error codes](https://discord.com/developers/topics/opcodes-and-status-codes).
 
-**Who can use it:** Global Presidents, the selected project's university President or Vice President, and the selected project's division Head.
-
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `project` | Yes | Visible project selected through autocomplete |
-| `user` | Yes | Discord member to add or update |
-| `role` | Yes | `member`, `supervisor`, or `board_liaison` |
-
-The bot checks project authority and role-specific eligibility, upserts the participant record, updates the project's direct channel overwrite, and records the change. Only active or paused projects can be changed.
-
-### `/project-remove-member`
-
-**Who can use it:** Global Presidents, the selected project's university President or Vice President, and the selected project's division Head.
-
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `project` | Yes | Visible project selected through autocomplete |
-| `user` | Yes | Participant to remove |
-| `reason` | No | Audit and overwrite-removal reason |
-
-The bot removes the participant record, removes the direct project-channel overwrite, and records the change. Only active or paused projects can be changed.
+When valid, the bot atomically commits the project, participant records, audit entry, pending reconciliation intent, and one durable handoff intent per affected participant to PostgreSQL. It then immediately runs an idempotent reconciliation that creates or repairs the private project channel, its scoped access, its two pinned messages (the canonical project record and workspace guide), the university showcase starter, and the division/lifecycle tags. If Discord work fails, the committed project is reported as pending and retries automatically. Once access is ready, the bot refreshes each queued handoff with current workspace links and claims it for delivery.
 
 ### `/project-update`
 
-**Who can use it:** Global Presidents, the selected project's university President or Vice President, and the selected project's division Head.
+**Who can use it:** Project supervisors; Global Presidents; the selected project's university President or Vice President; and the selected project's division Head.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `project` | Yes | Visible project selected through autocomplete |
-| `name` | No | Replacement project name |
-| `expected_end` | No | Replacement ISO date; it must remain on or after the start date |
-| `notes` | No | Replacement notes |
-| `status` | No | `active` or `paused`; completed projects require `/project-close` |
+The command has no inline fields. Inside a project channel, the project is inferred. From a bot-log,
+the private panel offers a scoped selector plus project search. The panel supports:
 
-The bot updates project metadata, renames the project channel when the name changes, updates the project introduction, and records an audit entry. Only active or paused projects can be changed.
+- Project name, expected end, public summary, private working notes, and active/paused status.
+- Participant additions and role changes for members, supervisors, and board liaisons.
+- Participant removals with an optional private reason.
+- A complete review of the final project and team before saving.
+
+The bot rechecks authority, eligibility, capacity, and stale project/team state. It commits project
+metadata and the complete participant set together, then reconciles channel access, the pinned
+project record and workspace guide, the showcase starter, and lifecycle tags. New or changed
+participants receive a handoff; removed participants receive a private notification when possible.
+Visible project and team changes share one board activity card. Notes and removal reasons remain
+private. Only active or paused projects can be changed.
 
 ### `/project-close`
 
-**Who can use it:** Global Presidents, the selected project's university President or Vice President, and the selected project's division Head.
+**Who can use it:** Project supervisors; Global Presidents; the selected project's university President or Vice President; and the selected project's division Head.
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `project` | Yes | Visible project selected through autocomplete |
-| `outcome` | Yes | Final project outcome |
-| `final_notes` | Yes | Final record and handover notes |
+The command has no inline fields. Inside a project channel, the project is inferred; from a bot-log,
+the private panel provides an active/paused project selector and search. The flow explains the
+resulting access change, collects the public conclusion and private handover notes in a modal, and
+requires a destructive final review.
 
-The bot marks the project `completed`, records the outcome and final notes, locks normal project-member sending while preserving read history, updates the project channel with the final summary, and moves the channel into `ARCHIVE / HISTORY`. Only active or paused projects can be closed. There is no separate archive command in v1, and closing a project does not set the database status to `archived`.
+The bot marks the project `completed`, records the public conclusion and private handover notes,
+applies the `Completed` showcase tag, edits both canonical summaries, locks normal project-member
+sending while preserving read history, and moves the channel into `ARCHIVE / HISTORY`. The
+showcase never exposes private handover notes. Only active or paused projects can be closed. There
+is no separate archive command in v1, and closing a project does not set the database status to
+`archived`.
 
 ### `/project-info`
 
@@ -294,9 +284,32 @@ The bot marks the project `completed`, records the outcome and final notes, lock
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `project` | Yes | Project selected through autocomplete; autocomplete only returns projects visible to the caller |
+| `project` | Outside project channel | Project selected through autocomplete; inferred inside its project channel |
 
-The bot privately shows the project name, university, division, status, timeline, channel, notes, and participant lists.
+The bot privately shows the maintained project record in the same hierarchy as the pinned project
+home: scope and status, workspace links, team, public summary, public conclusion when complete, and
+an explicitly labelled authorized-internal section for working or handover notes. The university
+showcase starter uses the same scope, team, summary, and conclusion hierarchy but structurally
+omits workspace links and every internal field.
+
+```text
+Signals
+University · Status · Division · Timeline
+Workspace links
+Team
+Summary
+Conclusion (when complete)
+Authorized internal context (private record only)
+```
+
+### University showcase replies
+
+The bot owns post creation and the canonical starter. University members may reply inside existing
+project posts, attach shareable files, embed links, react, ask a relevant question, or express a
+concrete contribution idea. They cannot create new showcase posts. Discord applies this reply
+permission to the whole forum rather than one project thread at a time; server-side guidance and
+moderation therefore preserve the project-specific content boundary. Private drafts, decisions,
+internal notes, and handover details stay in the project channel.
 
 ## Channel-Only Operations
 

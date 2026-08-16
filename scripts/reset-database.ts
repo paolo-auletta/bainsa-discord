@@ -1,18 +1,27 @@
 #!/usr/bin/env node
 
-import { closeDatabase, pool } from '../src/db.js';
-
-const CONFIRMATION_FLAG = '--confirm-reset';
+import {
+  databaseResetTarget,
+  hasResetConfirmation,
+  resetConfirmationToken,
+} from '../src/reset-confirmation.js';
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log(`Usage: npm run db:reset -- ${CONFIRMATION_FLAG}`);
+  console.log('Usage: npm run db:reset -- --confirm-reset=db:<host>:<port>/<database>');
   process.exit(0);
 }
 
-if (!process.argv.includes(CONFIRMATION_FLAG)) {
-  console.error(`Refusing to reset the database without ${CONFIRMATION_FLAG}.`);
+const { config } = await import('../src/config.js');
+const confirmationTarget = databaseResetTarget(config.databaseUrl);
+const expectedConfirmation = resetConfirmationToken(confirmationTarget);
+
+if (!hasResetConfirmation(process.argv.slice(2), confirmationTarget)) {
+  console.error('Refusing to reset the database without confirmation for the configured database.');
+  console.error(`Re-run only after verifying the target: npm run db:reset -- ${expectedConfirmation}`);
   process.exit(1);
 }
+
+const { closeDatabase, pool } = await import('../src/db.js');
 
 const applicationTables = [
   'audit_log',
@@ -21,6 +30,8 @@ const applicationTables = [
   'discord_roles',
   'divisions',
   'member_divisions',
+  'member_profile_reconciliation',
+  'member_profiles',
   'members',
   'onboarding_requests',
   'pending_requests',

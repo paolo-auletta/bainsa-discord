@@ -61,7 +61,7 @@ function guildFrom(members) {
   };
 }
 
-function recordingDatabase() {
+function recordingDatabase({ projects = [] } = {}) {
   const statements = [];
   const db = {
     async transaction(work) {
@@ -69,7 +69,7 @@ function recordingDatabase() {
     },
     async query(sql, params = []) {
       statements.push({ sql, params });
-      if (sql.includes('FROM project_people pp')) return { rows: [] };
+      if (sql.includes('FROM project_people pp')) return { rows: projects };
       return { rows: [] };
     },
   };
@@ -141,6 +141,74 @@ test('existing-member reconciliation set-writes members, divisions, and board as
   assert.equal(boardInsert.params.length, 15);
   const divisionInsert = inserts.find((statement) => statement.sql.startsWith('INSERT INTO member_divisions'));
   assert.equal(divisionInsert.params.length, 6);
+});
+
+test('existing-member reconciliation preserves project eligibility for same-university board members', async () => {
+  const boardMember = member('10', [
+    ROLE_NAMES.RESEARCHER,
+    'Bocconi',
+    'Bocconi - Analysis',
+    'Bocconi - Head of Analysis',
+  ]);
+  const { db, statements } = recordingDatabase({
+    projects: [{
+      discord_user_id: '10',
+      id: 6,
+      name: 'Cross-division research',
+      university_id: 1,
+      division_id: 11,
+      role: 'member',
+    }],
+  });
+
+  await reconcileExistingMembers({
+    guild: guildFrom([boardMember]),
+    rolesByName: roleMap(),
+    plan,
+    db,
+    resources,
+  });
+
+  assert.ok(statements.some((statement) => statement.sql.startsWith('INSERT INTO members')));
+  const boardInsert = statements.find((statement) => statement.sql.startsWith('INSERT INTO board_assignments'));
+  assert.ok(boardInsert);
+  assert.ok(boardInsert.params.includes('head'));
+});
+
+test('existing-member reconciliation still rejects an ineligible cross-division project member', async () => {
+  const researcher = member('10', [
+    ROLE_NAMES.RESEARCHER,
+    'Bocconi',
+    'Bocconi - Analysis',
+  ]);
+  const { db } = recordingDatabase({
+    projects: [{
+      discord_user_id: '10',
+      id: 6,
+      name: 'Cross-division research',
+      university_id: 1,
+      division_id: 11,
+      role: 'member',
+    }],
+  });
+
+  await assert.rejects(
+    reconcileExistingMembers({
+      guild: guildFrom([researcher]),
+      rolesByName: roleMap(),
+      plan,
+      db,
+      resources,
+    }),
+    (error) => {
+      assert.equal(error.name, 'AggregateError');
+      assert.match(
+        error.reconciliation.databaseError.message,
+        /Cannot update this member because it would make them ineligible for active projects: #6 Cross-division research/,
+      );
+      return true;
+    },
+  );
 });
 
 test('existing-member reconciliation bounds Discord role mutations and reports mixed failures', async () => {

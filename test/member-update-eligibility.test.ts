@@ -46,6 +46,7 @@ function member(id, initialRoles = []) {
 
 function memberUpdateHarness({
   assignments = [],
+  boardRoles = [],
   previous = {
     discord_user_id: 'target',
     member_type: MEMBER_TYPES.RESEARCHER,
@@ -105,7 +106,7 @@ function memberUpdateHarness({
         const university = universities[values[0]];
         return { rowCount: university ? 1 : 0, rows: university ? [university] : [] };
       }
-      if (text.includes('FROM board_assignments')) return { rows: [] };
+      if (text.includes('FROM board_assignments')) return { rows: boardRoles };
       if (text.includes('FROM divisions')) {
         const university = Object.values(universities).find((entry) => String(entry.id) === String(values[0]));
         const division = divisions[`${university.name}:${values[1]}`];
@@ -175,6 +176,64 @@ test('member-update rejects removing an active project member division before si
   });
 
   await expectRejectedUpdate(harness, { divisionsText: 'Culture' }, [44]);
+});
+
+test('member-update rejects removing the division membership required by an active Head role', async () => {
+  const harness = memberUpdateHarness({
+    boardRoles: [{
+      role: 'head',
+      university_name: 'Bocconi',
+      division_id: 'analysis-id',
+      division_name: 'Analysis',
+    }],
+  });
+
+  await assert.rejects(
+    updateMember(harness.interaction, { user: { id: 'target' }, divisionsText: 'Culture' }, harness.deps),
+    /Remove the member's Head of Analysis board role before removing their division membership/,
+  );
+  assert.equal(harness.target.mutationCount(), 0);
+  assert.equal(harness.transactionCount(), 0);
+});
+
+test('member-update requires every non-executive Researcher to keep at least one division', async () => {
+  for (const boardRoles of [
+    [],
+    [{ role: 'head', university_name: 'Bocconi' }],
+    [{ role: 'president', university_name: 'Sapienza' }],
+  ]) {
+    const harness = memberUpdateHarness({ boardRoles });
+    await assert.rejects(
+      updateMember(
+        harness.interaction,
+        { user: { id: 'target' }, divisionsText: '' },
+        harness.deps as Parameters<typeof updateMember>[2],
+      ),
+      (error) => {
+        assert.ok(error instanceof UserFacingError);
+        assert.match(error.message, /must belong to at least one division/);
+        return true;
+      },
+    );
+    assert.equal(harness.target.mutationCount(), 0);
+    assert.equal(harness.transactionCount(), 0);
+  }
+});
+
+test('member-update allows Global Presidents and same-university executives to have no division', async () => {
+  for (const boardRoles of [
+    [{ role: 'global_president', university_name: null }],
+    [{ role: 'president', university_name: 'Bocconi' }],
+    [{ role: 'vice_president', university_name: 'Bocconi' }],
+  ]) {
+    const harness = memberUpdateHarness({ boardRoles });
+    await updateMember(
+      harness.interaction,
+      { user: { id: 'target' }, divisionsText: '' },
+      harness.deps as Parameters<typeof updateMember>[2],
+    );
+    assert.equal(harness.transactionCount(), 1);
+  }
 });
 
 test('member-update permits Alumni supervisors and board liaisons in their active project university', async () => {

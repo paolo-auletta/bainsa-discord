@@ -13,10 +13,11 @@ authorization or the durable PostgreSQL audit log.
 university `#bot-log`, renders one message, and updates that message in place as the caller selects
 topics or command details. It must not create a normal channel message or an activity entry.
 
-The guide is organized by outcomes rather than an alphabetical command list. Every relevant view
-states the caller's scope in plain language, such as `Bocconi > Culture`, and explains the most
-important prerequisites, inputs, success effects, and whether success normally creates an
-activity entry.
+The guide is organized by jobs rather than an alphabetical command list. Member management,
+division management, and board appointments are separate topics; projects, lookups, and rules
+remain separate supporting topics. Every command detail states the caller's scope in plain
+language, such as `Bocconi > Culture`, then explains prerequisites, inputs, confirmation and
+safeguards, success effects, and the recovery route if the workflow cannot continue.
 
 ### Effective access
 
@@ -42,17 +43,20 @@ again.
 
 ### Content and navigation
 
-The home view contains a compact role/scope summary and a small topic selector. Topic views group
-related outcomes such as managing members, managing projects, looking up information, and rules or
-limits. Command detail views use this order:
+The home view contains a compact role/scope summary and a small topic selector. Topic views keep
+member management, division management, and board appointments distinct, then group projects,
+lookups, and rules or limits separately. Command detail views use this order:
 
 1. Plain-language action and slash-command name.
 2. What the command does.
 3. The caller's applicable scope.
 4. Key prerequisites and constraints.
 5. Required and important optional inputs.
-6. State, Discord, audit, and activity-feed effects after success.
-7. Back and guide-home navigation.
+6. What the final review confirms, or whether the command acts immediately.
+7. State, Discord, audit, and activity-feed effects after success.
+8. What remains unchanged after a failed validation, authorization, or stale-state check, and
+   where to resume safely.
+9. Back and guide-home navigation.
 
 Provisioning maintains one pinned message in each university `#bot-log` telling board members to
 run `/guide`. It must not pin role-specific command lists, because those become stale and can
@@ -79,9 +83,10 @@ Entries consistently contain:
 4. Only the meaningful visible details of the resulting change.
 5. `Performed by @actor`.
 
-Use `➕`/green for create, add, and assign; `✏️`/amber for update, rename, and move;
-`➖`/red for remove; and `✅`/blue or purple for close or complete. Discord's own timestamp is
-sufficient. Update entries show only actual visible differences as `old -> new`.
+Use `🟢`/green for create, add, and assign; `🟠`/orange for update, rename, and move;
+`🔴`/red for remove; and `🔵`/brand blue for close or complete. Discord's own timestamp is
+sufficient. Update entries show only actual visible differences as `old -> new`. The shared event
+renderer owns the marker, color, and fixed field order; domain formatters supply semantic facts.
 
 Formatters accept already-authorized success results and return bounded Discord payloads. They do
 not authorize, mutate state, or accept private note/reason fields. Participant lists and all fields
@@ -91,22 +96,18 @@ must be shortened safely before reaching Discord limits.
 
 | Command or outcome | Activity entry | Visible content |
 |---|---|---|
-| `/member-add` | Always after success | Member, type, university, and initial divisions when present |
 | `/member-update` | Only for type, university, or division changes | Member, scope, and each visible `old -> new` change |
 | Member notes-only update | Never | Durable audit only |
 | `/member-remove` | Always after success | Member, university, and that the member was removed from the server |
 | `/member-info` | Never | Private lookup |
 | `/division-create` | Always after success | Division, university, initial Head, and created text/voice channels |
-| `/division-rename` | Always after success | University and old/new division name |
+| `/division-update` | Always after success | University and changed division name or color |
 | `/division-add-member` | Always after success | Member and university/division scope |
 | `/division-remove-member` | Always after success | Member and university/division scope |
-| `/board-assign` | Always after success | Member, assigned role, university, and Head division when applicable |
-| `/board-remove` | Always after success | Member, removed role, university, and Head division when applicable |
+| `/board-update` | Always after success | University and every board position changed from current to new members |
 | `/board-info` | Never | Private lookup |
 | `/project-create` | Always after success | Project, scope, team, timeline, and created channel |
-| `/project-add-member` | Always after success | Project, scope, participant, role, or visible role change |
-| `/project-remove-member` | Always after success | Project, scope, and removed participant |
-| `/project-update` | Only for name, expected-end, or status changes | Project, scope, and each visible `old -> new` change |
+| `/project-update` | For visible project or team changes | Project, scope, visible `old -> new` changes, participant additions/removals, and role changes |
 | Project notes-only update | Never | Durable audit only |
 | `/project-close` | Always after success | Project, scope, shared outcome, completed status, and archive/history channel |
 | `/project-info` or `/guide` | Never | Private response |
@@ -117,6 +118,23 @@ Never include internal member notes, removal reasons, division-removal reasons, 
 reasons, project notes, project final notes, raw database IDs, stack traces, exception details, or
 reconciliation diagnostics in a board-visible entry. A project close may show the shared recorded
 outcome, but not private final notes.
+
+### Recovery messages
+
+Private recovery panels use one fixed order so a stressed board member can scan them quickly:
+
+1. **What happened** — a concise, user-safe reason; never an internal exception or audit detail.
+2. **What was preserved** — the canonical state or staged work that did not change.
+3. **How to correct it** — the concrete condition to fix, refresh, or delegate.
+4. **Where to continue** — the safe prior step, retry, command restart, or operator escalation.
+
+Validation, authorization, and stale-control failures must say that no shared change was made.
+Panel save failures additionally state that the proposed setup, roster, or membership choice remains
+available. A committed change with pending Discord reconciliation instead says that the canonical
+record remains saved and explicitly tells the actor not to repeat the completed mutation.
+
+Recovery panels are private. They must not disclose private notes, reasons, protected assignment
+data, reconciliation diagnostics, or internal audit information.
 
 ### Partial Discord outcomes
 

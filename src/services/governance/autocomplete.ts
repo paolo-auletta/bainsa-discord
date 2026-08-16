@@ -26,7 +26,7 @@ async function loadGovernanceAutocompleteCache(db) {
         ORDER BY name`,
     ),
     db.query(
-      `SELECT u.name AS university_name, d.name, d.color
+      `SELECT d.id, u.name AS university_name, d.name, d.color
          FROM divisions d
          JOIN universities u ON u.id = d.university_id
         WHERE u.active = true
@@ -106,6 +106,21 @@ export async function findUniversities(term = '', deps: GovernanceDependencies =
   return result.rows;
 }
 
+export async function listUniversities(deps: GovernanceDependencies = {}) {
+  if (!deps.db && governanceAutocompleteCache.loadedAt) {
+    refreshGovernanceAutocompleteCacheInBackground();
+    return [...governanceAutocompleteCache.universities];
+  }
+
+  const result = await dbFrom(deps).query(
+    `SELECT id, name
+       FROM universities
+      WHERE active = true
+      ORDER BY name`,
+  );
+  return result.rows;
+}
+
 export async function findDivisions(universityName, term = '', deps: GovernanceDependencies = {}) {
   const db = dbFrom(deps);
   if (!universityName) return [];
@@ -134,6 +149,29 @@ export async function findDivisions(universityName, term = '', deps: GovernanceD
       ORDER BY name
       LIMIT 25`,
     [university.id, normalizedTerm, `%${normalizedTerm}%`],
+  );
+  return result.rows;
+}
+
+export async function listDivisions(universityName, deps: GovernanceDependencies = {}) {
+  if (!universityName) return [];
+  if (!deps.db && governanceAutocompleteCache.loadedAt) {
+    refreshGovernanceAutocompleteCacheInBackground();
+    const normalizedUniversity = String(universityName).trim().toLowerCase();
+    return governanceAutocompleteCache.divisions
+      .filter((row) => row.university_name.toLowerCase() === normalizedUniversity)
+      .map(({ id, name, color }) => ({ id, name, color }));
+  }
+
+  const db = dbFrom(deps);
+  const university = await getUniversityByName(db, universityName);
+  const result = await db.query(
+    `SELECT id, name, color
+       FROM divisions
+      WHERE university_id = $1
+        AND active = true
+      ORDER BY name`,
+    [university.id],
   );
   return result.rows;
 }

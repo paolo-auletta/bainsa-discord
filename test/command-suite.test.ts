@@ -7,34 +7,26 @@ import { serializeCommands } from '../src/runtime/command-registry.js';
 
 const EXPECTED_COMMANDS = {
   guide: [],
-  'member-add': ['user', 'member_type', 'university', 'divisions', 'notes'],
-  'member-update': ['user', 'member_type', 'university', 'divisions', 'notes'],
+  'member-update': [],
   'member-remove': ['user', 'reason'],
   'member-info': ['user'],
-  'division-create': ['university', 'division_name', 'color', 'head', 'create_text_channel', 'create_voice_channel'],
-  'division-rename': ['university', 'current_name', 'new_name'],
-  'division-add-member': ['user', 'university', 'division'],
-  'division-remove-member': ['user', 'university', 'division', 'reason'],
-  'board-assign': ['user', 'university', 'role', 'division'],
-  'board-remove': ['user', 'university', 'role', 'division', 'reason'],
-  'board-info': ['university'],
-  'project-create': ['name', 'university', 'division', 'members', 'supervisors', 'start_date', 'expected_end', 'notes'],
-  'project-add-member': ['project', 'user', 'role'],
-  'project-remove-member': ['project', 'user', 'reason'],
-  'project-update': ['project', 'name', 'expected_end', 'notes', 'status'],
-  'project-close': ['project', 'outcome', 'final_notes'],
+  'division-create': [],
+  'division-update': [],
+  'division-add-member': [],
+  'division-remove-member': [],
+  'board-update': [],
+  'board-info': [],
+  'project-create': [],
+  'project-update': [],
+  'project-close': [],
   'project-info': ['project'],
 };
 
-const UNIVERSITY_DEPENDENT_DIVISION_COMMANDS = [
-  'member-add',
-  'member-update',
-  'division-rename',
+const PANEL_GOVERNANCE_COMMANDS = [
   'division-add-member',
   'division-remove-member',
-  'board-assign',
-  'board-remove',
-  'project-create',
+  'board-update',
+  'board-info',
 ];
 
 test('every v1 command is registered with a complete slash-command contract', () => {
@@ -54,56 +46,34 @@ test('every v1 command is registered with a complete slash-command contract', ()
   assert.equal(serializeCommands(commands).length, Object.keys(EXPECTED_COMMANDS).length);
 });
 
-test('university-dependent division selectors expose ordered autocomplete contracts', () => {
-  const divisionOptionNames = new Set(['division', 'divisions', 'current_name']);
-  const targetCommands = serializeCommands(commands).filter((command) => {
-    const optionNames = command.options.map((option) => option.name);
-    return optionNames.includes('university') && optionNames.some((name) => divisionOptionNames.has(name));
-  });
+test('member admission is handled by onboarding, not a slash command', () => {
+  assert.equal(commands.some((command) => command.data.name === 'member-add'), false);
+});
 
-  assert.deepEqual(
-    targetCommands.map((command) => command.name).sort(),
-    [...UNIVERSITY_DEPENDENT_DIVISION_COMMANDS].sort(),
-  );
-
-  for (const command of targetCommands) {
-    const universityIndex = command.options.findIndex((option) => option.name === 'university');
-    const divisionIndex = command.options.findIndex((option) => divisionOptionNames.has(option.name));
-
-    assert.equal(command.options[universityIndex].autocomplete, true, `${command.name}: university autocomplete`);
-    assert.equal(command.options[divisionIndex].autocomplete, true, `${command.name}: division autocomplete`);
-    assert.ok(universityIndex < divisionIndex, `${command.name}: university must precede division`);
+test('governance panels expose no obsolete inline scope options', () => {
+  const serialized = new Map(serializeCommands(commands).map((command) => [command.name, command]));
+  for (const commandName of PANEL_GOVERNANCE_COMMANDS) {
+    assert.deepEqual(serialized.get(commandName).options, [], commandName);
   }
 });
 
-test('every command that accepts a user or project participant blocks the Bot account', () => {
+test('every command with an inline user target blocks the Bot account', () => {
   const botId = '99999999999999999';
   const targetCommands = commands.filter((command) =>
-    command.data.toJSON().options.some((option) => option.type === 6 || ['members', 'supervisors'].includes(option.name)),
+    command.data.toJSON().options.some((option) => option.type === 6),
   );
 
   assert.deepEqual(
     targetCommands.map((command) => command.data.name).sort(),
     [
-      'board-assign',
-      'board-remove',
-      'division-add-member',
-      'division-create',
-      'division-remove-member',
-      'member-add',
       'member-info',
       'member-remove',
-      'member-update',
-      'project-add-member',
-      'project-create',
-      'project-remove-member',
     ].sort(),
   );
 
   for (const command of targetCommands) {
     const options = command.data.toJSON().options.map((option) => {
       if (option.type === 6) return { type: 6, name: option.name, value: botId };
-      if (['members', 'supervisors'].includes(option.name)) return { type: 3, name: option.name, value: `<@${botId}>` };
       return { type: option.type, name: option.name, value: 'placeholder' };
     });
     assert.throws(

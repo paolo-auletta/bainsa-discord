@@ -13,6 +13,7 @@ import {
   formatDiscordUserReferences,
   assertProjectStatusChange,
   normalizeProjectPersonRole,
+  normalizeProjectLongText,
   normalizeProjectStatus,
   validateExpectedEndUpdate,
 } from '../src/services/projects/validation.js';
@@ -113,4 +114,24 @@ test('project IDs must be canonical positive integer autocomplete values', () =>
   for (const value of ['', '0', '-1', 'project-42', '42abc', ' 42 2 ']) {
     assert.throws(() => projectIdFromOption(value), /Choose a valid project/);
   }
+});
+
+test('project IDs are inferred from project channels and cannot escape that scope', () => {
+  const interaction = {
+    channel: {
+      topic: 'Private Signals workspace · Bocconi / Analysis · BAINSA project 42',
+    },
+  };
+
+  assert.equal(projectIdFromOption(null, interaction), '42');
+  assert.equal(projectIdFromOption('42', interaction), '42');
+  assert.throws(() => projectIdFromOption('43', interaction), /only manage the project that owns this channel/);
+});
+
+test('project summaries and notes preserve useful paragraphs within embed-safe limits', () => {
+  assert.equal(
+    normalizeProjectLongText('  First   paragraph\n\n\n Second\tline  ', 'summary'),
+    'First paragraph\n\nSecond line',
+  );
+  assert.throws(() => normalizeProjectLongText('x'.repeat(1_001), 'summary'), /at most 1000/);
 });

@@ -10,6 +10,73 @@ const onboardingMigrationUrl = projectPath('db', 'migrations', '004_onboarding_n
 const divisionColorMigrationUrl = projectPath('db', 'migrations', '005_division_colors.sql');
 const expandedDivisionColorMigrationUrl = projectPath('db', 'migrations', '006_expand_division_colors.sql');
 const reconciliationMigrationUrl = projectPath('db', 'migrations', '007_project_reconciliation.sql');
+const coPresidentsMigrationUrl = projectPath('db', 'migrations', '008_allow_co_presidents.sql');
+const executivePromotionMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '009_clear_division_roles_on_executive_promotion.sql',
+);
+const executiveExclusivityMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '010_enforce_executive_division_exclusivity.sql',
+);
+const immutableDivisionUniversityMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '011_make_division_university_immutable.sql',
+);
+const removedMemberOnboardingMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '012_removed_member_onboarding.sql',
+);
+const memberProfilesMigrationUrl = projectPath('db', 'migrations', '013_member_profiles.sql');
+const executiveExclusivityRepairMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '014_repair_executive_exclusivity.sql',
+);
+const profileForumLayoutMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '015_rebuild_profile_forum_layout.sql',
+);
+const profileForumConsolidationMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '016_consolidate_profile_forum_message.sql',
+);
+const profileUniversityTagsMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '017_replace_profile_identity_tags_with_university_tags.sql',
+);
+const projectCanonicalMessagesMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '018_project_canonical_messages.sql',
+);
+const projectWorkspaceGuideMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '019_project_workspace_guide.sql',
+);
+const projectHomePlainMessageMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '020_render_project_home_as_plain_message.sql',
+);
+const coUniversityBoardSeatsMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '021_allow_co_vice_presidents_and_heads.sql',
+);
+const transitionNotificationsMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '022_transition_notifications.sql',
+);
 
 async function migrationSql() {
   return readFile(migrationUrl, 'utf8');
@@ -31,6 +98,66 @@ async function reconciliationMigrationSql() {
   return readFile(reconciliationMigrationUrl, 'utf8');
 }
 
+async function coPresidentsMigrationSql() {
+  return readFile(coPresidentsMigrationUrl, 'utf8');
+}
+
+async function coUniversityBoardSeatsMigrationSql() {
+  return readFile(coUniversityBoardSeatsMigrationUrl, 'utf8');
+}
+
+async function executivePromotionMigrationSql() {
+  return readFile(executivePromotionMigrationUrl, 'utf8');
+}
+
+async function executiveExclusivityMigrationSql() {
+  return readFile(executiveExclusivityMigrationUrl, 'utf8');
+}
+
+async function immutableDivisionUniversityMigrationSql() {
+  return readFile(immutableDivisionUniversityMigrationUrl, 'utf8');
+}
+
+async function removedMemberOnboardingMigrationSql() {
+  return readFile(removedMemberOnboardingMigrationUrl, 'utf8');
+}
+
+async function memberProfilesMigrationSql() {
+  return readFile(memberProfilesMigrationUrl, 'utf8');
+}
+
+async function executiveExclusivityRepairMigrationSql() {
+  return readFile(executiveExclusivityRepairMigrationUrl, 'utf8');
+}
+
+async function profileForumLayoutMigrationSql() {
+  return readFile(profileForumLayoutMigrationUrl, 'utf8');
+}
+
+async function profileForumConsolidationMigrationSql() {
+  return readFile(profileForumConsolidationMigrationUrl, 'utf8');
+}
+
+async function profileUniversityTagsMigrationSql() {
+  return readFile(profileUniversityTagsMigrationUrl, 'utf8');
+}
+
+async function projectCanonicalMessagesMigrationSql() {
+  return readFile(projectCanonicalMessagesMigrationUrl, 'utf8');
+}
+
+async function projectWorkspaceGuideMigrationSql() {
+  return readFile(projectWorkspaceGuideMigrationUrl, 'utf8');
+}
+
+async function projectHomePlainMessageMigrationSql() {
+  return readFile(projectHomePlainMessageMigrationUrl, 'utf8');
+}
+
+async function transitionNotificationsMigrationSql() {
+  return readFile(transitionNotificationsMigrationUrl, 'utf8');
+}
+
 function assertIncludes(sql, snippet) {
   assert.ok(sql.includes(snippet), `Expected migration to include: ${snippet}`);
 }
@@ -46,7 +173,164 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '005_division_colors.sql',
     '006_expand_division_colors.sql',
     '007_project_reconciliation.sql',
+    '008_allow_co_presidents.sql',
+    '009_clear_division_roles_on_executive_promotion.sql',
+    '010_enforce_executive_division_exclusivity.sql',
+    '011_make_division_university_immutable.sql',
+    '012_removed_member_onboarding.sql',
+    '013_member_profiles.sql',
+    '014_repair_executive_exclusivity.sql',
+    '015_rebuild_profile_forum_layout.sql',
+    '016_consolidate_profile_forum_message.sql',
+    '017_replace_profile_identity_tags_with_university_tags.sql',
+    '018_project_canonical_messages.sql',
+    '019_project_workspace_guide.sql',
+    '020_render_project_home_as_plain_message.sql',
+    '021_allow_co_vice_presidents_and_heads.sql',
+    '022_transition_notifications.sql',
   ]);
+});
+
+test('adds durable, idempotent transition notification delivery state', async () => {
+  const sql = await transitionNotificationsMigrationSql();
+  assertIncludes(sql, 'CREATE TABLE IF NOT EXISTS transition_notifications');
+  assertIncludes(sql, 'UNIQUE (audit_id, recipient_discord_user_id, kind)');
+  assertIncludes(sql, "status IN ('pending', 'sending', 'delivered', 'failed', 'uncertain')");
+  assertIncludes(sql, 'transition_notifications_delivery_idx');
+  assertIncludes(sql, 'transition_notifications_university_health_idx');
+});
+
+test('adds a durable canonical project-home message identity', async () => {
+  const sql = await projectCanonicalMessagesMigrationSql();
+  assertIncludes(sql, 'ADD COLUMN IF NOT EXISTS home_message_id text');
+  assertIncludes(sql, 'ADD COLUMN IF NOT EXISTS summary text');
+  assertIncludes(sql, 'INSERT INTO project_reconciliation');
+  assertIncludes(sql, 'desired_generation = project_reconciliation.desired_generation + 1');
+  assertIncludes(sql, "status = 'pending'");
+});
+
+test('adds a durable project workspace-guide message identity', async () => {
+  const sql = await projectWorkspaceGuideMigrationSql();
+  assertIncludes(sql, 'ADD COLUMN IF NOT EXISTS workspace_guide_message_id text');
+  assertIncludes(sql, 'INSERT INTO project_reconciliation');
+  assertIncludes(sql, 'desired_generation = project_reconciliation.desired_generation + 1');
+  assertIncludes(sql, "status = 'pending'");
+});
+
+test('queues existing project records for the plain-message project home', async () => {
+  const sql = await projectHomePlainMessageMigrationSql();
+  assertIncludes(sql, 'INSERT INTO project_reconciliation');
+  assertIncludes(sql, 'desired_generation = project_reconciliation.desired_generation + 1');
+  assertIncludes(sql, "status = 'pending'");
+});
+
+test('queues published profiles to adopt the redesigned forum layout', async () => {
+  const sql = await profileForumLayoutMigrationSql();
+
+  assertIncludes(sql, 'INSERT INTO member_profile_reconciliation');
+  assertIncludes(sql, "WHERE visibility = 'published'");
+  assertIncludes(sql, 'desired_generation = member_profile_reconciliation.desired_generation + 1');
+  assertIncludes(sql, "status = 'pending'");
+});
+
+test('queues published profiles when consolidating the forum layout to one message', async () => {
+  const sql = await profileForumConsolidationMigrationSql();
+
+  assertIncludes(sql, 'INSERT INTO member_profile_reconciliation');
+  assertIncludes(sql, "WHERE visibility = 'published'");
+  assertIncludes(sql, 'desired_generation = member_profile_reconciliation.desired_generation + 1');
+  assertIncludes(sql, "status = 'pending'");
+});
+
+test('queues published profiles to replace identity tags with BAINSA university tags', async () => {
+  const sql = await profileUniversityTagsMigrationSql();
+
+  assertIncludes(sql, 'INSERT INTO member_profile_reconciliation');
+  assertIncludes(sql, "WHERE visibility = 'published'");
+  assertIncludes(sql, 'desired_generation = member_profile_reconciliation.desired_generation + 1');
+  assertIncludes(sql, "status = 'pending'");
+});
+
+test('keeps the deployed executive exclusivity migration immutable and upgrades it append-only', async () => {
+  const original = await executiveExclusivityMigrationSql();
+  const repair = await executiveExclusivityRepairMigrationSql();
+
+  assert.equal(original.includes('Executive division exclusivity requires READ COMMITTED transactions.'), false);
+  assertIncludes(repair, 'Executive division exclusivity requires READ COMMITTED transactions.');
+  assertIncludes(repair, 'WITH executive_assignments AS');
+  assertIncludes(repair, 'CREATE OR REPLACE FUNCTION enforce_executive_board_assignment_exclusivity()');
+});
+
+test('adds opt-in member profiles and durable reconciliation state', async () => {
+  const sql = await memberProfilesMigrationSql();
+
+  assertIncludes(sql, 'CREATE TABLE IF NOT EXISTS member_profiles');
+  assertIncludes(sql, 'discord_user_id text PRIMARY KEY REFERENCES members(discord_user_id) ON DELETE CASCADE');
+  assertIncludes(sql, 'selected_tags text[] NOT NULL');
+  assertIncludes(sql, "visibility text NOT NULL DEFAULT 'published'");
+  assertIncludes(sql, "CHECK (visibility IN ('published', 'hidden'))");
+  assertIncludes(sql, 'forum_thread_id text UNIQUE');
+  assertIncludes(sql, 'forum_message_id text UNIQUE');
+  assertIncludes(sql, 'cardinality(selected_tags) BETWEEN 1 AND 4');
+  assertIncludes(sql, 'member_profiles_published_refresh_idx');
+  assertIncludes(sql, 'member_profiles_set_updated_at');
+
+  assertIncludes(sql, 'CREATE TABLE IF NOT EXISTS member_profile_reconciliation');
+  assertIncludes(sql, 'REFERENCES member_profiles(discord_user_id) ON DELETE CASCADE');
+  assertIncludes(sql, 'desired_generation bigint NOT NULL DEFAULT 0 CHECK (desired_generation >= 0)');
+  assertIncludes(sql, "CHECK (status IN ('pending', 'processing', 'succeeded', 'failed'))");
+  assertIncludes(sql, 'attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0)');
+  assertIncludes(sql, 'member_profile_reconciliation_repair_idx');
+  assertIncludes(sql, 'member_profile_reconciliation_set_updated_at');
+});
+
+test('prevents division university changes from bypassing scoped invariants', async () => {
+  const sql = await immutableDivisionUniversityMigrationSql();
+
+  assertIncludes(sql, 'CREATE OR REPLACE FUNCTION prevent_division_university_change()');
+  assertIncludes(sql, 'NEW.university_id IS DISTINCT FROM OLD.university_id');
+  assertIncludes(sql, 'BEFORE UPDATE OF university_id ON divisions');
+});
+
+test('records when an onboarding application follows a member removal', async () => {
+  const sql = await removedMemberOnboardingMigrationSql();
+
+  assertIncludes(sql, 'ADD COLUMN IF NOT EXISTS previously_removed boolean NOT NULL DEFAULT false');
+  assert.equal(/\bdrop\s+table\b/i.test(sql), false);
+  assert.equal(/\btruncate\b/i.test(sql), false);
+});
+
+test('allows multiple active university Presidents', async () => {
+  const sql = await coPresidentsMigrationSql();
+
+  assertIncludes(sql, 'DROP INDEX IF EXISTS board_assignments_active_president_per_university_unique');
+});
+
+test('allows multiple active Vice Presidents and division Heads per position', async () => {
+  const sql = await coUniversityBoardSeatsMigrationSql();
+
+  assertIncludes(sql, 'DROP INDEX IF EXISTS board_assignments_active_vp_per_university_unique');
+  assertIncludes(sql, 'DROP INDEX IF EXISTS board_assignments_active_head_per_division_unique');
+});
+
+test('defers and serializes executive division cleanup across all relevant writes', async () => {
+  const sql = await executiveExclusivityMigrationSql();
+
+  assertIncludes(sql, 'DROP TRIGGER IF EXISTS board_assignments_clear_division_roles_on_executive_promotion');
+  assertIncludes(sql, 'pg_advisory_xact_lock');
+  assertIncludes(sql, 'AFTER INSERT OR UPDATE OF active, role, university_id, discord_user_id ON board_assignments');
+  assertIncludes(sql, 'DEFERRABLE INITIALLY DEFERRED');
+  assertIncludes(sql, 'member_divisions_enforce_executive_division_exclusivity');
+});
+
+test('clears division assignments when an executive board role becomes active', async () => {
+  const sql = await executivePromotionMigrationSql();
+
+  assertIncludes(sql, 'CREATE OR REPLACE FUNCTION clear_division_assignments_for_executive_promotion()');
+  assertIncludes(sql, "NEW.role IN ('vice_president', 'president')");
+  assertIncludes(sql, 'DELETE FROM member_divisions AS md');
+  assertIncludes(sql, "AND role = 'head'");
+  assertIncludes(sql, 'BEFORE INSERT OR UPDATE OF active, role ON board_assignments');
 });
 
 test('adds durable, generation-guarded project reconciliation state', async () => {
@@ -108,6 +392,15 @@ test('defines the core V1 tables and integrity constraints', async () => {
   assertIncludes(sql, 'ALTER TABLE projects ALTER COLUMN expected_end SET NOT NULL');
   assertIncludes(sql, 'PRIMARY KEY (discord_user_id, division_id)');
   assertIncludes(sql, 'member division must belong to the member university');
+});
+
+test('gives audit events a durable identifier before notifications reference them', async () => {
+  const sql = await transitionNotificationsMigrationSql();
+
+  assertIncludes(sql, 'ALTER TABLE audit_log');
+  assertIncludes(sql, 'ADD COLUMN IF NOT EXISTS id bigint GENERATED BY DEFAULT AS IDENTITY');
+  assertIncludes(sql, 'ADD CONSTRAINT audit_log_pkey PRIMARY KEY (id)');
+  assertIncludes(sql, 'audit_id bigint NOT NULL REFERENCES audit_log(id) ON DELETE CASCADE');
 });
 
 test('keeps canonical integration columns', async () => {

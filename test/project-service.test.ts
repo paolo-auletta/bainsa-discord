@@ -3,18 +3,23 @@ import assert from 'node:assert/strict';
 
 import { ChannelType } from 'discord.js';
 
-import { MAX_PROJECT_PARTICIPANTS, PROJECT_MEMBER_FETCH_CONCURRENCY, PROJECT_STATUSES } from '../src/constants.js';
+import {
+  MAX_PROJECT_PARTICIPANTS,
+  OPEN_PROJECT_STATUSES,
+  PROJECT_MEMBER_FETCH_CONCURRENCY,
+  PROJECT_PERSON_ROLES,
+  PROJECT_STATUSES,
+} from '../src/constants.js';
 import {
   addProjectMember,
   assertGuildMembers,
-  assertActiveDivisionResearchers,
+  assertActiveProjectMembers,
   assertActiveUniversityMembers,
   canViewProject,
   closeProject,
   createProject,
   findProjectParentId,
   findProjectDivisions,
-  findProjectPeople,
   findProjectUniversities,
   removeProjectMember,
   searchVisibleProjects,
@@ -22,8 +27,20 @@ import {
   warmProjectAutocompleteCache,
 } from '../src/services/projects/index.js';
 import { UserFacingError } from '../src/errors.js';
-import { sortedDiscordUserIds } from '../src/services/projects/eligibility.js';
-import { formatProjectIntro, formatShowcasePost, projectInfoMessage } from '../src/services/projects/formatters.js';
+import { canManageProject } from '../src/services/projects/policy.js';
+import {
+  assertMemberProjectAssignmentEligibility,
+  assertProjectPeopleEligibility,
+  sortedDiscordUserIds,
+} from '../src/services/projects/eligibility.js';
+import {
+  projectAutocompleteName,
+  projectAssignmentMessage,
+  projectHomePayload,
+  projectInfoMessage,
+  projectWorkspaceGuidePayload,
+  showcasePostPayload,
+} from '../src/services/projects/formatters.js';
 
 function memberWithRoles(id, roleNames) {
   return {
@@ -32,6 +49,9 @@ function memberWithRoles(id, roleNames) {
       cache: {
         some(callback) {
           return roleNames.some((name) => callback({ name }));
+        },
+        *values() {
+          for (const name of roleNames) yield { name };
         },
       },
     },
@@ -78,6 +98,23 @@ test('project view policy includes project people and scoped board roles only', 
   assert.equal(canViewProject(memberWithRoles('vp', ['Bocconi - Vice President']), project), true);
   assert.equal(canViewProject(memberWithRoles('global', ['Global President']), project), true);
   assert.equal(canViewProject(memberWithRoles('other', ['Sapienza - President']), project), false);
+});
+
+test('project management policy includes supervisors and scoped board, but not ordinary members', () => {
+  const project = { university_name: 'Bocconi', division_name: 'Projects' };
+  const supervisor = memberWithRoles('supervisor', []);
+  const member = memberWithRoles('member', []);
+
+  assert.equal(
+    canManageProject(supervisor, project, [{ discord_user_id: 'supervisor', role: 'supervisor' }]),
+    true,
+  );
+  assert.equal(
+    canManageProject(member, project, [{ discord_user_id: 'member', role: 'member' }]),
+    false,
+  );
+  assert.equal(canManageProject(memberWithRoles('head', ['Bocconi - Head of Projects']), project), true);
+  assert.equal(canManageProject(memberWithRoles('other', ['Bocconi - Head of Analysis']), project), false);
 });
 
 test('autocomplete only returns projects visible to the caller', async () => {
@@ -129,83 +166,157 @@ test('autocomplete only returns projects visible to the caller', async () => {
     choices.map((choice) => choice.value),
     ['1', '2'],
   );
-  assert.doesNotMatch(sql, /LIMIT 100/);
+  assert.match(sql, /LIMIT 25/);
+  assert.match(sql, /concat\(u\.name, ' - Head of ', d\.name\) = ANY/);
 });
 
-test('project setup autocomplete scopes universities, divisions, and people correctly', async () => {
+test('project-close autocomplete filters completed and archived projects', async () => {
+  const rows = [
+    {
+      id: 1,
+      name: 'Active project',
+      status: PROJECT_STATUSES.ACTIVE,
+      university_name: 'Bocconi',
+      division_name: 'Robotics',
+      division_color: 'yellow',
+      actor_is_project_person: false,
+    },
+    {
+      id: 2,
+      name: 'Paused project',
+      status: PROJECT_STATUSES.PAUSED,
+      university_name: 'Bocconi',
+      division_name: 'Robotics',
+      division_color: 'yellow',
+      actor_is_project_person: false,
+    },
+    {
+      id: 3,
+      name: 'Completed project',
+      status: PROJECT_STATUSES.COMPLETED,
+      university_name: 'Bocconi',
+      division_name: 'Robotics',
+      division_color: 'yellow',
+      actor_is_project_person: false,
+    },
+    {
+      id: 4,
+      name: 'Archived project',
+      status: PROJECT_STATUSES.ARCHIVED,
+      university_name: 'Bocconi',
+      division_name: 'Robotics',
+      division_color: 'yellow',
+      actor_is_project_person: false,
+    },
+  ];
+  let sql;
+  let values;
+  const choices = await searchVisibleProjects(
+    {
+      interaction: {
+        user: { id: 'caller' },
+        member: memberWithRoles('caller', ['Bocconi - Head of Robotics']),
+      },
+      query: '',
+      statuses: OPEN_PROJECT_STATUSES,
+    },
+    {
+      db: {
+        async query(text, parameters) {
+          sql = text;
+          values = parameters;
+          return { rows };
+        },
+      },
+    },
+  );
+
+  assert.match(sql, /p\.status = ANY\(\$3::text\[\]\)/);
+  assert.deepEqual(values[2], [...OPEN_PROJECT_STATUSES]);
+  assert.deepEqual(choices.map((choice) => choice.value), ['1', '2']);
+});
+
+test('project autocomplete labels keep state readable and fit Discord choice limits', () => {
+  const label = projectAutocompleteName({
+    id: 3,
+    name: 'Test',
+    university_name: 'Bocconi',
+    division_name: 'Robotics',
+    division_color: 'yellow',
+    status: PROJECT_STATUSES.COMPLETED,
+  });
+  assert.equal(label, '#3 Test • Bocconi, 🟨 Robotics • Completed');
+
+  const longLabel = projectAutocompleteName({
+    id: 3,
+    name: 'A'.repeat(200),
+    university_name: 'A'.repeat(120),
+    division_name: 'B'.repeat(120),
+    division_color: 'yellow',
+    status: PROJECT_STATUSES.COMPLETED,
+  });
+  assert.ok(longLabel.length <= 100);
+  assert.match(longLabel, / • Completed$/);
+});
+
+test('project autocomplete renders at most Discord’s 25 choices for large result sets', async () => {
+  const rows = Array.from({ length: 100 }, (_, index) => ({
+    id: index + 1,
+    name: `Project ${index + 1}`,
+    status: PROJECT_STATUSES.ACTIVE,
+    university_name: 'Bocconi',
+    division_name: 'Robotics',
+    division_color: 'yellow',
+    actor_is_project_person: false,
+  }));
+  const choices = await searchVisibleProjects(
+    {
+      interaction: {
+        user: { id: 'caller' },
+        member: memberWithRoles('caller', ['Global President']),
+      },
+      query: '',
+    },
+    { db: { query: async () => ({ rows }) } },
+  );
+
+  assert.equal(choices.length, 25);
+  assert.deepEqual(choices.map((choice) => choice.value), rows.slice(0, 25).map((row) => String(row.id)));
+});
+
+test('project setup autocomplete scopes universities and divisions correctly', async () => {
   const calls = [];
   const db = {
     async query(text, values) {
       calls.push({ text, values });
-      return { rows: [{ name: 'Bocconi', discord_user_id: '111111111111111111', full_name: 'Ada Lovelace' }] };
+      return { rows: [{ name: 'Bocconi' }] };
     },
   };
 
   await findProjectUniversities('b', { db });
   await findProjectDivisions('Bocconi', 'p', { db });
-  await findProjectPeople({
-    universityName: 'Bocconi',
-    divisionName: 'Projects',
-    role: 'member',
-    term: 'ada',
-  }, { db });
-  await findProjectPeople({
-    universityName: 'Bocconi',
-    divisionName: 'Projects',
-    role: 'supervisor',
-    term: 'ada',
-  }, { db });
 
   assert.match(calls[0].text, /FROM universities/);
   assert.match(calls[1].text, /JOIN universities/);
-  assert.match(calls[2].text, /member_divisions/);
-  assert.deepEqual(calls[2].values.slice(0, 3), ['Bocconi', 'Projects', 'researcher']);
-  assert.equal(calls[3].values[1], null);
-  assert.equal(calls[3].values[2], null);
 });
 
-test('cached project people scope members to a division and supervisors to a university', async () => {
+test('project autocomplete cache contains only universities and divisions', async () => {
+  const queries = [];
   await warmProjectAutocompleteCache({
     db: {
       async query(text) {
+        queries.push(text);
         if (text.includes('FROM universities')) return { rows: [] };
         if (text.includes('FROM divisions')) return { rows: [] };
-        return {
-          rows: [
-            { discord_user_id: '1', full_name: 'Ada', member_type: 'researcher', university_name: 'Bocconi', division_name: 'Projects' },
-            { discord_user_id: '2', full_name: 'Beatrice', member_type: 'alumni', university_name: 'Bocconi', division_name: 'Projects' },
-            { discord_user_id: '3', full_name: 'Carlo', member_type: 'researcher', university_name: 'Bocconi', division_name: 'Analysis' },
-            { discord_user_id: '4', full_name: 'Daria', member_type: 'researcher', university_name: 'Sapienza', division_name: 'Projects' },
-          ],
-        };
+        throw new Error(`Unexpected autocomplete query: ${text}`);
       },
     },
   });
-
-  const scoped = { universityName: 'Bocconi', divisionName: 'Projects', term: '' };
-  assert.deepEqual(
-    await findProjectPeople({ ...scoped, role: 'member' }),
-    [{ discord_user_id: '1', full_name: 'Ada' }],
-  );
-  assert.deepEqual(
-    await findProjectPeople({ ...scoped, role: 'supervisor' }),
-    [
-      { discord_user_id: '1', full_name: 'Ada' },
-      { discord_user_id: '2', full_name: 'Beatrice' },
-      { discord_user_id: '3', full_name: 'Carlo' },
-    ],
-  );
-  assert.deepEqual(
-    await findProjectPeople({ universityName: 'Bocconi', role: 'supervisor', term: '' }),
-    [
-      { discord_user_id: '1', full_name: 'Ada' },
-      { discord_user_id: '2', full_name: 'Beatrice' },
-      { discord_user_id: '3', full_name: 'Carlo' },
-    ],
-  );
+  assert.equal(queries.length, 2);
+  assert.equal(queries.some((text) => text.includes('FROM members')), false);
 });
 
-test('member eligibility is division-scoped for project members', async () => {
+test('project member lookup accepts division researchers and same-university board members', async () => {
   const calls = [];
   const db = {
     async query(text, values) {
@@ -214,9 +325,56 @@ test('member eligibility is division-scoped for project members', async () => {
     },
   };
 
-  await assertActiveDivisionResearchers(db, 10, 20, ['111111111111111111'], 'members');
-  assert.match(calls[0].text, /JOIN member_divisions/);
+  await assertActiveProjectMembers(db, 10, 20, ['111111111111111111'], 'members');
+  assert.match(calls[0].text, /FROM member_divisions/);
+  assert.match(calls[0].text, /FROM board_assignments/);
   assert.deepEqual(calls[0].values, [10, 20, ['111111111111111111'], 'researcher']);
+});
+
+test('project eligibility accepts local board members as members without a division', async () => {
+  const project = { university_id: 10, division_id: 20 };
+  const person = { discord_user_id: 'board-member', role: 'member' };
+  const db = {
+    async query() {
+      return {
+        rows: [{
+          discord_user_id: 'board-member',
+          member_type: 'researcher',
+          university_id: 10,
+          status: 'active',
+          division_id: null,
+          is_university_board_member: true,
+        }],
+      };
+    },
+  };
+
+  await assertProjectPeopleEligibility(db, project, [person]);
+});
+
+test('executive promotion preserves same-university project member eligibility', async () => {
+  const db = {
+    async query() {
+      return {
+        rows: [{
+          id: 42,
+          name: 'Signals',
+          university_id: 10,
+          division_id: 20,
+          role: 'member',
+          is_university_board_member: false,
+        }],
+      };
+    },
+  };
+
+  await assertMemberProjectAssignmentEligibility(db, {
+    userId: 'future-president',
+    memberType: 'researcher',
+    universityId: 10,
+    divisionIds: [],
+    additionalBoardUniversityIds: [10],
+  });
 });
 
 test('supervisor eligibility is university-scoped and accepts active alumni', async () => {
@@ -270,6 +428,7 @@ test('project creation rejects capacity-incompatible participants before databas
       division: 'Analysis',
       startDate: '2026-07-01',
       expectedEnd: '2026-08-01',
+      summary: 'Public summary',
       members: participantIds.join(','),
       supervisors: '999999999999999',
     }, { db }),
@@ -277,6 +436,135 @@ test('project creation rejects capacity-incompatible participants before databas
   );
   assert.equal(databaseQueries, 0);
   assert.equal(memberFetches, 0);
+});
+
+test('project creation adds every active division Head as a supervisor without duplicating a selected Head', async () => {
+  const memberId = '111111111111111111';
+  const headId = '222222222222222222';
+  const coHeadId = '333333333333333333';
+  const division = {
+    university_id: 10,
+    university_name: 'Bocconi',
+    category_id: null,
+    showcase_channel_id: null,
+    division_id: 20,
+    division_name: 'Analysis',
+    division_color: 'orange',
+    division_role_id: null,
+    division_head_role_id: null,
+  };
+  const createdProject = {
+    id: 42,
+    name: 'Signals',
+    university_id: 10,
+    division_id: 20,
+    start_date: '2026-07-01',
+    expected_end: '2026-08-01',
+    notes: null,
+    status: PROJECT_STATUSES.ACTIVE,
+    discord_channel_id: null,
+    showcase_thread_id: null,
+    ...division,
+  };
+  const persistedPeople = [
+    { discord_user_id: memberId, role: 'member' },
+    { discord_user_id: headId, role: 'supervisor' },
+    { discord_user_id: coHeadId, role: 'supervisor' },
+  ];
+  let insertedPeople;
+  let transactionCount = 0;
+  let headQueryCount = 0;
+  const client = {
+    async query(text, values) {
+      if (text.includes('FROM divisions') && text.includes('FOR UPDATE')) return { rows: [{ id: division.division_id }] };
+      if (text.includes('FROM board_assignments') && text.includes("role = 'head'")) {
+        headQueryCount += 1;
+        return { rows: [{ discord_user_id: headId }, { discord_user_id: coHeadId }] };
+      }
+      if (text.includes('SELECT discord_user_id') && text.includes('FOR UPDATE')) return { rows: [] };
+      if (text.includes('LEFT JOIN member_divisions')) {
+        return {
+          rows: [
+            { discord_user_id: memberId, member_type: 'researcher', university_id: 10, status: 'active', division_id: 20, is_university_board_member: false },
+            { discord_user_id: headId, member_type: 'researcher', university_id: 10, status: 'active', division_id: 20, is_university_board_member: true },
+            { discord_user_id: coHeadId, member_type: 'researcher', university_id: 10, status: 'active', division_id: 20, is_university_board_member: true },
+          ],
+        };
+      }
+      if (text.includes('INSERT INTO projects')) return { rows: [createdProject] };
+      if (text.includes('INSERT INTO project_people')) {
+        insertedPeople = values;
+        return { rows: [] };
+      }
+      if (text.includes('INSERT INTO project_reconciliation')) return { rows: [{ desired_generation: 1 }] };
+      if (text.includes('INSERT INTO audit_log')) return { rows: [] };
+      throw new Error(`Unexpected project creation query: ${text}`);
+    },
+  };
+  const db = {
+    async query(text, values) {
+      if (text.includes('FROM universities u') && text.includes('JOIN divisions d')) {
+        return { rowCount: 1, rows: [division] };
+      }
+      if (text.includes('SELECT discord_user_id\n       FROM board_assignments')) {
+        return { rows: [{ discord_user_id: headId }, { discord_user_id: coHeadId }] };
+      }
+      if (text.includes('FROM members m')) {
+        return { rows: values[2].map((discord_user_id) => ({ discord_user_id })) };
+      }
+      if (text.includes('FROM members')) {
+        return { rows: values[1].map((discord_user_id) => ({ discord_user_id })) };
+      }
+      if (text.includes('FROM projects p')) return { rowCount: 1, rows: [createdProject] };
+      if (text.includes('FROM project_people')) return { rows: persistedPeople };
+      if (text.includes('SELECT status FROM project_reconciliation')) return { rows: [{ status: 'pending' }] };
+      throw new Error(`Unexpected project service query: ${text}`);
+    },
+    async transaction(work) {
+      transactionCount += 1;
+      if (transactionCount === 1) return work(client);
+      return work({
+        async query(text) {
+          if (text.includes('FROM projects p')) return { rowCount: 1, rows: [createdProject] };
+          if (text.includes('FROM project_people')) return { rows: persistedPeople };
+          if (text.includes('SELECT desired_generation')) return { rowCount: 0, rows: [] };
+          throw new Error(`Unexpected reconciliation query: ${text}`);
+        },
+      });
+    },
+  };
+  const guild = {
+    members: {
+      async fetch(id) {
+        return { id, user: { bot: false } };
+      },
+    },
+  };
+
+  const result = await createProject({
+    interaction: {
+      guild,
+      user: { id: headId },
+      member: memberWithRoles(headId, ['Bocconi - Head of Analysis']),
+    },
+    name: 'Signals',
+    university: 'Bocconi',
+    division: 'Analysis',
+    startDate: '2026-07-01',
+    expectedEnd: '2026-08-01',
+    summary: 'Public summary',
+    notes: null,
+    members: memberId,
+    supervisors: headId,
+  }, { db });
+
+  assert.deepEqual(insertedPeople, [
+    42,
+    [memberId, headId, coHeadId],
+    ['member', 'supervisor', 'supervisor'],
+  ]);
+  assert.deepEqual(result.people, persistedPeople);
+  assert.equal(headQueryCount, 2);
 });
 
 test('project member fetches are bounded and surface transient fetch failures', async () => {
@@ -319,7 +607,22 @@ test('project member fetches report only confirmed unknown members as absent', a
   );
 });
 
-test('project formatters cap participant lists and full messages at Discord\'s content limit', () => {
+test('project participant selection rejects every bot account', async () => {
+  const guild = {
+    members: {
+      async fetch(id) {
+        return { id, user: { bot: id === 'bot-account' } };
+      },
+    },
+  };
+
+  await assert.rejects(
+    () => assertGuildMembers(guild, ['human-account', 'bot-account']),
+    /Bots cannot be assigned to projects: <@bot-account>/,
+  );
+});
+
+test('project workspace documents stay bounded and keep private handover notes out of the showcase', () => {
   const people = Array.from({ length: MAX_PROJECT_PARTICIPANTS }, (_, index) => ({
     discord_user_id: String(100000000000000 + index),
     role: index % 3 === 0 ? 'member' : index % 3 === 1 ? 'supervisor' : 'board_liaison',
@@ -334,18 +637,132 @@ test('project formatters cap participant lists and full messages at Discord\'s c
     start_date: '2026-07-01',
     expected_end: '2026-08-01',
     discord_channel_id: 'channel',
+    showcase_thread_id: 'showcase',
+    summary: 'Public summary',
     notes: 'x'.repeat(4_000),
+    outcome: 'Public conclusion',
+    final_notes: 'Private handover',
   };
 
-  for (const message of [
-    formatProjectIntro(project, people, 'y'.repeat(4_000)),
-    formatShowcasePost(project, people, 'y'.repeat(4_000)),
-    projectInfoMessage(project, people),
-  ]) {
-    assert.ok(message.length <= 2_000);
-    assert.match(message, /\(\+\d+ more\)/);
-    assert.doesNotMatch(message, /<@\d{0,14}(?:$|[^\d>])/);
+  for (const payload of [showcasePostPayload(project, people), projectInfoMessage(project, people)]) {
+    assert.equal(payload.embeds, undefined);
+    assert.ok(payload.content.length <= 2_000);
+    assert.match(payload.content, /\(\+\d+ more\)/);
   }
+  const home = projectHomePayload(project, people);
+  assert.equal(home.embeds, undefined);
+  assert.ok(home.content.length <= 2_000);
+  assert.match(home.content, /Pinned project record · Updates automatically$/);
+  const showcase = JSON.stringify(showcasePostPayload(project, people));
+  assert.equal(showcase.includes('Private handover'), false);
+  assert.equal(showcase.includes('x'.repeat(100)), false);
+
+  const guide = projectWorkspaceGuidePayload(project).content;
+  assert.match(guide, /^## How to use this space/);
+  assert.match(guide, /`\/project-info`/);
+  assert.match(guide, /Pinned workspace guide$/);
+});
+
+test('project home keeps project-info data in a scannable plain-message hierarchy', () => {
+  const project = {
+    id: 42,
+    name: 'Signals',
+    university_name: 'Bocconi',
+    division_name: 'Analysis',
+    division_color: 'orange',
+    status: 'active',
+    start_date: '2026-07-01',
+    expected_end: '2026-08-01',
+    discord_channel_id: 'workspace',
+    showcase_thread_id: 'showcase',
+    summary: 'Public summary',
+    notes: null,
+    outcome: null,
+    final_notes: null,
+  };
+  const people = [{ discord_user_id: 'supervisor', role: PROJECT_PERSON_ROLES.SUPERVISOR }];
+  const info = projectInfoMessage(project, people).content;
+  const home = projectHomePayload(project, people).content;
+  assert.match(home, /^## Signals/);
+  assert.match(home, /\*\*University:\*\* Bocconi\n\*\*Status:\*\* Active\n\*\*Division:\*\* 🟧 Analysis/);
+  assert.match(home, /\*\*Timeline:\*\* 2026-07-01 → 2026-08-01\n\n\*\*Workspace links\*\*\n\*\*Private workspace:\*\* <#workspace>\n\*\*Shareable record:\*\* <#showcase>/);
+  assert.match(home, /\*\*Members:\*\* None yet/);
+  assert.match(home, /\*\*Supervisors:\*\* <@supervisor>/);
+  assert.match(info, /\*\*Private workspace:\*\* <#workspace>/);
+  assert.match(info, /\*\*Shareable record:\*\* <#showcase>/);
+  assert.ok(info.indexOf('**Workspace links**') < info.indexOf('**Team**'));
+  assert.ok(info.indexOf('**Team**') < info.indexOf('**Summary**'));
+  assert.match(info, /Private project record · Current database state$/);
+  assert.match(home, /Pinned project record · Updates automatically$/);
+});
+
+test('project info and the pinned project home share one private record hierarchy', () => {
+  const project = {
+    id: 42,
+    name: 'Signals',
+    university_name: 'Bocconi',
+    division_name: 'Analysis',
+    division_color: 'orange',
+    status: 'completed',
+    start_date: '2026-07-01',
+    expected_end: '2026-08-01',
+    discord_channel_id: 'workspace',
+    showcase_thread_id: 'showcase',
+    summary: 'Public summary',
+    notes: 'Private working note',
+    outcome: 'Public conclusion',
+    final_notes: 'Private handover note',
+  };
+  const people = [{ discord_user_id: 'supervisor', role: PROJECT_PERSON_ROLES.SUPERVISOR }];
+  const stripProvenance = (content) => content.replace(/-# Project #42 · .+$/, '');
+  const info = projectInfoMessage(project, people).content;
+  const home = projectHomePayload(project, people).content;
+  assert.equal(stripProvenance(info), stripProvenance(home));
+  assert.match(info, /\*\*Authorized internal context\*\*[\s\S]*\*\*Working notes\*\*[\s\S]*Private working note/);
+  assert.match(info, /\*\*Handover notes\*\*[\s\S]*Private handover note/);
+});
+
+test('the showcase uses the project hierarchy without exposing internal context', () => {
+  const payload = showcasePostPayload({
+    id: 42,
+    name: 'Signals',
+    university_name: 'Bocconi',
+    division_name: 'Analysis',
+    division_color: 'orange',
+    status: 'active',
+    start_date: '2026-07-01',
+    expected_end: '2026-08-01',
+    summary: 'Public summary',
+    notes: 'Private working note',
+    outcome: null,
+    final_notes: 'Private handover note',
+  }, [{ discord_user_id: 'supervisor', role: PROJECT_PERSON_ROLES.SUPERVISOR }]);
+  assert.ok(payload.content.indexOf('**Team**') < payload.content.indexOf('**Summary**'));
+  assert.doesNotMatch(payload.content, /Private working note|Private handover note|Authorized internal context/);
+  assert.doesNotMatch(payload.content, /Workspace links|Private workspace/);
+});
+
+test('project assignment DM has a compact desktop-first hierarchy', () => {
+  const project = {
+    id: 42,
+    name: 'Signals',
+    university_name: 'Bocconi',
+    division_name: 'Analysis',
+    division_color: 'orange',
+    status: 'active',
+    start_date: '2026-07-01',
+    expected_end: '2026-08-01',
+    discord_channel_id: 'workspace',
+    showcase_thread_id: 'showcase',
+  };
+  const handoff = projectAssignmentMessage('guild', project, PROJECT_PERSON_ROLES.SUPERVISOR);
+  assert.deepEqual(handoff.allowedMentions, { parse: [] });
+  assert.match(handoff.content, /^\*\*You joined Signals\*\*\n\n\*\*Status\*\*\nProject access added\n\nBocconi/);
+  assert.match(handoff.content, /\*\*Role\*\*\nSupervisor/);
+  assert.match(handoff.content, /\*\*What to do next\*\*\n1\. Open the project workspace\./);
+  assert.match(handoff.content, /2\. Read the pinned project record and workspace guide\./);
+  assert.match(handoff.content, /\[View shareable record\]/);
+  assert.doesNotMatch(handoff.content, /Project workspace:|Shareable project record:/);
 });
 
 test('project-close completes the project and moves the channel to history', async () => {
@@ -363,12 +780,19 @@ test('project-close completes the project and moves the channel to history', asy
     status: PROJECT_STATUSES.ACTIVE,
     discord_channel_id: 'project-channel',
     category_id: 'university-category',
+    showcase_channel_id: 'showcase',
     showcase_thread_id: null,
     division_head_role_id: null,
   };
-  const closedProject = { ...project, status: PROJECT_STATUSES.COMPLETED };
+  const closedProject = {
+    ...project,
+    status: PROJECT_STATUSES.COMPLETED,
+    outcome: 'Completed successfully',
+    final_notes: 'Ready for handover',
+  };
   const people = [{ discord_user_id: 'member', role: 'member' }];
   let projectSelects = 0;
+  let lockedProjectSelects = 0;
   function reconciliationQuery(text) {
     if (text.includes('INSERT INTO project_reconciliation') || text.includes("SET status = 'succeeded'")) {
       return { rowCount: 1, rows: [{ desired_generation: 1 }] };
@@ -382,6 +806,9 @@ test('project-close completes the project and moves the channel to history', asy
       const reconciliation = reconciliationQuery(text);
       if (reconciliation) return reconciliation;
       if (text.includes('FROM projects p')) {
+        if (text.includes('FOR UPDATE OF p')) {
+          return { rowCount: 1, rows: [project] };
+        }
         projectSelects += 1;
         return { rowCount: 1, rows: [projectSelects === 1 ? project : closedProject] };
       }
@@ -395,6 +822,10 @@ test('project-close completes the project and moves the channel to history', asy
           const reconciliation = reconciliationQuery(text);
           if (reconciliation) return reconciliation;
           if (text.includes('FROM projects p')) {
+            if (text.includes('FOR UPDATE OF p')) {
+              lockedProjectSelects += 1;
+              return { rowCount: 1, rows: [lockedProjectSelects === 1 ? project : closedProject] };
+            }
             projectSelects += 1;
             return { rowCount: 1, rows: [closedProject] };
           }
@@ -403,6 +834,22 @@ test('project-close completes the project and moves the channel to history', asy
         },
       });
     },
+  };
+  const messages = [];
+  const showcaseStarter = { async edit() {} };
+  const showcaseThread = {
+    id: 'showcase-thread',
+    async fetchStarterMessage() { return showcaseStarter; },
+  };
+  const showcase = {
+    type: ChannelType.GuildForum,
+    availableTags: [
+      { id: 'projects', name: 'Projects' },
+      { id: 'active', name: 'Active' },
+      { id: 'paused', name: 'Paused' },
+      { id: 'completed', name: 'Completed' },
+    ],
+    threads: { async create() { return showcaseThread; } },
   };
   const channel = {
     name: 'project-42-signals',
@@ -421,7 +868,12 @@ test('project-close completes the project and moves the channel to history', asy
       channel.name = name;
     },
     async send(message) {
-      channel.message = message;
+      messages.push(message);
+      return {
+        id: messages.length === 1 ? 'home-message' : `event-${messages.length}`,
+        pinned: false,
+        async pin() {},
+      };
     },
   };
   const guild = {
@@ -447,8 +899,9 @@ test('project-close completes the project and moves the channel to history', asy
         },
       },
       async fetch(id) {
-        assert.equal(id, 'project-channel');
-        return channel;
+        if (id === 'showcase') return showcase;
+        if (id === 'project-channel') return channel;
+        throw new Error(`Unexpected channel fetch: ${id}`);
       },
     },
   };
@@ -471,7 +924,12 @@ test('project-close completes the project and moves the channel to history', asy
   assert.equal(channel.parentId, 'archive-category');
   assert.deepEqual(channel.parentOptions, { lockPermissions: false });
   assert.equal(channel.overwriteReason, 'Reconcile project 42 access');
-  assert.match(channel.message.content, /\*\*Outcome:\*\* Completed successfully/);
+  assert.match(messages[0].content, /\*\*Conclusion\*\*\nCompleted successfully/);
+  assert.match(messages[0].content, /\*\*Authorized internal context\*\*[\s\S]*\*\*Handover notes\*\*\nReady for handover/);
+  assert.match(messages[1].content, /^## How to use this space/);
+  assert.equal(JSON.stringify(messages[1]).includes('Ready for handover'), false);
+  assert.equal(JSON.stringify(messages[2]).includes('Ready for handover'), false);
+  assert.match(messages[2].embeds[0].data.title, /Project completed/);
   assert.ok(queries.some((call) => call.text.includes('SET status = $1') && call.values[0] === PROJECT_STATUSES.COMPLETED));
   assert.equal(queries.some((call) => call.values?.[0] === PROJECT_STATUSES.ARCHIVED), false);
 });
@@ -490,6 +948,7 @@ test('completed and archived projects reject all mutating project commands befor
   const db = {
     async query(text) {
       if (text.includes('FROM projects p')) return { rowCount: 1, rows: [immutableProject] };
+      if (text.includes('FROM project_people')) return { rows: [] };
       throw new Error(`Unexpected query: ${text}`);
     },
     async transaction() {
@@ -523,7 +982,7 @@ test('completed and archived projects reject all mutating project commands befor
 test('eligibility reports missing active members clearly', async () => {
   const db = { query: async () => ({ rows: [] }) };
   await assert.rejects(
-    () => assertActiveDivisionResearchers(db, 10, 20, ['333333333333333333'], 'members'),
+    () => assertActiveProjectMembers(db, 10, 20, ['333333333333333333'], 'members'),
     UserFacingError,
   );
 });

@@ -1,0 +1,385 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { ButtonStyle, ComponentType, MessageFlags } from 'discord.js';
+
+import { BOARD_ROLES, ROLE_NAMES } from '../src/constants.js';
+import {
+  BOARD_UPDATE_PANEL_ACTIONS,
+  BOARD_UPDATE_HANDOFF_CONCURRENCY,
+  createBoardUpdatePanelService,
+} from '../src/services/governance/board-update-panel.js';
+import { UserFacingError } from '../src/errors.js';
+
+const ACTOR_ID = '100000000000000001';
+const SECOND_GLOBAL_PRESIDENT_ID = '100000000000000006';
+const PRESIDENT_ID = '100000000000000002';
+const VP_ID = '100000000000000003';
+const HEAD_ID = '100000000000000004';
+const SECOND_HEAD_ID = '100000000000000005';
+
+function roleCache(names) {
+  return names.map((name) => ({ name }));
+}
+
+function components(payload) {
+  const queue = [...(payload.components ?? []).map((component) => component.toJSON?.() ?? component)];
+  const values = [];
+  while (queue.length > 0) {
+    const component = queue.shift();
+    values.push(component);
+    if (component.components) queue.push(...component.components);
+  }
+  return values;
+}
+
+function action(payload, suffix) {
+  const component = components(payload).find((candidate) => candidate.custom_id?.endsWith(`:${suffix}`));
+  assert.ok(component, `Missing board update action ${suffix}`);
+  return component;
+}
+
+function text(payload) {
+  return components(payload)
+    .filter((component) => component.type === ComponentType.TextDisplay)
+    .map((component) => component.content)
+    .join('\n');
+}
+
+function interaction({ customId = null, roles = ['Bocconi - President'] } = {}) {
+  return {
+    customId,
+    guildId: 'guild',
+    user: { id: ACTOR_ID },
+    member: { roles: { cache: roleCache(roles) } },
+    channel: { name: 'bot-log', parent: { name: 'BAINSA Bocconi' } },
+  };
+}
+
+const divisions = [
+  { id: 'd1', name: 'Analysis', color: 'orange' },
+  { id: 'd2', name: 'Culture', color: 'pink' },
+  { id: 'd3', name: 'Projects', color: 'blue' },
+  { id: 'd4', name: 'Events', color: 'green' },
+  { id: 'd5', name: 'Partnerships', color: 'red' },
+];
+
+const currentAssignments = [
+  { discord_user_id: PRESIDENT_ID, role: 'president', division_id: null, division_name: null },
+  { discord_user_id: VP_ID, role: 'vice_president', division_id: null, division_name: null },
+  { discord_user_id: HEAD_ID, role: 'head', division_id: 'd3', division_name: 'Projects' },
+];
+
+function service(overrides = {}) {
+  return createBoardUpdatePanelService({
+    loadUniversities: async () => [{ id: 'u1', name: 'Bocconi' }],
+    loadDivisions: async () => divisions,
+    loadBoardAssignments: async () => currentAssignments,
+    loadMemberContext: async (testInteraction, { user }) => ({
+      target: {
+        id: user.id,
+        roles: { cache: roleCache(['Researcher', 'Bocconi']) },
+      },
+      member: { status: 'active', university_name: 'Bocconi' },
+      divisions: [],
+      boardRoles: user.id === ACTOR_ID
+        ? [{
+            role: testInteraction.member.roles.cache.some((role) => role.name === 'Bocconi - Vice President')
+              ? 'vice_president'
+              : 'president',
+            university_name: 'Bocconi',
+          }]
+        : [],
+      projects: [],
+    }),
+    updateOperation: async () => assert.fail('unexpected board update'),
+    formatActivity: () => ({ content: 'activity' }),
+    postActivity: async () => ({ status: 'posted', channel: null }),
+    sendHandoff: async () => undefined,
+    ...overrides,
+  });
+}
+
+async function startEditor(panel, options = {}) {
+  let payload;
+  await panel.start({
+    ...interaction(options),
+    async reply(next) { payload = next; },
+  });
+  assert.equal(payload.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2);
+  await panel.handleButton({
+    ...interaction({ ...options, customId: action(payload, BOARD_UPDATE_PANEL_ACTIONS.EDIT).custom_id }),
+    async update(next) { payload = next; },
+  });
+  return payload;
+}
+
+test('board update renders every active position on one page when the roster fits', async () => {
+  const panel = service();
+  const payload = await startEditor(panel);
+
+  const president = action(payload, 'up');
+  const vicePresident = action(payload, 'uv');
+  const projects = action(payload, 'h2');
+  assert.equal(president.max_values, 25);
+  assert.equal(vicePresident.max_values, 25);
+  assert.equal(projects.max_values, 25);
+  assert.deepEqual(projects.default_values.map((value) => value.id), [HEAD_ID]);
+  assert.match(text(payload), /### University leadership[\s\S]*### Division leadership/);
+  assert.ok(components(payload).some((component) =>
+    component.type === ComponentType.Separator && component.divider === false,
+  ));
+  assert.ok(action(payload, 'h3'));
+  assert.ok(action(payload, 'h4'));
+  assert.match(text(payload), /Events/);
+  assert.match(text(payload), /Partnerships/);
+  assert.match(text(payload), /\*\*Positions shown:\*\* All 7/);
+  assert.equal(
+    components(payload).some((component) =>
+      component.custom_id?.endsWith(`:${BOARD_UPDATE_PANEL_ACTIONS.NEXT}`),
+    ),
+    false,
+  );
+});
+
+test('large boards paginate by leadership group instead of cutting an arbitrary position list', async () => {
+  const extendedDivisions = [
+    ...divisions,
+    { id: 'd6', name: 'Research', color: 'yellow' },
+    { id: 'd7', name: 'Operations', color: 'black' },
+  ];
+  const panel = service({ loadDivisions: async () => extendedDivisions });
+  let payload = await startEditor(panel);
+
+  assert.ok(action(payload, 'h0'));
+  assert.ok(action(payload, 'h6'));
+  assert.equal(components(payload).some((component) => component.custom_id?.endsWith(':up')), false);
+  assert.equal(action(payload, BOARD_UPDATE_PANEL_ACTIONS.NEXT).label, 'Next: University leadership');
+  await panel.handleButton({
+    ...interaction({ customId: action(payload, BOARD_UPDATE_PANEL_ACTIONS.NEXT).custom_id }),
+    async update(next) { payload = next; },
+  });
+  assert.ok(action(payload, 'up'));
+  assert.ok(action(payload, 'uv'));
+  assert.equal(components(payload).some((component) => component.custom_id?.endsWith(':h0')), false);
+  assert.equal(action(payload, BOARD_UPDATE_PANEL_ACTIONS.PREVIOUS).label, 'Back: Division leadership');
+});
+
+test('board update authorizes an active database President without relying on a Discord role name', async () => {
+  const panel = service();
+  const payload = await startEditor(panel, { roles: [] });
+
+  assert.equal(action(payload, 'up').disabled, false);
+  assert.match(text(payload), /Update the Bocconi board/);
+});
+
+test('a Global President can appoint another Global President as a university Vice President', async () => {
+  const panel = service({
+    loadMemberContext: async (testInteraction, { user }) => ({
+      target: {
+        id: user.id,
+        roles: {
+          cache: roleCache(
+            [ACTOR_ID, SECOND_GLOBAL_PRESIDENT_ID].includes(user.id)
+              ? [ROLE_NAMES.GLOBAL_PRESIDENT]
+              : ['Researcher', 'Bocconi'],
+          ),
+        },
+      },
+      member: { status: 'active', university_name: 'Bocconi' },
+      divisions: [],
+      boardRoles: [ACTOR_ID, SECOND_GLOBAL_PRESIDENT_ID].includes(user.id)
+        ? [{ role: BOARD_ROLES.GLOBAL_PRESIDENT, university_name: null }]
+        : [],
+      projects: [],
+    }),
+  });
+  let payload = await startEditor(panel, { roles: [ROLE_NAMES.GLOBAL_PRESIDENT] });
+
+  await panel.handleUserSelect({
+    ...interaction({
+      roles: [ROLE_NAMES.GLOBAL_PRESIDENT],
+      customId: action(payload, 'uv').custom_id,
+    }),
+    values: [SECOND_GLOBAL_PRESIDENT_ID],
+    async update(next) { payload = next; },
+  });
+  await panel.handleButton({
+    ...interaction({
+      roles: [ROLE_NAMES.GLOBAL_PRESIDENT],
+      customId: action(payload, BOARD_UPDATE_PANEL_ACTIONS.REVIEW).custom_id,
+    }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
+
+  assert.match(text(payload), /Review the Bocconi board/);
+  assert.doesNotMatch(text(payload), /cannot manage Global President members/i);
+});
+
+test('board update shows current-to-new changes and saves co-Heads as one roster update', async () => {
+  let operationInput;
+  let activityCommand;
+  const handoffs = [];
+  const panel = service({
+    updateOperation: async (_interaction, input) => {
+      operationInput = input;
+      return {
+        university: { name: 'Bocconi' },
+        positionChanges: [{
+          label: 'Head of Projects',
+          currentUserIds: [HEAD_ID],
+          nextUserIds: [HEAD_ID, SECOND_HEAD_ID],
+        }],
+        memberChanges: [{
+          target: { id: SECOND_HEAD_ID },
+          before: [],
+          after: ['Head of Projects'],
+        }],
+      };
+    },
+    formatActivity: (commandName) => {
+      activityCommand = commandName;
+      return { content: commandName };
+    },
+    sendHandoff: async (target) => { handoffs.push(target.id); },
+  });
+  let payload = await startEditor(panel);
+  const projects = action(payload, 'h2');
+  await panel.handleUserSelect({
+    ...interaction({ customId: projects.custom_id }),
+    values: [HEAD_ID, SECOND_HEAD_ID],
+    async update(next) { payload = next; },
+  });
+  assert.match(text(payload), new RegExp(`<@${HEAD_ID}> → <@${HEAD_ID}>, <@${SECOND_HEAD_ID}>`));
+
+  await panel.handleButton({
+    ...interaction({ customId: action(payload, BOARD_UPDATE_PANEL_ACTIONS.REVIEW).custom_id }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
+  assert.match(text(payload), /Positions changing[\s\S]*1/);
+  assert.match(text(payload), /\*\*🟦 Projects:\*\*/);
+  assert.equal(action(payload, BOARD_UPDATE_PANEL_ACTIONS.CANCEL).style, ButtonStyle.Danger);
+
+  await panel.handleButton({
+    ...interaction({ customId: action(payload, BOARD_UPDATE_PANEL_ACTIONS.SAVE).custom_id }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
+  assert.equal(activityCommand, 'board-update');
+  assert.deepEqual(handoffs, [SECOND_HEAD_ID]);
+  assert.ok(operationInput.assignments.some((assignment) =>
+    assignment.userId === SECOND_HEAD_ID && assignment.role === 'head' && assignment.divisionId === 'd3',
+  ));
+  assert.match(text(payload), /Board updated/);
+});
+
+test('board update bounds handoff DMs and reports only failed deliveries', async () => {
+  const changes = Array.from({ length: BOARD_UPDATE_HANDOFF_CONCURRENCY * 2 }, (_, index) => ({
+    target: { id: `handoff-${index}` },
+    before: [],
+    after: ['Head of Projects'],
+  }));
+  const attempted = [];
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const panel = service({
+    updateOperation: async () => ({
+      university: { name: 'Bocconi' },
+      positionChanges: [],
+      memberChanges: changes,
+    }),
+    sendHandoff: async (target) => {
+      attempted.push(target.id);
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setImmediate(resolve));
+      inFlight -= 1;
+      if (target.id === changes[0].target.id) throw new Error('controlled DM failure');
+    },
+  });
+  let payload = await startEditor(panel);
+
+  await panel.handleUserSelect({
+    ...interaction({ customId: action(payload, 'uv').custom_id }),
+    values: [VP_ID, HEAD_ID],
+    async update(next) { payload = next; },
+  });
+  await panel.handleButton({
+    ...interaction({ customId: action(payload, BOARD_UPDATE_PANEL_ACTIONS.REVIEW).custom_id }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
+  await panel.handleButton({
+    ...interaction({ customId: action(payload, BOARD_UPDATE_PANEL_ACTIONS.SAVE).custom_id }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
+
+  assert.equal(maxInFlight, BOARD_UPDATE_HANDOFF_CONCURRENCY);
+  assert.deepEqual(attempted.sort(), changes.map((change) => change.target.id).sort());
+  assert.match(text(payload), /1 affected member handoff\(s\) could not be delivered/);
+});
+
+test('a stale board save preserves the proposed roster and gives a concrete recovery route', async () => {
+  const panel = service({
+    updateOperation: async () => {
+      throw new UserFacingError('The board changed while this panel was open. Reload the current roster before saving.');
+    },
+  });
+  let payload = await startEditor(panel);
+  await panel.handleUserSelect({
+    ...interaction({ customId: action(payload, 'h2').custom_id }),
+    values: [HEAD_ID, SECOND_HEAD_ID],
+    async update(next) { payload = next; },
+  });
+  await panel.handleButton({
+    ...interaction({ customId: action(payload, BOARD_UPDATE_PANEL_ACTIONS.REVIEW).custom_id }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
+  await panel.handleButton({
+    ...interaction({ customId: action(payload, BOARD_UPDATE_PANEL_ACTIONS.SAVE).custom_id }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
+
+  assert.match(text(payload), /Board update not saved/);
+  assert.match(text(payload), /What happened[\s\S]*board changed/);
+  assert.match(text(payload), /What was preserved[\s\S]*No board appointment was changed/);
+  assert.match(text(payload), /How to correct it[\s\S]*Reload the roster/);
+  assert.match(text(payload), /Where to continue[\s\S]*return to positions/);
+  assert.ok(action(payload, BOARD_UPDATE_PANEL_ACTIONS.SAVE));
+  assert.ok(action(payload, BOARD_UPDATE_PANEL_ACTIONS.BACK_EDIT));
+});
+
+test('board review places each leadership group roster on a new line', async () => {
+  const panel = service();
+  let payload = await startEditor(panel);
+
+  await panel.handleUserSelect({
+    ...interaction({ customId: action(payload, 'uv').custom_id }),
+    values: [VP_ID, HEAD_ID],
+    async update(next) { payload = next; },
+  });
+  await panel.handleButton({
+    ...interaction({ customId: action(payload, BOARD_UPDATE_PANEL_ACTIONS.REVIEW).custom_id }),
+    async update() {},
+    async editReply(next) { payload = next; },
+  });
+
+  assert.match(text(payload), /\*\*University leadership:\*\*\n• \*\*Vice Presidents:/);
+  assert.match(text(payload), /\*\*Division leadership:\*\*\n• \*\*🟦 Projects:/);
+});
+
+test('a Vice President sees Presidents read-only while all manageable seats stay multi-select', async () => {
+  const panel = service();
+  const payload = await startEditor(panel, { roles: ['Bocconi - Vice President'] });
+
+  assert.equal(action(payload, 'up').disabled, true);
+  assert.equal(action(payload, 'uv').disabled, false);
+  assert.equal(action(payload, 'uv').max_values, 25);
+  assert.equal(action(payload, 'h0').max_values, 25);
+  assert.match(text(payload), /President · View only/);
+});

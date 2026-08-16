@@ -4,9 +4,11 @@ import { ROLE_NAMES } from '../constants.js';
 import { divisionHeadRoleName, divisionRoleName } from '../naming.js';
 import {
   DANGEROUS_HUMAN_PERMISSIONS,
+  FORUM_DENY_CREATE,
   FORUM_DENY_POST,
   FORUM_POST,
   FORUM_READ_ONLY,
+  FORUM_REPLY,
   BOT_COMMAND_WRITE,
   TEXT_READ,
   TEXT_WRITE,
@@ -83,6 +85,21 @@ export function globalGeneralOverwrites(roleIds) {
   ];
 }
 
+export function globalVoiceOverwrites(roleIds) {
+  return [
+    overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
+    overwrite(roleIds.researcher, { allow: VOICE_ACCESS }),
+    overwrite(roleIds.alumni, { allow: VOICE_ACCESS }),
+    overwrite(roleIds.globalPresident, {
+      allow: [...VOICE_ACCESS, PermissionFlagsBits.CreateEvents],
+    }),
+    ...roleIds.universityPresidents.map((id) =>
+      overwrite(id, { allow: [...VOICE_ACCESS, PermissionFlagsBits.CreateEvents] }),
+    ),
+    botOverwrite(roleIds),
+  ];
+}
+
 export function globalBotLogOverwrites(roleIds) {
   return [
     overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
@@ -130,6 +147,21 @@ export function showcaseForumOverwrites(roleIds, viewerRoleIds) {
   ];
 }
 
+/**
+ * Directory posts are bot-managed. Approved members and the existing global
+ * viewers may read and use the persistent guide buttons, but cannot create or
+ * reply to forum posts themselves.
+ */
+export function peopleDirectoryForumOverwrites(roleIds) {
+  const viewerRoleIds = [
+    roleIds.researcher,
+    roleIds.alumni,
+    roleIds.globalPresident,
+    ...roleIds.universityPresidents,
+  ].filter(Boolean);
+  return showcaseForumOverwrites(roleIds, viewerRoleIds);
+}
+
 export function universityGeneralOverwrites(roleIds, university) {
   return [
     overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
@@ -139,7 +171,21 @@ export function universityGeneralOverwrites(roleIds, university) {
   ];
 }
 
+export function universityVoiceOverwrites(roleIds, university) {
+  return [
+    overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
+    overwrite(roleIds.roles.get(university.universityRole), { allow: VOICE_ACCESS }),
+    ...universityBoardRoleIds(roleIds, university).map((id) =>
+      overwrite(id, { allow: [...VOICE_ACCESS, PermissionFlagsBits.CreateEvents] }),
+    ),
+    botOverwrite(roleIds),
+  ];
+}
+
 export function universityAnnouncementOverwrites(roleIds, university) {
+  // Local announcements are writable by every board role scoped to this
+  // university, including division Heads. Global announcements intentionally
+  // use a separate President-only policy above.
   return [
     overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
     overwrite(roleIds.roles.get(university.universityRole), {
@@ -154,7 +200,7 @@ export function universityAnnouncementOverwrites(roleIds, university) {
 export function universityBoardOverwrites(roleIds, university) {
   return [
     overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
-    ...universityBoardRoleIds(roleIds, university).map((id) => overwrite(id, { allow: TEXT_WRITE })),
+    ...universityScopedBoardRoleIds(roleIds, university).map((id) => overwrite(id, { allow: TEXT_WRITE })),
     botOverwrite(roleIds),
   ];
 }
@@ -179,11 +225,11 @@ export function universityShowcaseOverwrites(roleIds, university) {
   return [
     overwrite(roleIds.everyone, { deny: [PermissionFlagsBits.ViewChannel] }),
     overwrite(roleIds.roles.get(university.universityRole), {
-      allow: FORUM_READ_ONLY,
-      deny: FORUM_DENY_POST,
+      allow: FORUM_REPLY,
+      deny: FORUM_DENY_CREATE,
     }),
     ...universityBoardRoleIds(roleIds, university).map((id) =>
-      overwrite(id, { allow: FORUM_READ_ONLY, deny: FORUM_DENY_POST }),
+      overwrite(id, { allow: FORUM_REPLY, deny: FORUM_DENY_CREATE }),
     ),
     botOverwrite(roleIds),
   ];
@@ -256,9 +302,15 @@ export function collectRoleIds(guild, rolesByName, plan) {
 
 function universityBoardRoleIds(roleIds, university) {
   return [...new Set([
+    roleIds.globalPresident,
+    ...universityScopedBoardRoleIds(roleIds, university),
+  ].filter(Boolean))];
+}
+
+function universityScopedBoardRoleIds(roleIds, university) {
+  return [...new Set([
     roleIds.roles.get(university.presidentRole),
     roleIds.roles.get(university.vicePresidentRole),
-    roleIds.globalPresident,
     ...university.divisions.map((division) =>
       roleIds.roles.get(divisionHeadRoleName(university.name, division.name)),
     ),

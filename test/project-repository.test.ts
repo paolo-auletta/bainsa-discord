@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { insertProjectPeople } from '../src/services/projects/repository.js';
+import { insertProjectPeople, projectPeopleEqual } from '../src/services/projects/repository.js';
 
 test('project participant repository inserts all roles in one set-based query', async () => {
   const calls = [];
@@ -23,4 +23,21 @@ test('project participant repository inserts all roles in one set-based query', 
   assert.match(calls[0].sql, /unnest\(\$2::text\[\], \$3::text\[\]\)/);
   assert.match(calls[0].sql, /ON CONFLICT \(project_id, discord_user_id\)/);
   assert.deepEqual(calls[0].values, [42, ['member', 'supervisor', 'liaison'], ['member', 'supervisor', 'board_liaison']]);
+});
+
+test('project team equality is order independent and includes roles', () => {
+  assert.equal(
+    projectPeopleEqual(
+      [{ discord_user_id: 'member', role: 'member' }, { discord_user_id: 'supervisor', role: 'supervisor' }],
+      [{ discord_user_id: 'supervisor', role: 'supervisor' }, { discord_user_id: 'member', role: 'member' }],
+    ),
+    true,
+  );
+  assert.equal(
+    projectPeopleEqual(
+      [{ discord_user_id: 'member', role: 'member' }],
+      [{ discord_user_id: 'member', role: 'supervisor' }],
+    ),
+    false,
+  );
 });

@@ -7,3 +7,4 @@ dist/
 *.log
 *.crt
 .DS_Store
+.agents/

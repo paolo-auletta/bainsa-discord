@@ -32,6 +32,14 @@ async function insertUniversity(name) {
   return result.rows[0].id;
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 test.after(async () => {
   await database.resetPublicSchema();
   await database.close();
@@ -40,8 +48,11 @@ test.after(async () => {
 test('runs every migration against a fresh database and keeps the final contract idempotent', async () => {
   const first = await resetAndMigrate();
   assert.equal(first.pending, 0);
-  assert.equal(first.appliedNow.length, 5);
-  assert.deepEqual(first.status.map((row) => row.status), ['applied', 'applied', 'applied', 'applied', 'applied']);
+  assert.equal(first.appliedNow.length, 20);
+  assert.deepEqual(first.status.map((row) => row.status), [
+    'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
+    'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
+  ]);
 
   const tables = await database.query(`
     SELECT table_name
@@ -54,6 +65,8 @@ test('runs every migration against a fresh database and keeps the final contract
     'board_assignments',
     'divisions',
     'member_divisions',
+    'member_profile_reconciliation',
+    'member_profiles',
     'members',
     'onboarding_requests',
     'projects',
@@ -61,6 +74,7 @@ test('runs every migration against a fresh database and keeps the final contract
     'project_reconciliation',
     'provisioned_messages',
     'schema_migrations',
+    'transition_notifications',
     'universities',
   ]) {
     assert.ok(tables.rows.some((row) => row.table_name === table), `missing ${table}`);
@@ -77,7 +91,35 @@ test('runs every migration against a fresh database and keeps the final contract
          'board_assignments_active_head_per_division_unique'
        )
   `);
-  assert.equal(indexes.rowCount, 4);
+  assert.equal(indexes.rowCount, 3);
+  assert.equal(indexes.rows.some((row) => row.indexname === 'board_assignments_active_head_per_division_unique'), false);
+
+  const reapplicationColumn = await database.query(`
+    SELECT data_type, is_nullable, column_default
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'onboarding_requests'
+       AND column_name = 'previously_removed'
+  `);
+  assert.deepEqual(reapplicationColumn.rows[0], {
+    data_type: 'boolean',
+    is_nullable: 'NO',
+    column_default: 'false',
+  });
+
+  const projectUxColumns = await database.query(`
+    SELECT column_name, data_type
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'projects'
+       AND column_name IN ('summary', 'home_message_id', 'workspace_guide_message_id')
+     ORDER BY column_name
+  `);
+  assert.deepEqual(projectUxColumns.rows, [
+    { column_name: 'home_message_id', data_type: 'text' },
+    { column_name: 'summary', data_type: 'text' },
+    { column_name: 'workspace_guide_message_id', data_type: 'text' },
+  ]);
 
   const universityId = await insertUniversity('Bocconi');
   const otherUniversityId = await insertUniversity('Sapienza');
@@ -90,8 +132,14 @@ test('runs every migration against a fresh database and keeps the final contract
     [otherUniversityId, 'Projects', 'blue'],
   );
   await database.query(
-    'INSERT INTO members (discord_user_id, university_id, member_type) VALUES ($1, $2, $3)',
-    ['member-1', universityId, 'researcher'],
+    `INSERT INTO members (discord_user_id, university_id, member_type)
+     VALUES ($1, $2, $3), ($4, $2, $3), ($5, $2, $3)`,
+    ['member-1', universityId, 'researcher', 'president-1', 'president-2'],
+  );
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, role)
+     VALUES ($1, $2, 'president'), ($3, $2, 'president')`,
+    ['president-1', universityId, 'president-2'],
   );
 
   await assert.rejects(
@@ -123,12 +171,379 @@ test('runs every migration against a fresh database and keeps the final contract
 
   const second = await migrate();
   assert.deepEqual(second.appliedNow, []);
-  assert.equal(second.applied, 5);
+  assert.equal(second.applied, 19);
   assert.equal(second.pending, 0);
 
   const status = await migrate({ statusOnly: true });
-  assert.equal(status.applied, 5);
+  assert.equal(status.applied, 19);
   assert.equal(status.pending, 0);
+});
+
+test('university tag upgrade queues existing published profiles exactly once', async () => {
+  await database.resetPublicSchema();
+  const temporaryDir = await mkdtemp(path.join(os.tmpdir(), 'bainsa-migrations-before-017-'));
+
+  try {
+    for (const filename of await readdir(migrationsDir)) {
+      if (!filename.endsWith('.sql') || filename === '017_replace_profile_identity_tags_with_university_tags.sql') continue;
+      await copyFile(path.join(migrationsDir, filename), path.join(temporaryDir, filename));
+    }
+    await migrate({ migrationsDir: temporaryDir });
+    const universityId = await insertUniversity('Profile Layout University');
+    await database.query(
+      `INSERT INTO members (discord_user_id, university_id, member_type)
+       VALUES ('layout-profile', $1, 'researcher')`,
+      [universityId],
+    );
+    await database.query(
+      `INSERT INTO member_profiles (
+         discord_user_id, headline, about, "current_role", goals, selected_tags
+       ) VALUES (
+         'layout-profile', 'Applied AI researcher',
+         'I enjoy machine learning and collaborative research projects.',
+         'MSc student', 'Explore research and internship collaborations.', ARRAY['ai_data']
+       )`,
+    );
+    await database.query(
+      `INSERT INTO member_profile_reconciliation (
+         discord_user_id, desired_generation, status, attempts, succeeded_at
+       ) VALUES ('layout-profile', 4, 'succeeded', 3, now())`,
+    );
+
+    const migrated = await migrate();
+    assert.deepEqual(
+      migrated.appliedNow.map((migration) => migration.filename),
+      ['017_replace_profile_identity_tags_with_university_tags.sql'],
+    );
+    const queued = await database.query(
+      `SELECT desired_generation, status, attempts, started_at, succeeded_at, failed_at, last_error
+         FROM member_profile_reconciliation
+        WHERE discord_user_id = 'layout-profile'`,
+    );
+    assert.deepEqual(queued.rows[0], {
+      desired_generation: '5',
+      status: 'pending',
+      attempts: 0,
+      started_at: null,
+      succeeded_at: null,
+      failed_at: null,
+      last_error: null,
+    });
+
+    const second = await migrate();
+    assert.equal(second.appliedNow.length, 0);
+  } finally {
+    await rm(temporaryDir, { recursive: true, force: true });
+  }
+});
+
+test('executive exclusivity handles head promotion and multi-row division assignments', async () => {
+  await resetAndMigrate();
+  const universityId = await insertUniversity('Bocconi');
+  const divisions = await database.query(
+    `INSERT INTO divisions (university_id, name, color)
+     VALUES ($1, 'Analysis', 'orange'), ($1, 'Projects', 'blue')
+     RETURNING id, name`,
+    [universityId],
+  );
+  const analysisId = divisions.rows.find((division) => division.name === 'Analysis').id;
+  const projectsId = divisions.rows.find((division) => division.name === 'Projects').id;
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type)
+     VALUES ('promoted-head', $1, 'researcher'), ('multi-row', $1, 'researcher')`,
+    [universityId],
+  );
+  await database.query(
+    `INSERT INTO member_divisions (discord_user_id, division_id)
+     VALUES ('promoted-head', $1), ('multi-row', $2)`,
+    [analysisId, projectsId],
+  );
+  const head = await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, division_id, role)
+     VALUES ('promoted-head', $1, $2, 'head') RETURNING id`,
+    [universityId, analysisId],
+  );
+
+  await database.transaction(async (q) => {
+    await q.query(
+      `UPDATE board_assignments
+          SET role = 'president',
+              division_id = NULL
+        WHERE id = $1`,
+      [head.rows[0].id],
+    );
+    await q.query(
+      `INSERT INTO board_assignments (discord_user_id, university_id, division_id, role)
+       VALUES
+         ('multi-row', $1, NULL, 'vice_president'),
+         ('multi-row', $1, $2, 'head')`,
+      [universityId, projectsId],
+    );
+  });
+
+  const memberships = await database.query(
+    `SELECT discord_user_id FROM member_divisions
+      WHERE discord_user_id IN ('promoted-head', 'multi-row')`,
+  );
+  assert.equal(memberships.rowCount, 0);
+  const activeAssignments = await database.query(
+    `SELECT discord_user_id, role
+       FROM board_assignments
+      WHERE discord_user_id IN ('promoted-head', 'multi-row')
+        AND active = true
+      ORDER BY discord_user_id, role`,
+  );
+  assert.deepEqual(activeAssignments.rows, [
+    { discord_user_id: 'multi-row', role: 'vice_president' },
+    { discord_user_id: 'promoted-head', role: 'president' },
+  ]);
+});
+
+test('executive exclusivity removes a Head assignment committed after an overlapping promotion', async () => {
+  await resetAndMigrate();
+  const universityId = await insertUniversity('Bocconi');
+  const division = await database.query(
+    `INSERT INTO divisions (university_id, name, color)
+     VALUES ($1, 'Analysis', 'orange') RETURNING id`,
+    [universityId],
+  );
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type)
+     VALUES ('concurrent-member', $1, 'researcher')`,
+    [universityId],
+  );
+
+  const headInserted = deferred();
+  const releaseHead = deferred();
+  const headAssignment = database.transaction(async (q) => {
+    await q.query(
+      `INSERT INTO board_assignments (discord_user_id, university_id, division_id, role)
+       VALUES ('concurrent-member', $1, $2, 'head')`,
+      [universityId, division.rows[0].id],
+    );
+    headInserted.resolve();
+    await releaseHead.promise;
+  });
+
+  await headInserted.promise;
+  await database.transaction((q) => q.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, role)
+     VALUES ('concurrent-member', $1, 'vice_president')`,
+    [universityId],
+  ));
+  releaseHead.resolve();
+  await headAssignment;
+
+  const activeAssignments = await database.query(
+    `SELECT role FROM board_assignments
+      WHERE discord_user_id = 'concurrent-member'
+        AND active = true
+      ORDER BY role`,
+  );
+  assert.deepEqual(activeAssignments.rows, [{ role: 'vice_president' }]);
+});
+
+test('executive appointments clear division memberships and Head assignments in the same university', async () => {
+  await resetAndMigrate();
+  const bocconiId = await insertUniversity('Bocconi');
+  const sapienzaId = await insertUniversity('Sapienza');
+  const divisions = await database.query(
+    `INSERT INTO divisions (university_id, name, color)
+     VALUES
+       ($1, 'Analysis', 'orange'),
+       ($1, 'Projects', 'blue'),
+       ($2, 'Culture', 'pink'),
+       ($2, 'Research', 'green')
+     RETURNING id, university_id`,
+    [bocconiId, sapienzaId],
+  );
+  const [bocconiAnalysis, bocconiProjects, sapienzaCulture, sapienzaResearch] = divisions.rows;
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type)
+     VALUES ('vice-president', $1, 'researcher'), ('president', $2, 'researcher')`,
+    [bocconiId, sapienzaId],
+  );
+  await database.query(
+    `INSERT INTO member_divisions (discord_user_id, division_id)
+     VALUES
+       ('vice-president', $1),
+       ('vice-president', $2),
+       ('president', $3),
+       ('president', $4)`,
+    [bocconiAnalysis.id, bocconiProjects.id, sapienzaCulture.id, sapienzaResearch.id],
+  );
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, division_id, role)
+     VALUES
+       ('vice-president', $1, $2, 'head'),
+       ('president', $3, $4, 'head')`,
+    [bocconiId, bocconiAnalysis.id, sapienzaId, sapienzaCulture.id],
+  );
+
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, role)
+     VALUES
+       ('vice-president', $1, 'vice_president'),
+       ('president', $2, 'president')`,
+    [bocconiId, sapienzaId],
+  );
+
+  const memberships = await database.query(
+    `SELECT discord_user_id FROM member_divisions
+      WHERE discord_user_id IN ('vice-president', 'president')`,
+  );
+  assert.equal(memberships.rowCount, 0);
+
+  const assignments = await database.query(
+    `SELECT discord_user_id, role, active
+       FROM board_assignments
+      WHERE discord_user_id IN ('vice-president', 'president')
+      ORDER BY discord_user_id, role`,
+  );
+  assert.deepEqual(assignments.rows, [
+    { discord_user_id: 'president', role: 'head', active: false },
+    { discord_user_id: 'president', role: 'president', active: true },
+    { discord_user_id: 'vice-president', role: 'head', active: false },
+    { discord_user_id: 'vice-president', role: 'vice_president', active: true },
+  ]);
+});
+
+test('executive exclusivity backfills legacy member divisions and Head assignments', async () => {
+  await database.resetPublicSchema();
+  const temporaryDir = await mkdtemp(path.join(os.tmpdir(), 'bainsa-migrations-before-010-'));
+
+  try {
+    for (const filename of await readdir(migrationsDir)) {
+      if (!filename.endsWith('.sql') || ['010_enforce_executive_division_exclusivity.sql', '014_repair_executive_exclusivity.sql'].includes(filename)) continue;
+      await copyFile(path.join(migrationsDir, filename), path.join(temporaryDir, filename));
+    }
+    await migrate({ migrationsDir: temporaryDir });
+
+    const universityId = await insertUniversity('Bocconi');
+    const division = await database.query(
+      `INSERT INTO divisions (university_id, name, color)
+       VALUES ($1, 'Analysis', 'orange') RETURNING id`,
+      [universityId],
+    );
+    await database.query(
+      `INSERT INTO members (discord_user_id, university_id, member_type)
+       VALUES ('legacy-executive', $1, 'researcher')`,
+      [universityId],
+    );
+    await database.query('ALTER TABLE board_assignments DISABLE TRIGGER USER');
+    try {
+      await database.query(
+        `INSERT INTO member_divisions (discord_user_id, division_id)
+         VALUES ('legacy-executive', $1)`,
+        [division.rows[0].id],
+      );
+      await database.query(
+        `INSERT INTO board_assignments (discord_user_id, university_id, division_id, role)
+         VALUES
+           ('legacy-executive', $1, $2, 'head'),
+           ('legacy-executive', $1, NULL, 'vice_president')`,
+        [universityId, division.rows[0].id],
+      );
+    } finally {
+      await database.query('ALTER TABLE board_assignments ENABLE TRIGGER USER');
+    }
+
+    const migrated = await migrate();
+    assert.deepEqual(
+      migrated.appliedNow.map((migration) => migration.filename),
+      ['010_enforce_executive_division_exclusivity.sql', '014_repair_executive_exclusivity.sql'],
+    );
+    assert.equal(
+      (await database.query(
+        "SELECT count(*)::int AS count FROM member_divisions WHERE discord_user_id = 'legacy-executive'",
+      )).rows[0].count,
+      0,
+    );
+    const assignments = await database.query(
+      `SELECT role, active
+         FROM board_assignments
+        WHERE discord_user_id = 'legacy-executive'
+        ORDER BY role`,
+    );
+    assert.deepEqual(assignments.rows, [
+      { role: 'head', active: false },
+      { role: 'vice_president', active: true },
+    ]);
+  } finally {
+    await rm(temporaryDir, { recursive: true, force: true });
+  }
+});
+
+test('executive exclusivity fails closed above READ COMMITTED isolation', async () => {
+  await resetAndMigrate();
+  const universityId = await insertUniversity('Bocconi');
+  const division = await database.query(
+    `INSERT INTO divisions (university_id, name, color)
+     VALUES ($1, 'Analysis', 'orange') RETURNING id`,
+    [universityId],
+  );
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type)
+     VALUES ('repeatable-read-member', $1, 'researcher')`,
+    [universityId],
+  );
+
+  await assert.rejects(
+    database.transaction(async (q) => {
+      await q.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+      await q.query(
+        `INSERT INTO board_assignments (discord_user_id, university_id, role)
+         VALUES ('repeatable-read-member', $1, 'vice_president')`,
+        [universityId],
+      );
+    }),
+    /requires READ COMMITTED/i,
+  );
+
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, role)
+     VALUES ('repeatable-read-member', $1, 'vice_president')`,
+    [universityId],
+  );
+  await assert.rejects(
+    database.transaction(async (q) => {
+      await q.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+      await q.query(
+        `INSERT INTO member_divisions (discord_user_id, division_id)
+         VALUES ('repeatable-read-member', $1)`,
+        [division.rows[0].id],
+      );
+    }),
+    /requires READ COMMITTED/i,
+  );
+});
+
+test('division university ownership is immutable', async () => {
+  await resetAndMigrate();
+  const bocconiId = await insertUniversity('Bocconi');
+  const sapienzaId = await insertUniversity('Sapienza');
+  const division = await database.query(
+    `INSERT INTO divisions (university_id, name, color)
+     VALUES ($1, 'Analysis', 'orange') RETURNING id`,
+    [bocconiId],
+  );
+
+  await assert.rejects(
+    database.query(
+      'UPDATE divisions SET university_id = $1 WHERE id = $2',
+      [sapienzaId, division.rows[0].id],
+    ),
+    /division university_id is immutable/i,
+  );
+  await database.query(
+    'UPDATE divisions SET university_id = $1 WHERE id = $2',
+    [bocconiId, division.rows[0].id],
+  );
+  assert.equal(
+    (await database.query('SELECT university_id FROM divisions WHERE id = $1', [division.rows[0].id])).rows[0]
+      .university_id,
+    bocconiId,
+  );
 });
 
 test('refuses checksum drift after migrations have been applied', async () => {
@@ -195,7 +610,7 @@ test('upgrades the tracked legacy university and division shape in place', async
   );
 
   const result = await migrate();
-  assert.equal(result.applied, 5);
+  assert.equal(result.applied, 19);
   assert.equal(result.recordedNotLocal, 1);
 
   const university = await database.query(

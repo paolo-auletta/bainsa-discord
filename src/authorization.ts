@@ -2,8 +2,6 @@ import { BOARD_ROLES, ROLE_NAMES } from './constants.js';
 import { assertUser } from './errors.js';
 import { divisionHeadRoleName, universityBoardRoleName } from './naming.js';
 
-const USER_LIST_OPTIONS = new Set(['members', 'supervisors']);
-
 export function botUserId(context) {
   return context?.client?.user?.id
     ?? context?.guild?.members?.me?.id
@@ -27,7 +25,6 @@ export function assertNoBotCommandTarget(interaction) {
   const visit = (options = []) => {
     for (const option of options) {
       if (option.type === 6 && String(option.value) === String(botId)) return true;
-      if (USER_LIST_OPTIONS.has(option.name) && listContainsUserId(option.value, botId)) return true;
       if (visit(option.options)) return true;
     }
     return false;
@@ -36,17 +33,17 @@ export function assertNoBotCommandTarget(interaction) {
   assertUser(!visit(interaction.options?.data), 'The Bot member cannot be managed or assigned by commands.');
 }
 
-function listContainsUserId(value, userId) {
-  const escaped = String(userId).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?:^|[\\s,;])(?:<@!?${escaped}>|${escaped})(?=$|[\\s,;])`).test(String(value ?? ''));
-}
-
 export function hasRole(member, roleName) {
   return member.roles.cache.some((role) => role.name === roleName);
 }
 
 export function isGlobalPresident(member) {
   return hasRole(member, ROLE_NAMES.GLOBAL_PRESIDENT);
+}
+
+/** The single runtime predicate for current cross-university authority. */
+export function hasGlobalAuthority(member) {
+  return isGlobalPresident(member);
 }
 
 export function isUniversityPresident(member, universityName) {

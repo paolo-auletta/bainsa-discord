@@ -17,27 +17,24 @@ const roles = [
   { id: 'bocconi-vp', name: 'Bocconi - Vice President' },
   { id: 'bocconi-head', name: 'Bocconi - Head of Projects' },
   { id: 'member', name: 'Researcher' },
+  { id: 'alumni', name: 'Alumni' },
 ];
 
 test('every registered command has a deliberate board-visibility policy', () => {
   assert.deepEqual(Object.keys(COMMAND_VISIBILITY).sort(), [
-    'board-assign',
     'board-info',
-    'board-remove',
+    'board-update',
     'division-add-member',
     'division-create',
     'division-remove-member',
-    'division-rename',
+    'division-update',
     'guide',
-    'member-add',
     'member-info',
     'member-remove',
     'member-update',
-    'project-add-member',
     'project-close',
     'project-create',
     'project-info',
-    'project-remove-member',
     'project-update',
   ]);
 });
@@ -46,6 +43,68 @@ test('role visibility tiers expose only the intended board levels', () => {
   assert.deepEqual(visibleRoleIds('president', roles), ['global', 'bocconi-president']);
   assert.deepEqual(visibleRoleIds('executive', roles), ['global', 'bocconi-president', 'bocconi-vp']);
   assert.deepEqual(visibleRoleIds('board', roles), ['global', 'bocconi-president', 'bocconi-vp', 'bocconi-head']);
+  assert.deepEqual(
+    visibleRoleIds('project', roles),
+    ['global', 'bocconi-president', 'bocconi-vp', 'bocconi-head', 'member', 'alumni'],
+  );
+});
+
+test('board update is visible to university Vice Presidents', () => {
+  const scope = { kind: 'university', universityName: 'Bocconi' };
+  const vicePresident = memberWithRoles(['Bocconi - Vice President']);
+
+  assert.equal(canDiscoverCommand({ commandName: 'board-update', member: vicePresident, channelScope: scope }), true);
+});
+
+test('a Global President who also holds a local board role can use both bot logs', () => {
+  const member = memberWithRoles(['Global President', 'Bocconi - President']);
+
+  assert.equal(
+    canDiscoverCommand({
+      commandName: 'board-update',
+      member,
+      channelScope: { kind: 'global' },
+    }),
+    true,
+  );
+  assert.equal(
+    canDiscoverCommand({
+      commandName: 'board-update',
+      member,
+      channelScope: { kind: 'university', universityName: 'Bocconi' },
+    }),
+    true,
+  );
+});
+
+test('global Presidents can discover every membership and board panel', () => {
+  const globalPresident = memberWithRoles(['Global President']);
+  const scope = { kind: 'global' };
+
+  for (const commandName of [
+    'board-update',
+    'division-add-member',
+    'division-remove-member',
+  ]) {
+    assert.equal(canDiscoverCommand({ commandName, member: globalPresident, channelScope: scope }), true);
+  }
+
+  const boardPermissions = buildCommandPermissionOverwrites({
+    commandName: 'board-update',
+    guildId: 'guild',
+    roles,
+  });
+  assert.equal(boardPermissions.some((permission) => permission.id === 'global' && permission.permission), true);
+});
+
+test('only project-scoped commands are discoverable inside a project channel', () => {
+  const scope = { kind: 'project', projectId: '42' };
+  const researcher = memberWithRoles(['Researcher']);
+
+  assert.equal(canDiscoverCommand({ commandName: 'project-info', member: researcher, channelScope: scope }), true);
+  assert.equal(canDiscoverCommand({ commandName: 'project-update', member: researcher, channelScope: scope }), true);
+  assert.equal(canDiscoverCommand({ commandName: 'project-create', member: researcher, channelScope: scope }), false);
+  assert.equal(canDiscoverCommand({ commandName: 'member-info', member: researcher, channelScope: scope }), false);
 });
 
 test('command overwrites deny everyone and explicitly allow only the selected roles', () => {
@@ -103,12 +162,14 @@ test('autocomplete visibility applies board tier and university command-channel 
   const head = memberWithRoles(['Bocconi - Head of Projects']);
   const ordinaryMember = memberWithRoles(['Researcher']);
 
-  assert.equal(canDiscoverCommand({ commandName: 'division-create', member: globalPresident, channelScope: scope }), true);
+  assert.equal(canDiscoverCommand({ commandName: 'division-create', member: globalPresident, channelScope: scope }), false);
+  assert.equal(
+    canDiscoverCommand({ commandName: 'division-create', member: globalPresident, channelScope: { kind: 'global' } }),
+    true,
+  );
   assert.equal(canDiscoverCommand({ commandName: 'division-create', member: president, channelScope: scope }), true);
   assert.equal(canDiscoverCommand({ commandName: 'division-create', member: vicePresident, channelScope: scope }), false);
   assert.equal(canDiscoverCommand({ commandName: 'division-create', member: head, channelScope: scope }), false);
-  assert.equal(canDiscoverCommand({ commandName: 'member-add', member: vicePresident, channelScope: scope }), true);
-  assert.equal(canDiscoverCommand({ commandName: 'member-add', member: head, channelScope: scope }), false);
   assert.equal(canDiscoverCommand({ commandName: 'project-create', member: head, channelScope: scope }), true);
   assert.equal(canDiscoverCommand({ commandName: 'project-create', member: ordinaryMember, channelScope: scope }), false);
   assert.equal(canDiscoverCommand({ commandName: 'guide', member: head, channelScope: scope }), true);

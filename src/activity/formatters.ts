@@ -1,40 +1,33 @@
-import { EmbedBuilder } from 'discord.js';
+import { divisionColorDetails, PROJECT_PERSON_ROLES } from '../constants.js';
+import {
+  channelReference,
+  renderEventCard,
+  truncateText,
+  userReference,
+} from '../messages/index.js';
+import { memberTypeLabel } from '../services/governance/policy.js';
+import { formatPeopleLine, projectStatusLabel } from '../services/projects/formatters.js';
 
-import { BOARD_ROLES, PROJECT_PERSON_ROLES } from '../constants.js';
-import { boardRoleLabel, memberTypeLabel } from '../services/governance/policy.js';
-import { formatPeopleLine } from '../services/projects/formatters.js';
-
-const ACTIVITY_COLORS = Object.freeze({
-  add: 0x27ae60,
-  update: 0xf2994a,
-  remove: 0xd7263d,
-  close: 0x5865f2,
-});
-
-const ACTIVITY_STYLES = Object.freeze({
-  add: Object.freeze({ icon: '🟢', color: ACTIVITY_COLORS.add }),
-  update: Object.freeze({ icon: '🟠', color: ACTIVITY_COLORS.update }),
-  remove: Object.freeze({ icon: '🔴', color: ACTIVITY_COLORS.remove }),
-  close: Object.freeze({ icon: '🔵', color: ACTIVITY_COLORS.close }),
+const ACTIVITY_TONES = Object.freeze({
+  add: 'success',
+  update: 'changed',
+  remove: 'danger',
+  close: 'brand',
 });
 
 const FIELD_VALUE_LIMIT = 1_024;
 const OUTCOME_LIMIT = 900;
 
 function truncate(value, limit = FIELD_VALUE_LIMIT) {
-  const text = String(value ?? '').trim();
-  if (text.length <= limit) return text || 'None';
-  return `${text.slice(0, limit - 1).trimEnd()}…`;
+  return truncateText(value, limit, 'Not recorded');
 }
 
 function mention(userOrId) {
-  const id = typeof userOrId === 'object' ? userOrId?.id : userOrId;
-  return id ? `<@${id}>` : 'Unknown member';
+  return userReference(userOrId);
 }
 
 function channelMention(channelOrId, fallback = 'Not provisioned') {
-  const id = typeof channelOrId === 'object' ? channelOrId?.id : channelOrId;
-  return id ? `<#${id}>` : fallback;
+  return channelReference(channelOrId, fallback);
 }
 
 function scope(universityName, divisionName = null) {
@@ -49,6 +42,15 @@ function list(values = []) {
   return values.length ? values.join(', ') : 'None';
 }
 
+function activityPeopleLine(people, role) {
+  return formatPeopleLine(
+    people,
+    role,
+    900,
+    (person) => mention({ ...(person.user ?? {}), id: person.discord_user_id }),
+  );
+}
+
 function sameList(left, right) {
   const normalize = (values) => [...new Set(values.map((value) => String(value).toLowerCase()))].sort();
   return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
@@ -61,15 +63,8 @@ function projectRoleLabel(role) {
     .join(' ');
 }
 
-function boardRoleDescription(role, division = null) {
-  if (role === BOARD_ROLES.HEAD) {
-    return division ? `Head of ${division.name ?? division}` : 'All Head roles';
-  }
-  return boardRoleLabel(role);
-}
-
 function field(name, value, inline = false) {
-  return { name, value: truncate(value), inline };
+  return { label: name, value: truncate(value), inline };
 }
 
 function activity({
@@ -82,39 +77,29 @@ function activity({
   fields = [],
   actorId,
 }) {
-  const style = ACTIVITY_STYLES[kind];
-  const embed = new EmbedBuilder()
-    .setColor(style.color)
-    .setTitle(`${style.icon} ${title}`)
-    .addFields(
-      field(subjectLabel, subject),
-      field('Scope', scope(universityName, divisionName)),
-      ...fields.filter(Boolean),
-      field('Performed by', mention(actorId)),
-    );
-  return { embeds: [embed] };
+  const normalizedFields = fields.filter(Boolean);
+  const result = normalizedFields.find((item) => item.label === 'Result' || item.label === 'Outcome');
+  const discordState = normalizedFields.find((item) => item.label === 'Discord state');
+  const details = normalizedFields.filter((item) => item !== result && item !== discordState);
+
+  return renderEventCard({
+    kind: 'event-card',
+    tone: ACTIVITY_TONES[kind],
+    title,
+    subject: field(subjectLabel, subject),
+    scope: scope(universityName, divisionName),
+    details,
+    result,
+    discordState: discordState?.value,
+    actor: mention(actorId),
+    audience: 'board',
+  });
 }
 
 function reconciliationField(project, successText) {
   return project.reconciliation_pending
     ? field('Discord state', 'Reconciliation is in progress; the Discord change will complete automatically.')
     : field('Discord state', successText);
-}
-
-function memberAdd({ actorId, result }) {
-  const divisions = names(result.divisions);
-  return activity({
-    kind: 'add',
-    title: 'Member added',
-    subjectLabel: 'Member',
-    subject: mention(result.target),
-    universityName: result.university.name,
-    fields: [
-      field('Member type', memberTypeLabel(result.memberType)),
-      ...(divisions.length ? [field('Divisions', list(divisions))] : []),
-    ],
-    actorId,
-  });
 }
 
 function memberUpdate({ actorId, result }) {
@@ -148,13 +133,27 @@ function memberRemove({ actorId, result }) {
   const cleanupWarning = result.overwriteCleanup?.failures?.length
     ? 'The member was removed. Some project-channel access cleanup requires review.'
     : 'The member was removed from the server.';
+  const discordState = result.discordRemoval?.status === 'pending_recovery'
+    ? result.discordRemoval.managedRolesRemoved
+      ? 'Canonical membership is removed. The server kick is pending recovery; managed roles were removed.'
+      : 'Canonical membership is removed. The server kick and some managed-role cleanup need immediate recovery.'
+    : 'The server removal completed.';
+  const handoffState = result.notificationDelivery?.status === 'delivered'
+    ? 'Private policy-safe handoff delivered before server removal.'
+    : result.notificationDelivery
+      ? 'Private handoff was not confirmed; review notification health in `/board-info`.'
+      : 'No new handoff delivery record was created for this repair attempt.';
   return activity({
     kind: 'remove',
     title: 'Member removed',
     subjectLabel: 'Member',
     subject: mention(result.target),
     universityName: result.universityName,
-    fields: [field('Result', cleanupWarning)],
+    fields: [
+      field('Result', cleanupWarning),
+      field('Member handoff', handoffState),
+      field('Discord state', discordState),
+    ],
     actorId,
   });
 }
@@ -179,14 +178,20 @@ function divisionCreate({ actorId, result }) {
   });
 }
 
-function divisionRename({ actorId, result }) {
+function divisionUpdate({ actorId, result }) {
+  const nameChanged = result.oldName !== result.newName;
+  const colorChanged = result.oldColor !== result.newColor;
+  const oldColor = divisionColorDetails(result.oldColor);
+  const newColor = divisionColorDetails(result.newColor);
   return activity({
     kind: 'update',
-    title: 'Division renamed',
+    title: 'Division updated',
     subjectLabel: 'Division',
-    subject: `${result.oldName} → ${result.newName}`,
+    subject: nameChanged ? `${result.oldName} → ${result.newName}` : result.newName,
     universityName: result.university.name,
-    fields: [],
+    fields: colorChanged
+      ? [field('Color', `${oldColor?.label ?? result.oldColor} → ${newColor?.label ?? result.newColor}`)]
+      : [],
     actorId,
   });
 }
@@ -204,15 +209,24 @@ function divisionMember({ actorId, result }, kind) {
   });
 }
 
-function boardRole({ actorId, result }, kind) {
+function boardUpdate({ actorId, result }) {
+  const changes = (result.positionChanges ?? []).map((change) => {
+    const current = change.currentUserIds?.length
+      ? change.currentUserIds.map((userId) => mention(userId)).join(', ')
+      : 'Vacant';
+    const next = change.nextUserIds?.length
+      ? change.nextUserIds.map((userId) => mention(userId)).join(', ')
+      : 'Vacant';
+    return `• ${change.label}: ${current} → ${next}`;
+  });
+  if (changes.length === 0) return null;
   return activity({
-    kind,
-    title: kind === 'add' ? 'Board role assigned' : 'Board role removed',
-    subjectLabel: 'Member',
-    subject: mention(result.target),
+    kind: 'update',
+    title: 'Board updated',
+    subjectLabel: 'University',
+    subject: result.university.name,
     universityName: result.university.name,
-    divisionName: result.division?.name ?? null,
-    fields: [field('Role', boardRoleDescription(result.role, result.division))],
+    fields: [field('Position changes', changes.join('\n'))],
     actorId,
   });
 }
@@ -227,49 +241,13 @@ function projectCreate({ actorId, result }) {
     universityName: project.university_name,
     divisionName: project.division_name,
     fields: [
-      field('Members', formatPeopleLine(project.people ?? [], PROJECT_PERSON_ROLES.MEMBER, 900)),
-      field('Supervisors', formatPeopleLine(project.people ?? [], PROJECT_PERSON_ROLES.SUPERVISOR, 900)),
+      field('Members', activityPeopleLine(project.people ?? [], PROJECT_PERSON_ROLES.MEMBER)),
+      field('Supervisors', activityPeopleLine(project.people ?? [], PROJECT_PERSON_ROLES.SUPERVISOR)),
       field('Timeline', `${project.start_date} → ${project.expected_end}`),
       reconciliationField(
         project,
         `Project channel: ${channelMention(project.discord_channel_id)}`,
       ),
-    ],
-    actorId,
-  });
-}
-
-function projectParticipant({ actorId, result }, kind) {
-  const project = result.project;
-  const participant = result.participant;
-  if (kind === 'add' && participant.previousRole === participant.role) return null;
-  const roleChanged = kind === 'add'
-    && participant.previousRole
-    && participant.previousRole !== participant.role;
-  const title = kind === 'remove'
-    ? 'Project participant removed'
-    : roleChanged
-      ? 'Project participant updated'
-      : 'Project participant added';
-  const activityKind = roleChanged ? 'update' : kind;
-  const details = roleChanged
-    ? `${mention(participant.userId)}\nRole: ${projectRoleLabel(participant.previousRole)} → ${projectRoleLabel(participant.role)}`
-    : kind === 'remove'
-      ? mention(participant.userId)
-      : `${mention(participant.userId)} · ${projectRoleLabel(participant.role)}`;
-
-  return activity({
-    kind: activityKind,
-    title,
-    subjectLabel: 'Project',
-    subject: project.name,
-    universityName: project.university_name,
-    divisionName: project.division_name,
-    fields: [
-      field('Participant', details),
-      ...(project.reconciliation_pending
-        ? [reconciliationField(project, 'Project access updated.')]
-        : []),
     ],
     actorId,
   });
@@ -283,8 +261,23 @@ function projectUpdate({ actorId, result }) {
   if (before.expected_end !== project.expected_end) {
     changes.push(`• Expected end: ${before.expected_end} → ${project.expected_end}`);
   }
-  if (before.status !== project.status) changes.push(`• Status: ${before.status} → ${project.status}`);
-  if (changes.length === 0) return null;
+  if (before.summary !== project.summary) changes.push('• Public summary updated');
+  if (before.status !== project.status) {
+    changes.push(`• Status: ${projectStatusLabel(before.status)} → ${projectStatusLabel(project.status)}`);
+  }
+  const participantChanges = result.participantChanges ?? {};
+  const teamChanges = [
+    ...(participantChanges.added ?? []).map(
+      (person) => `• Added <@${person.userId}> · ${projectRoleLabel(person.role)}`,
+    ),
+    ...(participantChanges.roleChanged ?? []).map(
+      (person) => `• <@${person.userId}>: ${projectRoleLabel(person.previousRole)} → ${projectRoleLabel(person.role)}`,
+    ),
+    ...(participantChanges.removed ?? []).map(
+      (person) => `• Removed <@${person.userId}> · ${projectRoleLabel(person.role)}`,
+    ),
+  ];
+  if (changes.length === 0 && teamChanges.length === 0) return null;
 
   return activity({
     kind: 'update',
@@ -294,7 +287,8 @@ function projectUpdate({ actorId, result }) {
     universityName: project.university_name,
     divisionName: project.division_name,
     fields: [
-      field('Changes', changes.join('\n')),
+      ...(changes.length > 0 ? [field('Project changes', changes.join('\n'))] : []),
+      ...(teamChanges.length > 0 ? [field('Team changes', teamChanges.join('\n'))] : []),
       ...(project.reconciliation_pending
         ? [reconciliationField(project, 'Project Discord state updated.')]
         : []),
@@ -324,18 +318,14 @@ function projectClose({ actorId, result }) {
 }
 
 const FORMATTERS = Object.freeze({
-  'member-add': memberAdd,
   'member-update': memberUpdate,
   'member-remove': memberRemove,
   'division-create': divisionCreate,
-  'division-rename': divisionRename,
+  'division-update': divisionUpdate,
   'division-add-member': (input) => divisionMember(input, 'add'),
   'division-remove-member': (input) => divisionMember(input, 'remove'),
-  'board-assign': (input) => boardRole(input, 'add'),
-  'board-remove': (input) => boardRole(input, 'remove'),
+  'board-update': boardUpdate,
   'project-create': projectCreate,
-  'project-add-member': (input) => projectParticipant(input, 'add'),
-  'project-remove-member': (input) => projectParticipant(input, 'remove'),
   'project-update': projectUpdate,
   'project-close': projectClose,
 });

@@ -23,6 +23,11 @@ export const PROJECT_STATUSES = Object.freeze({
   ARCHIVED: 'archived',
 });
 
+export const OPEN_PROJECT_STATUSES = Object.freeze([
+  PROJECT_STATUSES.ACTIVE,
+  PROJECT_STATUSES.PAUSED,
+]);
+
 // Discord's official API error-code documentation defines error 30060 as
 // "Maximum number of channel permission overwrites reached (1000)":
 // https://discord.com/developers/topics/opcodes-and-status-codes

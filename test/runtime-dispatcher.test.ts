@@ -1,15 +1,91 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { replyBoardActivity, replyEphemeral } from '../src/discord/reply.js';
+import { commands } from '../src/commands/index.js';
+import { postUniversityBoardActivity } from '../src/activity/router.js';
+import { handleInteractionError, replyBoardActivity, replyEphemeral } from '../src/discord/reply.js';
 import { UserFacingError } from '../src/errors.js';
+import { guideInteractions } from '../src/guide/service.js';
+import { createOnboardingService } from '../src/onboarding/service.js';
+import { createProfileService } from '../src/profiles/index.js';
 import { assertUniqueCommandNames, buildCommandMap, serializeCommands } from '../src/runtime/command-registry.js';
+import { composeInteractionDispatcher } from '../src/runtime/dispatcher-composition.js';
 import { createInteractionDispatcher, routeInteraction } from '../src/runtime/dispatcher.js';
+import { boardUpdatePanel } from '../src/services/governance/board-update-panel.js';
+import { boardInfoPanel } from '../src/services/governance/board-info-panel.js';
+import { governanceMembershipPanels } from '../src/services/governance/membership-panels.js';
+import { governanceCommandPanels } from '../src/services/governance/panels.js';
+import { projectCreateSetup } from '../src/services/projects/index.js';
+import { projectManagementPanels } from '../src/services/projects/management-panels.js';
+
+function payloadText(payload) {
+  const queue = [...(payload.components ?? []).map((component) => component.toJSON?.() ?? component)];
+  const content = [];
+  while (queue.length > 0) {
+    const component = queue.shift();
+    if (component.content) content.push(component.content);
+    if (component.components) queue.push(...component.components);
+  }
+  return content.join('\n');
+}
+
+test('production dispatcher composition includes every handler in dispatch order with disjoint custom-ID namespaces', () => {
+  const onboarding = createOnboardingService();
+  const profiles = createProfileService();
+  const composition = composeInteractionDispatcher({
+    commands,
+    governanceCommandPanels,
+    governanceMembershipPanels,
+    boardUpdatePanel,
+    boardInfoPanel,
+    projectManagementPanels,
+    onboarding,
+    guide: guideInteractions,
+    projectSetup: projectCreateSetup,
+    profiles,
+  });
+
+  assert.deepEqual(composition.componentHandlers, [
+    governanceCommandPanels,
+    governanceMembershipPanels,
+    boardUpdatePanel,
+    boardInfoPanel,
+    projectManagementPanels,
+  ]);
+  assert.equal(composition.commands, commands);
+
+  const handlers = [
+    ...composition.componentHandlers,
+    composition.onboarding,
+    composition.guide,
+    composition.projectSetup,
+    composition.profiles,
+  ];
+  const samples = [
+    'gm:session:dcu',
+    'gmm:session:t',
+    'gbu:session:e',
+    'gbi:session:u',
+    'pm:session:up',
+    'ob:start',
+    'guide:v1:user:topic:projects',
+    'pc:session:crt',
+    'pf:start',
+  ];
+
+  for (const customId of samples) {
+    assert.equal(
+      handlers.filter((handler) => handler?.canHandle(customId)).length,
+      1,
+      `Expected exactly one production handler for ${customId}`,
+    );
+  }
+});
 
 test('command registry rejects duplicate command names', () => {
   assert.throws(
-    () => assertUniqueCommandNames([{ name: 'member-add' }, { data: { name: 'member-add' } }]),
-    /Duplicate slash command name: member-add/,
+    () => assertUniqueCommandNames([{ name: 'test-command' }, { data: { name: 'test-command' } }]),
+    /Duplicate slash command name: test-command/,
   );
 });
 
@@ -17,15 +93,15 @@ test('command registry serializes builder-like command data', () => {
   const commands = [
     {
       data: {
-        name: 'member-add',
-        toJSON: () => ({ name: 'member-add', description: 'Add member' }),
+        name: 'test-command',
+        toJSON: () => ({ name: 'test-command', description: 'Test command' }),
       },
       execute: async () => undefined,
     },
   ];
 
-  assert.equal(buildCommandMap(commands).get('member-add'), commands[0]);
-  assert.deepEqual(serializeCommands(commands), [{ name: 'member-add', description: 'Add member' }]);
+  assert.equal(buildCommandMap(commands).get('test-command'), commands[0]);
+  assert.deepEqual(serializeCommands(commands), [{ name: 'test-command', description: 'Test command' }]);
 });
 
 test('command registry uses the serialized name for dispatch and uniqueness', () => {
@@ -71,9 +147,9 @@ test('dispatcher routes chat input commands', async () => {
   const dispatch = createInteractionDispatcher({
     commands: [
       {
-        name: 'ping',
+        name: 'project-create',
         execute: async (interaction) => {
-          executed = interaction.commandName === 'ping';
+          executed = interaction.commandName === 'project-create';
         },
       },
     ],
@@ -81,7 +157,8 @@ test('dispatcher routes chat input commands', async () => {
   });
 
   await dispatch({
-    commandName: 'ping',
+    commandName: 'project-create',
+    member: memberWithRoles(['Global President']),
     channel: { name: 'bot-log', parent: { name: 'LOGS' } },
     isChatInputCommand: () => true,
     isAutocomplete: () => false,
@@ -110,6 +187,7 @@ test('dispatcher blocks bot-targeting commands before execution', async () => {
 
   await dispatch({
     commandName: 'member-remove',
+    member: memberWithRoles(['Global President']),
     channel: { name: 'bot-log', parent: { name: 'LOGS' } },
     client: { user: { id: '99999999999999999' } },
     options: { data: [{ type: 6, name: 'user', value: '99999999999999999' }] },
@@ -123,6 +201,43 @@ test('dispatcher blocks bot-targeting commands before execution', async () => {
 
   assert.equal(executed, false);
   assert.match(captured.message, /cannot be managed or assigned/);
+});
+
+test('private error recovery distinguishes authorization, stale controls, and committed reconciliation state', async () => {
+  const replies = [];
+  const interaction = {
+    commandName: 'board-update',
+    user: { id: 'actor' },
+    async reply(payload) { replies.push(payload); },
+  };
+
+  await handleInteractionError(interaction, new UserFacingError('Choose a valid division before continuing.'));
+  assert.match(payloadText(replies.at(-1)), /Action needs attention/);
+  assert.match(payloadText(replies.at(-1)), /No shared BAINSA state was changed/);
+  assert.match(payloadText(replies.at(-1)), /Correct the condition described above/);
+
+  await handleInteractionError(interaction, new UserFacingError('Only a President can update this board.'));
+  assert.match(payloadText(replies.at(-1)), /outside your current access/i);
+  assert.match(payloadText(replies.at(-1)), /What was preserved/);
+
+  await handleInteractionError(interaction, new UserFacingError('The board changed while this panel was open. Reload it.'));
+  assert.match(payloadText(replies.at(-1)), /no longer current/i);
+  assert.match(payloadText(replies.at(-1)), /Reload the current record or roster/i);
+
+  await handleInteractionError(interaction, new UserFacingError(
+    'The member record was removed, but Discord access cleanup is pending.',
+    {
+      recovery: {
+        kind: 'reconciliation',
+        preservedState: 'The member record remains removed; access cleanup is queued.',
+        correction: 'Do not repeat the removal. Wait for reconciliation or contact an administrator.',
+        continueWith: 'Check the member’s Discord access after reconciliation completes.',
+      },
+    },
+  ));
+  assert.match(payloadText(replies.at(-1)), /Change saved; Discord follow-up needs attention/);
+  assert.match(payloadText(replies.at(-1)), /member record remains removed/);
+  assert.match(payloadText(replies.at(-1)), /Do not repeat the removal/);
 });
 
 function autocompleteInteraction({ member, channel }) {
@@ -197,18 +312,40 @@ test('dispatcher invokes autocomplete for every authorized board tier', async ()
     }],
     onError: async () => assert.fail('unexpected error handler call'),
   });
-  const channel = { name: 'bot-log', parent: { name: 'BAINSA BOCCONI' } };
-
-  for (const roles of [
-    ['Global President'],
-    ['Bocconi - President'],
-    ['Bocconi - Vice President'],
-    ['Bocconi - Head of Projects'],
+  for (const { roles, channel } of [
+    { roles: ['Global President'], channel: { name: 'bot-log', parent: { name: 'LOGS' } } },
+    { roles: ['Bocconi - President'], channel: { name: 'bot-log', parent: { name: 'BAINSA BOCCONI' } } },
+    { roles: ['Bocconi - Vice President'], channel: { name: 'bot-log', parent: { name: 'BAINSA BOCCONI' } } },
+    { roles: ['Bocconi - Head of Projects'], channel: { name: 'bot-log', parent: { name: 'BAINSA BOCCONI' } } },
   ]) {
     await dispatch(autocompleteInteraction({ member: memberWithRoles(roles), channel }));
   }
 
   assert.equal(invocations, 4);
+});
+
+test('dispatcher rejects a command from a bot-log outside the actor’s allowed scope', async () => {
+  let executed = false;
+  let captured;
+  const dispatch = createInteractionDispatcher({
+    commands: [{ name: 'project-create', execute: async () => { executed = true; } }],
+    onError: async (_interaction, error) => { captured = error; },
+  });
+
+  await dispatch({
+    commandName: 'project-create',
+    member: memberWithRoles(['Bocconi - Head of Projects']),
+    channel: { name: 'bot-log', parent: { name: 'BAINSA SAPIENZA' } },
+    isChatInputCommand: () => true,
+    isAutocomplete: () => false,
+    isButton: () => false,
+    isStringSelectMenu: () => false,
+    isModalSubmit: () => false,
+    isRepliable: () => true,
+  });
+
+  assert.equal(executed, false);
+  assert.match(captured.message, /not available in this channel/);
 });
 
 test('deferred ephemeral replies edit the original response', async () => {
@@ -222,7 +359,8 @@ test('deferred ephemeral replies edit the original response', async () => {
     followUp: async () => assert.fail('deferred reply should be edited'),
   }, 'Completed.');
 
-  assert.deepEqual(edited, { content: 'Completed.' });
+  assert.match(payloadText(edited), /^\*\*Update\*\*\nCompleted\.$/);
+  assert.deepEqual(edited.allowedMentions, { parse: [] });
 });
 
 test('board activity replies are posted once with a private acknowledgement', async () => {
@@ -245,7 +383,54 @@ test('board activity replies are posted once with a private acknowledgement', as
     allowedMentions: { parse: [] },
     embeds: [{ title: 'Activity' }],
   });
-  assert.deepEqual(edited, { content: 'Activity posted in this channel.' });
+  assert.match(payloadText(edited), /^\*\*Change saved\*\*\nActivity posted in this channel\.$/);
+});
+
+test('Global President activity is mirrored to the global and affected university bot logs', async () => {
+  const universityMessages = [];
+  const globalMessages = [];
+  const universityChannel = {
+    id: 'bocconi-log', name: 'bot-log', parent: { name: 'BAINSA BOCCONI' },
+    async send(payload) { universityMessages.push(payload); },
+  };
+  const globalChannel = {
+    id: 'global-log', name: 'bot-log', parent: { name: 'LOGS' },
+    async send(payload) { globalMessages.push(payload); },
+  };
+
+  const delivery = await postUniversityBoardActivity({
+    commandName: 'board-update',
+    user: { id: 'global-president' },
+    member: { roles: { cache: [{ name: 'Global President' }] } },
+    channel: globalChannel,
+    guild: { channels: { cache: new Map([
+      [universityChannel.id, universityChannel],
+      [globalChannel.id, globalChannel],
+    ]) } },
+  }, { embeds: [{ title: 'Board updated' }] }, 'Bocconi');
+
+  assert.equal(delivery.status, 'posted');
+  assert.equal(universityMessages.length, 1);
+  assert.equal(globalMessages.length, 1);
+});
+
+test('project-channel mutations can route governance activity to the scoped bot log', async () => {
+  let sent;
+  let edited;
+  await replyBoardActivity({
+    deferred: true,
+    replied: false,
+    channel: { id: 'project', async send() { assert.fail('project channel is not the audit destination'); } },
+    editReply: async (payload) => { edited = payload; },
+  }, { embeds: [{ title: 'Activity' }] }, {
+    channel: { id: 'bot-log', async send(payload) { sent = payload; } },
+  });
+
+  assert.deepEqual(sent, {
+    allowedMentions: { parse: [] },
+    embeds: [{ title: 'Activity' }],
+  });
+  assert.match(payloadText(edited), /Activity posted in <#bot-log>\./);
 });
 
 test('private-only updates never send a board activity message', async () => {
@@ -265,13 +450,13 @@ test('private-only updates never send a board activity message', async () => {
   }, null);
 
   assert.equal(sent, false);
-  assert.deepEqual(edited, { content: 'Update saved. No board-visible fields changed.' });
+  assert.match(payloadText(edited), /^\*\*Update saved\*\*\nNo board-visible fields changed\.$/);
 });
 
 test('activity delivery failures report that the change was saved', async () => {
   let edited;
   await replyBoardActivity({
-    commandName: 'member-add',
+    commandName: 'test-command',
     user: { id: 'actor' },
     deferred: true,
     replied: false,
@@ -285,8 +470,28 @@ test('activity delivery failures report that the change was saved', async () => 
     },
   }, { embeds: [{ title: 'Activity' }] });
 
-  assert.match(edited.content, /change was saved/);
-  assert.match(edited.content, /could not be posted/);
+  assert.match(payloadText(edited), /Change saved; activity delivery failed/);
+  assert.match(payloadText(edited), /could not be posted/);
+});
+
+test('committed activity with pending Discord recovery tells the actor not to repeat the mutation', async () => {
+  let reply;
+  await replyBoardActivity({
+    channel: { send: async () => undefined },
+    async reply(payload) { reply = payload; },
+  }, { content: 'activity' }, {
+    recovery: {
+      whatHappened: 'The member record was removed, but Discord access cleanup is queued.',
+      preservedState: 'The member record remains removed.',
+      correction: 'Do not run /member-remove again.',
+      continueWith: 'Check access after reconciliation completes.',
+    },
+  });
+
+  assert.match(payloadText(reply), /Change saved; Discord follow-up needs attention/);
+  assert.match(payloadText(reply), /member record remains removed/);
+  assert.match(payloadText(reply), /Do not run \/member-remove again/);
+  assert.match(payloadText(reply), /shared activity record was posted/);
 });
 
 test('dispatcher routes onboarding buttons by custom id', async () => {
@@ -347,6 +552,87 @@ test('dispatcher routes guide buttons and select menus by custom id', async () =
   assert.deepEqual(handled, ['guide:button', 'guide:select']);
 });
 
+test('dispatcher routes every project setup component type', async () => {
+  const handled = [];
+  const projectSetup = {
+    canHandle: (customId) => customId.startsWith('pc:'),
+    handleButton: async (interaction) => handled.push(`button:${interaction.customId}`),
+    handleStringSelect: async (interaction) => handled.push(`strings:${interaction.customId}`),
+    handleUserSelect: async (interaction) => handled.push(`users:${interaction.customId}`),
+    handleModalSubmit: async (interaction) => handled.push(`modal:${interaction.customId}`),
+  };
+  const dispatch = createInteractionDispatcher({
+    commands: [],
+    projectSetup,
+    onError: async () => assert.fail('unexpected error handler call'),
+  });
+
+  await dispatch({
+    customId: 'pc:1:crt',
+    isButton: () => true,
+  });
+  await dispatch({
+    customId: 'pc:1:uni',
+    isButton: () => false,
+    isStringSelectMenu: () => true,
+  });
+  await dispatch({
+    customId: 'pc:1:mem',
+    isButton: () => false,
+    isUserSelectMenu: () => true,
+  });
+  await dispatch({
+    customId: 'pc:1:nm',
+    isButton: () => false,
+    isModalSubmit: () => true,
+  });
+
+  assert.deepEqual(handled, [
+    'button:pc:1:crt',
+    'strings:pc:1:uni',
+    'users:pc:1:mem',
+    'modal:pc:1:nm',
+  ]);
+});
+
+test('dispatcher routes every profile component type without command-channel authorization', async () => {
+  const handled = [];
+  const dispatch = createInteractionDispatcher({
+    commands: [],
+    profiles: {
+      canHandle: (customId) => customId.startsWith('profile:'),
+      handleButton: async (interaction) => handled.push(`button:${interaction.customId}`),
+      handleStringSelect: async (interaction) => handled.push(`strings:${interaction.customId}`),
+      handleModalSubmit: async (interaction) => handled.push(`modal:${interaction.customId}`),
+    },
+    onError: async () => assert.fail('unexpected error handler call'),
+  });
+
+  await dispatch({
+    customId: 'profile:start',
+    channel: { name: 'general' },
+    isButton: () => true,
+  });
+  await dispatch({
+    customId: 'profile:tags',
+    channel: { name: 'general' },
+    isButton: () => false,
+    isStringSelectMenu: () => true,
+  });
+  await dispatch({
+    customId: 'profile:identity-modal',
+    channel: { name: 'general' },
+    isButton: () => false,
+    isModalSubmit: () => true,
+  });
+
+  assert.deepEqual(handled, [
+    'button:profile:start',
+    'strings:profile:tags',
+    'modal:profile:identity-modal',
+  ]);
+});
+
 test('dispatcher reports matched component routes without handlers', async () => {
   const cases = [
     {
@@ -370,13 +656,55 @@ test('dispatcher reports matched component routes without handlers', async () =>
       component: { canHandle: () => true },
       flags: { isModalSubmit: true },
     },
+    {
+      label: 'project setup users',
+      component: { canHandle: () => true },
+      flags: { isUserSelectMenu: true },
+      projectSetup: true,
+    },
+    {
+      label: 'project setup strings',
+      component: { canHandle: () => true },
+      flags: { isStringSelectMenu: true },
+      projectSetup: true,
+    },
+    {
+      label: 'project setup modal',
+      component: { canHandle: () => true },
+      flags: { isModalSubmit: true },
+      projectSetup: true,
+    },
+    {
+      label: 'profile button',
+      component: { canHandle: () => true },
+      flags: { isButton: true },
+      profiles: true,
+    },
+    {
+      label: 'profile select',
+      component: { canHandle: () => true },
+      flags: { isStringSelectMenu: true },
+      profiles: true,
+    },
+    {
+      label: 'profile modal',
+      component: { canHandle: () => true },
+      flags: { isModalSubmit: true },
+      profiles: true,
+    },
   ];
 
   for (const testCase of cases) {
     let captured;
     const dispatch = createInteractionDispatcher({
       commands: [],
-      ...(testCase.guide ? { guide: testCase.component } : { onboarding: testCase.component }),
+      ...(testCase.guide
+        ? { guide: testCase.component }
+        : testCase.projectSetup
+          ? { projectSetup: testCase.component }
+          : testCase.profiles
+            ? { profiles: testCase.component }
+            : { onboarding: testCase.component }),
       onError: async (_interaction, error) => {
         captured = error;
       },
@@ -388,6 +716,7 @@ test('dispatcher reports matched component routes without handlers', async () =>
       isAutocomplete: () => false,
       isButton: () => Boolean(testCase.flags.isButton),
       isStringSelectMenu: () => Boolean(testCase.flags.isStringSelectMenu),
+      isUserSelectMenu: () => Boolean(testCase.flags.isUserSelectMenu),
       isModalSubmit: () => Boolean(testCase.flags.isModalSubmit),
       isRepliable: () => true,
     });
@@ -420,5 +749,6 @@ test('dispatcher sends unknown repliable interactions to error handler', async (
 
 test('routeInteraction returns expected route names', () => {
   assert.equal(routeInteraction({ isChatInputCommand: () => false, isAutocomplete: () => true }), 'autocomplete');
+  assert.equal(routeInteraction({ isUserSelectMenu: () => true }), 'userSelect');
   assert.equal(routeInteraction({}), 'unknown');
 });

@@ -5,13 +5,14 @@
   "type": "module",
   "description": "BAINSA Discord provisioning, onboarding, permissions, and project management bot.",
   "engines": {
-    "node": ">=22.0.0 <23",
+    "node": ">=22.13.0 <23",
     "npm": ">=10.0.0 <11"
   },
   "packageManager": "npm@10.9.2",
   "scripts": {
     "build": "npm run typecheck && tsc --project tsconfig.test.json",
     "typecheck": "tsc --project tsconfig.json --noEmit",
+    "typecheck:tests": "npm run build && node dist/scripts/check-test-typecheck.js",
     "start": "node --enable-source-maps --env-file=.env dist/src/bot.js",
     "dev": "npm run build && node --enable-source-maps dist/scripts/dev.js",
     "commands:register": "node --enable-source-maps --env-file=.env dist/scripts/register-commands.js",
@@ -33,7 +34,7 @@
     "pg": "^8.22.0"
   },
   "overrides": {
-    "undici": "6.27.0"
+    "undici": "6.28.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

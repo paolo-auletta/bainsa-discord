@@ -8,6 +8,7 @@ export {
   mergePersistedDivisionsIntoPlan,
   roleSpecs,
   globalForumTags,
+  peopleDirectoryForumTags,
   universityForumTags,
   legacyChannelAliasesForUniversity,
   legacyDivisionTextAliases,
@@ -18,12 +19,15 @@ export {
   startHereOverwrites,
   privateBaseOverwrites,
   globalGeneralOverwrites,
+  globalVoiceOverwrites,
   globalAnnouncementOverwrites,
   globalBotLogOverwrites,
   globalBoardOverwrites,
   memberForumOverwrites,
   showcaseForumOverwrites,
+  peopleDirectoryForumOverwrites,
   universityGeneralOverwrites,
+  universityVoiceOverwrites,
   universityAnnouncementOverwrites,
   universityBoardOverwrites,
   universityBotLogOverwrites,
@@ -35,4 +39,9 @@ export {
 } from './permissions.js';
 export { normalizeComparableName, ignoredLegacyWarnings } from './legacy.js';
 export { reconcileExistingMembers, recognizeMemberFromRoles } from './members.js';
-export { provisionDiscord, createProvisionClient, DiscordProvisioner } from './discord.js';
+export {
+  provisionDiscord,
+  createProvisionClient,
+  DiscordProvisioner,
+  universityChannelPositions,
+} from './discord.js';

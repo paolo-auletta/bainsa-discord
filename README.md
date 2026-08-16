@@ -7,7 +7,7 @@ Cross-university projects are intentionally outside v1. Every project belongs to
 ## Technology
 
 - TypeScript 6 compiled as native Node.js ESM.
-- Node.js 22 and npm 10.
+- Node.js 22.13+ and npm 10.
 - discord.js 14.27 for Gateway, REST, commands, and interactions.
 - PostgreSQL through pg 8.22, with explicit migrations and transactions.
 - ESLint 10 with TypeScript-ESLint and Node's built-in test runner.
@@ -17,7 +17,7 @@ compiled JavaScript in `dist/`; source maps preserve TypeScript stack traces.
 
 ## Requirements
 
-- Node.js 22 (the supported runtime line; see `.nvmrc`).
+- Node.js 22.13+ (the supported runtime line; see `.nvmrc`).
 - npm 10.9.2 (pinned in `package.json`).
 - A Discord application installed with the `bot` and `applications.commands` scopes.
 - The privileged **Server Members Intent** enabled in the Discord Developer Portal.
@@ -61,14 +61,14 @@ When replacing an existing BAINSA installation, reset Discord and Postgres befor
 ```bash
 npm ci
 npm run build
-npm run discord:reset -- --confirm-reset
-npm run db:reset -- --confirm-reset
+npm run discord:reset -- --confirm-reset=guild:YOUR_DISCORD_GUILD_ID
+npm run db:reset -- --confirm-reset=db:YOUR_DATABASE_HOST:5432/YOUR_DATABASE_NAME
 npm run db:migrate
 npm run provision:dry-run
 npm run provision
 ```
 
-The Discord reset preserves the guild, its members, `@everyone`, and Discord-managed integration roles. It removes editable roles, channels, scheduled events, and guild commands. The database reset drops only the known BAINSA application tables and helper functions. Both commands refuse to run without the confirmation flag.
+The Discord reset preserves the guild, its members, `@everyone`, and Discord-managed integration roles. It removes editable roles, channels, scheduled events, and guild commands. The database reset drops only the known BAINSA application tables and helper functions. Both commands require a confirmation token bound to the configured target: `guild:<DISCORD_GUILD_ID>` for Discord, or the sanitized `db:<host>:<port>/<database>` parsed from `DATABASE_URL` for Postgres. A refusal prints the exact safe token required; database credentials and query parameters are never included.
 
 After clean provisioning, initial access can be restored to an existing guild member with explicit roles. Run provisioning once more afterward so the member and board assignments are reconciled into Postgres:
 
@@ -105,7 +105,6 @@ Private project channels use direct user overwrites for members and supervisors.
 
 Membership:
 
-- `/member-add`
 - `/member-update`
 - `/member-remove`
 - `/member-info`
@@ -113,27 +112,30 @@ Membership:
 Divisions and board:
 
 - `/division-create`
-- `/division-rename`
+- `/division-update`
 - `/division-add-member`
 - `/division-remove-member`
-- `/board-assign`
-- `/board-remove`
+- `/board-update`
 - `/board-info`
 
 Projects:
 
 - `/project-create`
-- `/project-add-member`
-- `/project-remove-member`
 - `/project-update`
 - `/project-close`
 - `/project-info`
 
+`/project-create` has no inline arguments. It opens a private five-step wizard for the project name, scope, team, dates, public summary, optional internal notes, and final review; the project is created only after confirmation. Creation first replaces the controls with an explicit progress state. A pre-commit failure restores the review with Try, Back, and Cancel actions; a committed project is never made retryable.
+
+Each project has two pinned messages in its private channel: an editable canonical project record and a plain-language workspace guide. It also has one bot-managed canonical starter in the university showcase. The record, guide, and showcase starter are repaired in place. University members may reply and attach shareable progress or questions inside existing showcase posts, but only the bot can create those posts.
+
 Announcements and scheduled events use Discord's native UI and scoped channel permissions. There are no announcement, event, showcase-management, destructive-delete, or broad maintenance commands in v1.
 
-Commands cannot target the Bot account, including user-list fields in project creation. Governance commands acknowledge immediately before performing Discord and database work, so longer operations do not expire the interaction response window.
+Commands cannot target the Bot account, including project participant selectors. Governance commands acknowledge immediately before performing Discord and database work, so longer operations do not expire the interaction response window.
 
-Slash commands are usable only in the global `LOGS / bot-log` channel or the matching university `bot-log` channel. University board roles can use their university bot log; Global Presidents can use the global bot log. The dispatcher enforces this even if a Discord permission is later changed manually. Command registration requires `DISCORD_CLIENT_SECRET` in production and synchronizes Discord's board-only command visibility: Presidents see president commands, VPs executive commands, and Heads board/project commands. Discord documents that this permission endpoint requires a Bearer token with the `applications.commands.permissions.update` scope: [Application Commands](https://discord.com/developers/interactions/application-commands#edit-application-command-permissions). The dispatcher independently applies the same channel, tier, and university scope policy before autocomplete performs any database or guild-member lookup; stale or unauthorized interactions receive no suggestions. Execution-time authorization still runs when a command is submitted.
+Governance and project-creation slash commands are usable in the global `LOGS / bot-log` by Global Presidents or in the matching university `bot-log` by scoped board members. Local panels infer and hide their university. Global panels derive it from an existing member, division, board, or project target when possible, and otherwise ask the Global President to choose it before dependent data loads. `/project-info`, `/project-update`, and `/project-close` may also be used inside the owning private project channel. The project selector is optional there and cannot target a different project. Every participant may use `/project-info`; project supervisors and scoped board roles may use the mutation commands. Every shared activity entry is routed to the affected university `bot-log`, including commands started globally or inside a project workspace.
+
+The dispatcher enforces channel and resource scope even if Discord permissions are later changed manually. Command registration requires `DISCORD_CLIENT_SECRET` in production and synchronizes presentation-layer visibility for board tiers and approved members. Discord documents that this permission endpoint requires a Bearer token with the `applications.commands.permissions.update` scope: [Application Commands](https://discord.com/developers/interactions/application-commands#edit-application-command-permissions). The dispatcher independently authorizes autocomplete before any database or guild-member lookup; stale or unauthorized interactions receive no suggestions. Execution-time and transactional authorization remain authoritative.
 
 `/guide` renders one private, role-aware message and updates it in place as the caller navigates topics and command details. Read-only lookups, guide interactions, validation errors, and private-note-only updates stay ephemeral. Successful commands that change shared state post one structured board-visible activity entry to `bot-log`; private notes and reasons remain only in the durable audit record. Provisioning keeps the `bot-log` guidance message updated and pinned.
 
@@ -147,7 +149,72 @@ Do not use this override in a production deployment: members could otherwise see
 
 ## Onboarding
 
-New members can only see the read-only `START HERE` area. The onboarding flow collects a full name, member type, university, and exactly one division for Researchers. Alumni choose no division. A Division Head, Vice President, or President from that university—or a Global President—must approve the request before roles are assigned. Board roles cannot be requested through onboarding.
+New members can only see the read-only `START HERE` area. The onboarding flow collects a full name, member type, university, and exactly one division for Researchers. Alumni choose no division. Every private step keeps the current choices and provides a clearly named Continue, Back, and Cancel path; the final review can return to the last editable step.
+
+A Division Head, Vice President, or President from that university—or a Global President—must approve the request before roles are assigned. Submission, approval, and rejection show an explicit in-progress message while work is running. The applicant can use **Check application status** in `#onboarding` at any time, so a closed DM does not hide the final decision. Approval records and attempts a durable orientation handoff with the member's access and useful starting spaces, then directly asks them to create a profile so members can find them for research, projects, and collaboration. Rejection requires a member-facing reason and offers a new-application recovery path.
+
+Approval also sets the member's server nickname from the recorded onboarding name so Discord-native user selectors can find them by name; names longer than Discord's 32-character nickname limit remain complete in PostgreSQL and are truncated only in the nickname. Board roles cannot be requested through onboarding.
+
+## People database
+
+`people-database` is a global forum beside `resources`. It is visible only to approved
+Researchers and Alumni, and participation is opt-in: approval grants normal server access, but
+never publishes a profile. After approval, the bot records a recoverable DM linking to the forum;
+the same entry point is always in its `Start here` post.
+
+Members use **Create or update my profile** in `Start here`, not a slash command. The private
+wizard follows the project-creation pattern: every screen keeps a complete grouped summary at the
+top and ends with one primary action, one clearly named Back action, and **Cancel**. It collects:
+
+- **Where you are now** — a one-line headline, current role or activity, and optional organisation
+  and location;
+- **What you want to explore** — future research, internship, role, or collaboration goals,
+  followed by interests, topics, problems, or industries; and
+- **Tags** — one to four curated fields or environments.
+
+It can also include an organisation, location, public-to-approved-members email address, LinkedIn
+profile, and research-profile link. Every contact field is optional. Discord DM is the default way
+to contact someone; members should use it respectfully. A private preview makes the approved-member
+visibility clear, and only **Publish profile** creates or changes the public profile.
+
+The bot owns one read-only forum thread and one summary message per published member. The public
+message uses the same grouped presentation shown in the wizard’s final review. It applies the member’s BAINSA
+university as a forum tag from the canonical membership record; members edit neither
+those facts nor the thread directly. Members return to `Start here` to update or unpublish. Unpublishing
+keeps the structured profile hidden for later editing and durably queues removal of its forum post.
+Member removal or departure does the same; reapproval never republishes a profile without the member
+explicitly previewing and publishing it again.
+
+The people database uses Discord's list layout and native forum text and tag search. It is a browseable
+forum, not a sortable external table. Its 15 managed tags are:
+
+| Category | Tags |
+| --- | --- |
+| BAINSA university (derived, not selectable) | `Bocconi`, `Sapienza`, `PoliMi` |
+| Field | `AI & Data`, `Econ & Finance`, `Neuroscience`, `Biology`, `Eng & Robotics`, `Life & Health Sci`, `Social Sciences`, `Math & Physics`, `Humanities & Design` |
+| Environment | `Academia`, `Industry`, `Entrepreneurship` |
+
+Each post receives exactly one derived BAINSA university tag and one to four selected tags. These stable
+categories are managed governance vocabulary: change them deliberately rather than adding tags for
+employers, job titles, laboratories, technologies, or narrow topics. Those details belong in the
+searchable profile text.
+
+The people database reconciliation worker retries pending create, update, and removal work after Discord
+failures, and performs bounded maintenance to return auto-archived profile and guide threads to the
+browseable list without posting keep-alive messages. It never adds update comments or duplicate
+profile posts during routine synchronization.
+
+V1 adds no people-database slash commands (including `/profile` or people search), LinkedIn import
+or scraping, external table/export, phone or social-contact extras, endorsements, recommendations,
+staff editing of another member's profile, or contact tracking. This section documents the intended
+product behavior; release readiness still depends on the full quality gate.
+
+## Design references
+
+- [Bot message design system](docs/bot-message-design-system.md)
+- [Command and permission contract](docs/commands.md)
+- [Guide and activity-log contract](docs/guide-and-activity-log.md)
+- [Engineering invariants](docs/engineering-invariants.md)
 
 ## Development
 
@@ -166,6 +233,7 @@ compiled bot when output changes. Do not edit `dist/`; it is generated and ignor
 npm ci
 npm run build
 npm run typecheck
+npm run typecheck:tests
 npm test
 npm run check
 npm run lint
@@ -175,8 +243,9 @@ npm run test:connections
 ```
 
 Use `npm ci` for all reproducible installs, including CI. `npm install` is reserved for intentionally updating dependencies and the lockfile.
-`npm run typecheck` validates production source and operational scripts. `npm test` compiles the
-complete project, uses inert local values, and does not require or read `.env`.
+`npm run typecheck` validates production source and operational scripts. `npm run typecheck:tests`
+rejects test-type diagnostics above the tracked baseline. `npm test` compiles the complete project,
+uses inert local values, and does not require or read `.env`.
 
 ### Disposable PostgreSQL integration tests
 
@@ -203,10 +272,14 @@ it never claims a rollback.
 The bot retries up to ten pending or failed projects on startup and once per minute. A row lock held
 for the full reconciliation serializes workers and project mutations, so an older attempt cannot
 mark a newer generation complete. Replays use idempotent channel identity/name/parent/overwrite
-operations only. Intro, showcase, and other history messages are deliberately best-effort and are
-not retried, preventing duplicate announcements. Retain `project_reconciliation` rows alongside
-the project record for operational observability; `status`, `attempts`, `last_error`, and timestamps
-identify items needing investigation.
+operations plus the canonical pinned project overview, canonical showcase starter, and showcase
+lifecycle tags. Participant handoffs are stored separately in `transition_notifications`, become
+deliverable only after access reconciliation succeeds, and are refreshed with the current workspace
+links before delivery. Explicit failures retry with bounded backoff; delivered rows cannot replay.
+An interrupted in-flight delivery becomes `uncertain` and requires operator review instead of risking
+a duplicate DM. Retain both reconciliation and notification rows for operational observability;
+`/board-info` reports unresolved handoff health without conflating it with canonical project or
+governance state.
 
 The bot logs structural actions in `audit_log` and sends operational messages to the configured log channels. Seeded channel messages contain no internal marker comments; their Discord message IDs are tracked in `provisioned_messages` for safe future updates. Project close operations preserve history; v1 has no project delete or separate archive command.
 

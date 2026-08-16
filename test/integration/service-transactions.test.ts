@@ -6,8 +6,11 @@ import { ChannelType } from 'discord.js';
 import { ONBOARDING_ACTIONS, onboardingId } from '../../src/onboarding/custom-ids.js';
 import { createOnboardingService } from '../../src/onboarding/service.js';
 import { MAX_PROJECT_PARTICIPANTS, ROLE_NAMES } from '../../src/constants.js';
-import { addMember, removeMember, updateMember } from '../../src/services/governance/service.js';
-import { lockMemberEligibilityRows } from '../../src/services/projects/eligibility.js';
+import { removeMember, updateMember } from '../../src/services/governance/service.js';
+import {
+  lockDivisionHeadEligibilityRows,
+  lockMemberEligibilityRows,
+} from '../../src/services/projects/eligibility.js';
 import { addProjectMember, closeProject, createProject, updateProject } from '../../src/services/projects/index.js';
 import { runMigrations } from '../../src/migrations/runner.js';
 import {
@@ -41,8 +44,10 @@ function managedMember(id, guild, initialRoles = []) {
   let roleMutationCount = 0;
   return {
     id: String(id),
-    user: { id: String(id) },
+    user: { id: String(id), bot: false },
     guild,
+    nickname: null,
+    nicknameHistory: [],
     roles: {
       cache,
       async add(entries) {
@@ -59,6 +64,11 @@ function managedMember(id, guild, initialRoles = []) {
     },
     roleMutationCount() {
       return roleMutationCount;
+    },
+    async setNickname(nickname) {
+      this.nickname = nickname;
+      this.nicknameHistory.push(nickname);
+      return this;
     },
   };
 }
@@ -171,6 +181,7 @@ async function assertSubmitRaceLosesDraftMutation(action) {
     user: { id: 'onboarding-race-user' },
     guild,
     async update() {},
+    async editReply() {},
   };
   const racingInteraction = action === 'edit'
     ? {
@@ -250,6 +261,7 @@ async function assertDraftMutationWinsBeforeSubmit(action) {
     user: { id: 'onboarding-race-user' },
     guild,
     async update() {},
+    async editReply() {},
   };
 
   if (action === 'edit') {
@@ -259,10 +271,7 @@ async function assertDraftMutationWinsBeforeSubmit(action) {
   }
 
   if (action === 'cancel') {
-    await assert.rejects(
-      service.handleButton(submitInteraction),
-      /onboarding request is no longer editable/i,
-    );
+    await service.handleButton(submitInteraction);
     assert.equal(reviewSendCount, 0);
     assert.equal(
       (await database.query('SELECT status FROM onboarding_requests WHERE id = $1', [requestId])).rows[0].status,
@@ -333,6 +342,7 @@ test('onboarding approval rolls back its PostgreSQL transaction and Discord role
     ]),
   };
   const target = managedMember('onboarding-user', guild, [role('guild', '@everyone')]);
+  target.nickname = 'Previous nickname';
   const reviewer = globalPresident();
   guild.members = {
     async fetch(id) {
@@ -351,13 +361,16 @@ test('onboarding approval rolls back its PostgreSQL transaction and Discord role
     user: { id: reviewer.id },
     guild,
     member: reviewer,
-    async deferReply() {},
+    async update() {},
+    async editReply() {},
   };
 
-  await assert.rejects(service.handleButton(interaction), /Controlled integration transaction failure/);
+  await service.handleButton(interaction);
   assert.equal(target.roles.cache.has('researcher-role'), false);
   assert.equal(target.roles.cache.has('bocconi-role'), false);
   assert.equal(target.roles.cache.has('analysis-role'), false);
+  assert.equal(target.nickname, 'Previous nickname');
+  assert.deepEqual(target.nicknameHistory, ['Ada Lovelace', 'Previous nickname']);
   assert.equal((await database.query('SELECT count(*)::int AS count FROM members')).rows[0].count, 0);
   assert.equal(
     (await database.query('SELECT status FROM onboarding_requests WHERE id = $1', [request.rows[0].id])).rows[0].status,
@@ -365,9 +378,14 @@ test('onboarding approval rolls back its PostgreSQL transaction and Discord role
   );
 });
 
-test('governance membership restores mocked Discord roles when its PostgreSQL transaction fails', async () => {
+test('member-update restores mocked Discord roles when its PostgreSQL transaction fails', async () => {
   await resetAndMigrate();
-  await seedUniversityAndDivision();
+  const { universityId } = await seedUniversityAndDivision();
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type, status)
+     VALUES ($1, $2, 'researcher', 'active')`,
+    ['governance-user', universityId],
+  );
 
   const guild = { id: 'guild' };
   guild.roles = {
@@ -384,17 +402,272 @@ test('governance membership restores mocked Discord roles when its PostgreSQL tr
   const failingDatabase = failTransactionQuery(database, (text) => text.includes('INSERT INTO audit_log'));
 
   await assert.rejects(
-    addMember(
+    updateMember(
       { guild, user: { id: actor.id }, member: actor },
       { user: { id: target.id }, university: 'Bocconi', memberType: 'researcher', divisionsText: 'Analysis' },
       { db: failingDatabase },
     ),
-    /Discord roles were restored because the database update failed/i,
+    /Discord roles were restored because the membership update could not be saved/i,
   );
   assert.equal(target.roles.cache.has('researcher-role'), false);
   assert.equal(target.roles.cache.has('bocconi-role'), false);
   assert.equal(target.roles.cache.has('analysis-role'), false);
-  assert.equal((await database.query('SELECT count(*)::int AS count FROM members')).rows[0].count, 0);
+  assert.equal((await database.query('SELECT count(*)::int AS count FROM members')).rows[0].count, 1);
+});
+
+test('member updates enqueue published profiles only when canonical directory facts change', async () => {
+  await resetAndMigrate();
+  const { universityId, divisionId } = await seedUniversityAndDivision();
+  await database.query(
+    `INSERT INTO divisions (university_id, name, member_role_id)
+     VALUES ($1, 'Culture', 'culture-role') RETURNING id`,
+    [universityId],
+  );
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type, status)
+     VALUES ($1, $2, 'researcher', 'active')`,
+    ['directory-member', universityId],
+  );
+  await database.query(
+    'INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)',
+    ['directory-member', divisionId],
+  );
+  await database.query(
+    `INSERT INTO member_profiles (
+       discord_user_id, headline, about, "current_role", goals, selected_tags, visibility
+     ) VALUES ($1, $2, $3, $4, $5, $6::text[], 'published')`,
+    [
+      'directory-member',
+      'Applied AI researcher',
+      'I enjoy machine learning and collaborative research projects.',
+      'MSc student',
+      'Explore research and internship collaborations.',
+      ['ai_data'],
+    ],
+  );
+
+  const guild = { id: 'guild' };
+  guild.roles = {
+    cache: roleCache([
+      role('researcher-role', ROLE_NAMES.RESEARCHER),
+      role('alumni-role', ROLE_NAMES.ALUMNI),
+      role('bocconi-role', 'Bocconi'),
+      role('analysis-role', 'Bocconi - Analysis'),
+      role('culture-role', 'Bocconi - Culture'),
+      role('global-president', ROLE_NAMES.GLOBAL_PRESIDENT),
+    ]),
+  };
+  const target = managedMember('directory-member', guild, [
+    role('researcher-role', ROLE_NAMES.RESEARCHER),
+    role('bocconi-role', 'Bocconi'),
+    role('analysis-role', 'Bocconi - Analysis'),
+  ]);
+  const actor = globalPresident('directory-actor');
+  guild.members = { async fetch(id) { return String(id) === target.id ? target : actor; } };
+  const interaction = { guild, user: { id: actor.id }, member: actor };
+
+  await updateMember(
+    interaction,
+    { user: { id: target.id }, divisionsText: 'Culture' },
+    { db: database },
+  );
+  let reconciliation = await database.query(
+    'SELECT desired_generation, status FROM member_profile_reconciliation WHERE discord_user_id = $1',
+    [target.id],
+  );
+  assert.deepEqual(reconciliation.rows[0], { desired_generation: '1', status: 'pending' });
+
+  await updateMember(
+    interaction,
+    { user: { id: target.id }, notes: 'Updated administrative note only' },
+    { db: database },
+  );
+  reconciliation = await database.query(
+    'SELECT desired_generation FROM member_profile_reconciliation WHERE discord_user_id = $1',
+    [target.id],
+  );
+  assert.equal(reconciliation.rows[0].desired_generation, '1');
+  const divisions = await database.query(
+    'SELECT d.name FROM member_divisions md JOIN divisions d ON d.id = md.division_id WHERE md.discord_user_id = $1',
+    [target.id],
+  );
+  assert.deepEqual(divisions.rows, [{ name: 'Culture' }]);
+  const accessHandoff = await database.query(
+    `SELECT tn.kind, tn.status
+       FROM transition_notifications tn
+       JOIN audit_log a ON a.id = tn.audit_id
+      WHERE a.action = 'member.update' AND a.target_id = $1`,
+    [target.id],
+  );
+  assert.deepEqual(accessHandoff.rows.map((row) => row.kind), ['member.access_updated']);
+});
+
+test('member removal rolls profile visibility and reconciliation back when its transaction fails before Discord side effects', async () => {
+  await resetAndMigrate();
+  const { universityId, divisionId } = await seedUniversityAndDivision();
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type, status)
+     VALUES ($1, $2, 'researcher', 'active')`,
+    ['removal-profile-member', universityId],
+  );
+  await database.query(
+    'INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)',
+    ['removal-profile-member', divisionId],
+  );
+  await database.query(
+    `INSERT INTO member_profiles (
+       discord_user_id, headline, about, "current_role", goals, selected_tags, visibility,
+       forum_thread_id, forum_message_id
+     ) VALUES ($1, $2, $3, $4, $5, $6::text[], 'published', $7, $8)`,
+    [
+      'removal-profile-member',
+      'Applied AI researcher',
+      'I enjoy machine learning and collaborative research projects.',
+      'MSc student',
+      'Explore research and internship collaborations.',
+      ['ai_data'],
+      'removal-directory-thread',
+      'removal-directory-message',
+    ],
+  );
+
+  const guild = { id: 'guild' };
+  guild.roles = {
+    cache: roleCache([
+      role('researcher-role', ROLE_NAMES.RESEARCHER),
+      role('alumni-role', ROLE_NAMES.ALUMNI),
+      role('bocconi-role', 'Bocconi'),
+      role('analysis-role', 'Bocconi - Analysis'),
+      role('global-president', ROLE_NAMES.GLOBAL_PRESIDENT),
+    ]),
+  };
+  guild.channels = { cache: { has: () => false }, async fetch() { return null; } };
+  const target = managedMember('removal-profile-member', guild, [
+    role('researcher-role', ROLE_NAMES.RESEARCHER),
+    role('bocconi-role', 'Bocconi'),
+    role('analysis-role', 'Bocconi - Analysis'),
+  ]);
+  let kickCount = 0;
+  target.kick = async () => { kickCount += 1; };
+  const actor = globalPresident('removal-profile-actor');
+  guild.members = { async fetch(id) { return String(id) === target.id ? target : actor; } };
+  const failingDatabase = failTransactionQuery(database, (text) => text.includes('INSERT INTO audit_log'));
+
+  await assert.rejects(
+    removeMember(
+      { guild, user: { id: actor.id }, member: actor },
+      { user: { id: target.id }, reason: 'test rollback' },
+      { db: failingDatabase },
+    ),
+    /membership record could not be saved/i,
+  );
+  assert.equal(kickCount, 0);
+  const member = await database.query('SELECT status FROM members WHERE discord_user_id = $1', [target.id]);
+  const profile = await database.query(
+    `SELECT visibility, forum_thread_id, forum_message_id
+       FROM member_profiles WHERE discord_user_id = $1`,
+    [target.id],
+  );
+  const reconciliation = await database.query(
+    'SELECT count(*)::int AS count FROM member_profile_reconciliation WHERE discord_user_id = $1',
+    [target.id],
+  );
+  assert.equal(member.rows[0].status, 'active');
+  assert.deepEqual(profile.rows[0], {
+    visibility: 'published',
+    forum_thread_id: 'removal-directory-thread',
+    forum_message_id: 'removal-directory-message',
+  });
+  assert.equal(reconciliation.rows[0].count, 0);
+});
+
+test('member removal keeps canonical departure and project reconciliation intent when the Discord kick fails', async () => {
+  await resetAndMigrate();
+  const { universityId, divisionId } = await seedUniversityAndDivision();
+  const project = await database.query(
+    `INSERT INTO projects (name, university_id, division_id, start_date, expected_end, status)
+     VALUES ('Removal access repair', $1, $2, '2026-07-01', '2026-08-01', 'active') RETURNING id`,
+    [universityId, divisionId],
+  );
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type, status)
+     VALUES ('kick-failure-member', $1, 'researcher', 'active')`,
+    [universityId],
+  );
+  await database.query(
+    'INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)',
+    ['kick-failure-member', divisionId],
+  );
+  await database.query(
+    "INSERT INTO project_people (project_id, discord_user_id, role) VALUES ($1, $2, 'member')",
+    [String((project.rows[0] as unknown as { id: string | number }).id), 'kick-failure-member'],
+  );
+
+  const guild: Record<string, unknown> & { id: string } = { id: 'guild' };
+  guild.roles = {
+    cache: roleCache([
+      role('global-president', ROLE_NAMES.GLOBAL_PRESIDENT),
+      role('researcher-role', ROLE_NAMES.RESEARCHER),
+      role('bocconi-role', 'Bocconi'),
+      role('analysis-role', 'Bocconi - Analysis'),
+    ]),
+  };
+  guild.channels = { cache: { has: () => false, find: () => null }, async fetch() { return null; } };
+  const target = Object.assign(
+    managedMember('kick-failure-member', guild, [
+      role('researcher-role', ROLE_NAMES.RESEARCHER),
+      role('bocconi-role', 'Bocconi'),
+      role('analysis-role', 'Bocconi - Analysis'),
+    ]),
+    { async kick() { throw new Error('Discord REST internal details'); } },
+  );
+  const actor = globalPresident('kick-failure-actor');
+  guild.members = { async fetch(id) { return String(id) === target.id ? target : actor; } };
+
+  const firstRemoval = await removeMember(
+    { guild, user: { id: actor.id }, member: actor },
+    { user: { id: target.id } },
+    { db: database as never },
+  );
+  assert.equal(firstRemoval.discordRemoval.status, 'pending_recovery');
+  assert.equal(firstRemoval.discordRemoval.managedRolesRemoved, true);
+  assert.equal(target.roles.cache.has('researcher-role'), false);
+  assert.equal(target.roles.cache.has('bocconi-role'), false);
+  assert.equal(target.roles.cache.has('analysis-role'), false);
+  assert.equal(((await database.query(
+    'SELECT status FROM members WHERE discord_user_id = $1', ['kick-failure-member'],
+  )).rows[0] as unknown as { status: string }).status, 'removed');
+  assert.equal(((await database.query(
+    'SELECT count(*)::int AS count FROM project_people WHERE discord_user_id = $1', ['kick-failure-member'],
+  )).rows[0] as unknown as { count: number }).count, 0);
+  const projectId = String((project.rows[0] as unknown as { id: string | number }).id);
+  assert.equal(((await database.query(
+    'SELECT status FROM project_reconciliation WHERE project_id = $1', [projectId],
+  )).rows[0] as unknown as { status: string }).status, 'failed');
+  const removalHandoff = await database.query(
+    `SELECT kind, status, payload->>'content' AS content
+       FROM transition_notifications
+      WHERE recipient_discord_user_id = $1`,
+    [target.id],
+  );
+  assert.equal(removalHandoff.rows.length, 1);
+  assert.equal(removalHandoff.rows[0].kind, 'member.removed');
+  assert.match(removalHandoff.rows[0].content, /Server membership removed/);
+  assert.doesNotMatch(removalHandoff.rows[0].content, /Discord REST internal details/);
+
+  const repairAttempt = await removeMember(
+    { guild, user: { id: actor.id }, member: actor },
+    { user: { id: target.id } },
+    { db: database as never },
+  );
+  assert.equal(repairAttempt.discordRemoval.status, 'pending_recovery');
+  assert.equal(((await database.query(
+    "SELECT count(*)::int AS count FROM audit_log WHERE action = 'member.remove' AND target_id = $1",
+    [target.id],
+  )).rows[0] as unknown as { count: number }).count, 1);
+  assert.equal(((await database.query(
+    'SELECT desired_generation FROM project_reconciliation WHERE project_id = $1', [projectId],
+  )).rows[0] as unknown as { desired_generation: string }).desired_generation, '1');
 });
 
 test('member-update rejects an ineligible active PostgreSQL project assignment before Discord or transaction side effects', async () => {
@@ -469,12 +742,19 @@ test('project creation retains its committed record and records a pending reconc
   const { universityId, divisionId } = await seedUniversityAndDivision();
   await database.query(
     `INSERT INTO members (discord_user_id, university_id, member_type, status)
-     VALUES ($1, $2, 'researcher', 'active'), ($3, $2, 'alumni', 'active')`,
-    ['111111111111111111', universityId, '222222222222222222'],
+     VALUES ($1, $2, 'researcher', 'active'),
+            ($3, $2, 'alumni', 'active'),
+            ($4, $2, 'researcher', 'active')`,
+    ['111111111111111111', universityId, '222222222222222222', '333333333333333333'],
   );
   await database.query(
     'INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)',
     ['111111111111111111', divisionId],
+  );
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, division_id, role, active)
+     VALUES ($1, $2, $3, 'head', true)`,
+    ['333333333333333333', universityId, divisionId],
   );
 
   const guild = { id: 'guild' };
@@ -499,20 +779,19 @@ test('project creation retains its committed record and records a pending reconc
     },
   };
 
-  await assert.rejects(
-    createProject({
-      interaction: { guild, member: actor, user: { id: actor.id } },
-      name: 'Signals',
-      university: 'Bocconi',
-      division: 'Analysis',
-      startDate: '2026-07-01',
-      expectedEnd: '2026-08-01',
-      notes: null,
-      members: member.id,
-      supervisors: supervisor.id,
-    }, { db: database }),
-    /committed to the database, but Discord reconciliation is pending/i,
-  );
+  const created = await createProject({
+    interaction: { guild, member: actor, user: { id: actor.id } },
+    name: 'Signals',
+    university: 'Bocconi',
+    division: 'Analysis',
+    startDate: '2026-07-01',
+    expectedEnd: '2026-08-01',
+    summary: 'Public Signals summary',
+    notes: null,
+    members: member.id,
+    supervisors: supervisor.id,
+  }, { db: database });
+  assert.equal(created.reconciliation_pending, true);
   const project = await database.query('SELECT status, notes FROM projects');
   assert.equal(project.rows[0].status, 'active');
   assert.equal(project.rows[0].notes, null);
@@ -521,21 +800,116 @@ test('project creation retains its committed record and records a pending reconc
   assert.match(reconciliation.rows[0].last_error, /Controlled Discord channel failure/);
 });
 
-test('successful project create, update, and close retain their one-shot history posts', async () => {
+test('project creation excludes a Head removal that commits before the locked Head snapshot', async () => {
+  await resetAndMigrate();
+  const { universityId, divisionId } = await seedUniversityAndDivision();
+  const memberId = '111111111111111111';
+  const headId = '222222222222222222';
+  const supervisorId = '333333333333333333';
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type, status)
+     VALUES ($1, $4, 'researcher', 'active'),
+            ($2, $4, 'researcher', 'active'),
+            ($3, $4, 'alumni', 'active')`,
+    [memberId, headId, supervisorId, universityId],
+  );
+  await database.query(
+    'INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)',
+    [memberId, divisionId],
+  );
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, division_id, role, active)
+     VALUES ($1, $2, $3, 'head', true)`,
+    [headId, universityId, divisionId],
+  );
+
+  const locked = deferred();
+  const release = deferred();
+  const removingHead = database.transaction(async (q) => {
+    await lockDivisionHeadEligibilityRows(q, [divisionId]);
+    await q.query(
+      `UPDATE board_assignments
+          SET active = false, updated_at = now()
+        WHERE discord_user_id = $1 AND division_id = $2 AND role = 'head'`,
+      [headId, divisionId],
+    );
+    locked.resolve();
+    await release.promise;
+  });
+  await locked.promise;
+
+  const guild = { id: 'guild' };
+  guild.roles = { cache: roleCache([role('global-president', ROLE_NAMES.GLOBAL_PRESIDENT)]) };
+  const member = managedMember(memberId, guild);
+  const supervisor = managedMember(supervisorId, guild);
+  guild.members = {
+    async fetch(id) {
+      if (String(id) === memberId) return member;
+      if (String(id) === supervisorId) return supervisor;
+      throw new Error(`Unexpected guild member fetch: ${id}`);
+    },
+  };
+  const creating = createProject({
+    interaction: {
+      guild,
+      user: { id: 'actor' },
+      member: globalPresident('actor'),
+    },
+    name: 'Locked Head snapshot',
+    university: 'Bocconi',
+    division: 'Analysis',
+    startDate: '2026-07-01',
+    expectedEnd: '2026-08-01',
+    summary: 'Public locked-head summary',
+    members: memberId,
+    supervisors: supervisorId,
+  }, { db: database });
+  const creationRejected = assert.rejects(creating, /No active Head is assigned to Analysis/);
+  await new Promise((resolve) => setImmediate(resolve));
+  release.resolve();
+  await removingHead;
+
+  await creationRejected;
+  assert.equal(
+    (await database.query("SELECT count(*)::int AS count FROM projects WHERE name = 'Locked Head snapshot'"))
+      .rows[0].count,
+    0,
+  );
+});
+
+test('successful project create, update, and close maintain canonical Discord records', async () => {
   await resetAndMigrate();
   const { universityId, divisionId } = await seedUniversityAndDivision();
   await database.query('UPDATE universities SET showcase_channel_id = $1 WHERE id = $2', ['showcase', universityId]);
   await database.query(
     `INSERT INTO members (discord_user_id, university_id, member_type, status)
-     VALUES ($1, $2, 'researcher', 'active'), ($3, $2, 'alumni', 'active')`,
-    ['111111111111111111', universityId, '222222222222222222'],
+     VALUES ($1, $2, 'researcher', 'active'),
+            ($3, $2, 'alumni', 'active'),
+            ($4, $2, 'researcher', 'active')`,
+    ['111111111111111111', universityId, '222222222222222222', '333333333333333333'],
   );
   await database.query('INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)', ['111111111111111111', divisionId]);
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, division_id, role, active)
+     VALUES ($1, $2, $3, 'head', true)`,
+    ['333333333333333333', universityId, divisionId],
+  );
 
   const channels = new Map();
   const workspaceMessages = [];
-  const threadMessages = [];
-  const thread = { id: 'thread', async setName() {}, async send(payload) { threadMessages.push(payload); } };
+  const workspaceEdits = [];
+  const workspaceGuides = [];
+  const workspaceGuideEdits = [];
+  const workspaceTransitions = [];
+  const starterEdits = [];
+  let appliedTags = [];
+  const starter = { async edit(payload) { starterEdits.push(payload); } };
+  const thread = {
+    id: 'thread', name: 'Signals', archived: false, locked: false,
+    async fetchStarterMessage() { return starter; },
+    async setName(name) { thread.name = name; },
+    async setAppliedTags(tags) { appliedTags = tags; },
+  };
   const forum = {
     id: 'showcase', type: ChannelType.GuildForum, availableTags: [],
     async setAvailableTags(tags) { forum.availableTags = tags.map((tag, index) => ({ ...tag, id: tag.id ?? `tag-${index}` })); return forum; },
@@ -552,10 +926,43 @@ test('successful project create, update, and close retain their one-shot history
     cache: { has: (id) => channels.has(id), find: (predicate) => [...channels.values()].find(predicate) },
     async fetch(id) { return id == null ? channels : channels.get(id) ?? null; },
     async create(options) {
+      const projectMessages = new Map();
+      const homeMessage = {
+        id: 'home-message', pinned: false,
+        async edit(payload) { workspaceEdits.push(payload); },
+        async pin() { homeMessage.pinned = true; },
+      };
+      const workspaceGuide = {
+        id: 'workspace-guide', pinned: false,
+        async edit(payload) { workspaceGuideEdits.push(payload); },
+        async pin() { workspaceGuide.pinned = true; },
+      };
       const workspace = {
         id: 'workspace', name: options.name, topic: options.topic, parentId: null,
-        permissionOverwrites: { async set() {} }, async setName() {}, async setParent() {},
-        async send(payload) { workspaceMessages.push(payload); },
+        permissionOverwrites: { async set() {} }, async setName() {}, async setParent() {}, async setTopic() {},
+        messages: {
+          async fetch(id) {
+            if (typeof id === 'string') return projectMessages.get(id) ?? null;
+            return projectMessages;
+          },
+          async fetchPins() {
+            return { items: [...projectMessages.values()].filter((message) => message.pinned).map((message) => ({ message })) };
+          },
+        },
+        async send(payload) {
+          if (payload.content?.endsWith('Pinned project record · Updates automatically')) {
+            workspaceMessages.push(payload);
+            projectMessages.set(homeMessage.id, homeMessage);
+            return homeMessage;
+          }
+          if (payload.content?.endsWith('Pinned workspace guide')) {
+            workspaceGuides.push(payload);
+            projectMessages.set(workspaceGuide.id, workspaceGuide);
+            return workspaceGuide;
+          }
+          workspaceTransitions.push(payload);
+          return { id: `transition-${workspaceTransitions.length}` };
+        },
       };
       channels.set(workspace.id, workspace);
       return workspace;
@@ -564,16 +971,25 @@ test('successful project create, update, and close retain their one-shot history
   const interaction = { guild, member: actor, user: { id: actor.id } };
   const created = await createProject({
     interaction, name: 'Signals', university: 'Bocconi', division: 'Analysis',
-    startDate: '2026-07-01', expectedEnd: '2026-08-01', notes: null, members: member.id, supervisors: supervisor.id,
+    startDate: '2026-07-01', expectedEnd: '2026-08-01', summary: 'Public Signals summary', notes: null,
+    members: member.id, supervisors: supervisor.id,
   }, { db: database });
   await updateProject({ interaction, project: String(created.id), notes: 'Updated notes' }, { db: database });
   await closeProject({ interaction, project: String(created.id), outcome: 'Done', finalNotes: 'Handed over' }, { db: database });
-  assert.equal(workspaceMessages.length, 3);
-  assert.match(workspaceMessages[0].content, /# Signals/);
-  assert.match(workspaceMessages[1].content, /Project details were updated/);
-  assert.match(workspaceMessages[2].content, /\*\*Outcome:\*\* Done/);
+  assert.equal(workspaceMessages.length, 1);
+  assert.equal(workspaceEdits.length, 2);
+  assert.equal(workspaceGuides.length, 1);
+  assert.equal(workspaceGuideEdits.length, 2);
+  assert.match(workspaceGuides[0].content, /^## How to use this space/);
+  assert.equal(workspaceTransitions.length, 2);
+  assert.match(workspaceEdits.at(-1).content, /\*\*Conclusion\*\*\nDone/);
+  assert.match(workspaceEdits.at(-1).content, /\*\*Internal handover notes\*\*\nHanded over/);
+  assert.equal(JSON.stringify(workspaceTransitions.at(-1)).includes('Handed over'), false);
   assert.equal(forum.created.name, 'Signals');
-  assert.equal(threadMessages.length, 2);
+  assert.deepEqual(forum.created.appliedTags.map((tag) => forum.availableTags.find((candidate) => candidate.id === tag).name), ['Analysis', 'Active']);
+  assert.equal(starterEdits.length, 2);
+  assert.equal(JSON.stringify(starterEdits.at(-1)).includes('Handed over'), false);
+  assert.deepEqual(appliedTags.map((tag) => forum.availableTags.find((candidate) => candidate.id === tag).name), ['Analysis', 'Completed']);
 });
 
 function lockedTransactionDatabase() {
@@ -590,6 +1006,31 @@ function lockedTransactionDatabase() {
         async query(text, values = []) {
           const result = await client.query(text, values);
           if (!didLock && text.includes('FROM members') && text.includes('FOR UPDATE')) {
+            didLock = true;
+            locked.resolve();
+            await release.promise;
+          }
+          return result;
+        },
+      }));
+    },
+  };
+}
+
+function lockedProjectTransactionDatabase() {
+  const locked = deferred();
+  const release = deferred();
+  let didLock = false;
+  return {
+    query: database.query.bind(database),
+    locked: locked.promise,
+    release: release.resolve,
+    async transaction(work) {
+      return database.transaction(async (client) => work({
+        ...client,
+        async query(text, values = []) {
+          const result = await client.query(text, values);
+          if (!didLock && text.includes('FROM projects p') && text.includes('FOR UPDATE OF p')) {
             didLock = true;
             locked.resolve();
             await release.promise;
@@ -620,14 +1061,22 @@ async function seedEligibilityRace() {
   );
   const userId = '333333333333333333';
   const supervisorId = '444444444444444444';
+  const headId = '555555555555555555';
   await database.query(
     `INSERT INTO members (discord_user_id, university_id, member_type, status)
-     VALUES ($1, $2, 'researcher', 'active'), ($3, $2, 'alumni', 'active')`,
-    [userId, universityId, supervisorId],
+     VALUES ($1, $2, 'researcher', 'active'),
+            ($3, $2, 'alumni', 'active'),
+            ($4, $2, 'researcher', 'active')`,
+    [userId, universityId, supervisorId, headId],
   );
   await database.query(
     'INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)',
     [userId, divisionId],
+  );
+  await database.query(
+    `INSERT INTO board_assignments (discord_user_id, university_id, division_id, role, active)
+     VALUES ($1, $2, $3, 'head', true)`,
+    [headId, universityId, divisionId],
   );
   const project = await database.query(
     `INSERT INTO projects (name, university_id, division_id, start_date, expected_end, status)
@@ -835,7 +1284,10 @@ async function assertMembershipWriteWinsProjectRace(fixture, membershipWrite, pr
   await blockingDb.locked;
   const projectWritePromise = projectWrite(projectDb);
   await projectPreflight.promise;
-  const projectRejected = assert.rejects(projectWritePromise, /not (active researchers|accepted active members)/i);
+  const projectRejected = assert.rejects(
+    projectWritePromise,
+    /(not (active researchers|accepted active members)|neither active researchers)/i,
+  );
   blockingDb.release();
   await governanceWrite;
   await projectRejected;
@@ -894,6 +1346,7 @@ test('project eligibility boundary serializes real PostgreSQL add/create races w
     division: 'Analysis',
     startDate: '2026-07-01',
     expectedEnd: '2026-08-01',
+    summary: 'Public created-signals summary',
     members: createRace.userId,
     supervisors: createRace.supervisorId,
   }, { db: blockingDbForCreate });
@@ -958,6 +1411,7 @@ test('membership-first transactions make concurrent project writes fail their lo
       division: 'Analysis',
       startDate: '2026-07-01',
       expectedEnd: '2026-08-01',
+      summary: 'Public membership-first summary',
       members: createRace.userId,
       supervisors: createRace.supervisorId,
     }, { db }),
@@ -1024,6 +1478,60 @@ test('concurrent project add-member requests serialize at the participant cap', 
     (await database.query('SELECT count(*)::int AS count FROM project_people WHERE project_id = $1', [fixture.projectId]))
       .rows[0].count,
     MAX_PROJECT_PARTICIPANTS,
+  );
+});
+
+test('project lifecycle mutations revalidate the locked project and preserve concurrent field updates', async () => {
+  const closing = await seedEligibilityRace();
+  const closeDb = lockedProjectTransactionDatabase();
+  const close = closeProject({
+    interaction: { guild: closing.guild, user: { id: closing.head.id }, member: closing.head },
+    project: String(closing.projectId),
+    outcome: 'Delivered',
+    finalNotes: 'Ready for handover',
+  }, { db: closeDb as never });
+  await closeDb.locked;
+
+  const add = addProjectMember(projectAddInput(closing), { db: database as never });
+  const addRejected = assert.rejects(add, /Completed or archived projects cannot be changed/);
+  closeDb.release();
+  await close;
+  await addRejected;
+  assert.equal(
+    ((await database.query('SELECT status FROM projects WHERE id = $1', [closing.projectId])) as unknown as {
+      rows: Array<{ status: string }>;
+    }).rows[0].status,
+    'completed',
+  );
+  assert.equal(
+    (await database.query(
+      'SELECT count(*)::int AS count FROM project_people WHERE project_id = $1 AND discord_user_id = $2',
+      [closing.projectId, closing.userId],
+    ) as unknown as { rows: Array<{ count: number }> }).rows[0].count,
+    0,
+  );
+
+  const updating = await seedEligibilityRace();
+  const firstUpdateDb = lockedProjectTransactionDatabase();
+  const firstUpdate = updateProject({
+    interaction: { guild: updating.guild, user: { id: updating.head.id }, member: updating.head },
+    project: String(updating.projectId),
+    notes: 'First update notes',
+  }, { db: firstUpdateDb as never });
+  await firstUpdateDb.locked;
+  const secondUpdate = updateProject({
+    interaction: { guild: updating.guild, user: { id: updating.head.id }, member: updating.head },
+    project: String(updating.projectId),
+    expectedEnd: '2026-09-01',
+  }, { db: database as never });
+  firstUpdateDb.release();
+  await Promise.all([firstUpdate, secondUpdate]);
+  assert.deepEqual(
+    ((await database.query(
+      'SELECT notes, expected_end::text AS expected_end FROM projects WHERE id = $1',
+      [updating.projectId],
+    )) as unknown as { rows: Array<{ notes: string | null; expected_end: string }> }).rows[0],
+    { notes: 'First update notes', expected_end: '2026-09-01' },
   );
 });
 
