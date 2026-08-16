@@ -509,7 +509,9 @@ export class DiscordProvisioner {
   async ensureStructure(guild, roleIds) {
     const startSeeds = startHereSeeds();
     const startTopics = startHereTopics();
-    const globalSeedContent = globalSeeds();
+    const globalSeedContent = globalSeeds({
+      anonymousFeedbackUrl: this.config.anonymousFeedbackUrl,
+    });
     const globalChannelTopics = globalTopics();
     const resources = { universities: [] };
 

@@ -23,6 +23,7 @@ export function loadConfig(env = process.env) {
     // This controls only the name the application uses when speaking to members.
     // It does not rename BAINSA roles, channels, or other community structure.
     botName: env.BOT_NAME?.trim() || 'BAINSA',
+    anonymousFeedbackUrl: env.ANONYMOUS_FEEDBACK_URL?.trim() || null,
     logLevel: env.LOG_LEVEL?.trim() || 'info',
   });
 }

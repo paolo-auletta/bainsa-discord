@@ -246,6 +246,8 @@ This is the read-only official feed for network-wide news and events. Global Pre
 
 Announcements and scheduled events use Discord’s native tools in v1. There is no bot announcement command.
 
+The announcement guide also includes the configured anonymous feedback form and explains that submissions are routed privately to the right reviewers.
+
 ### `#bainsa-board`
 
 This is the bridge between the central association and its chapters. Access is limited to:
@@ -358,6 +360,8 @@ Members show interest through emoji reactions. Reactions are evidence of demand,
 - Review new channels after a defined trial period and archive inactive ones.
 
 **Planned:** add a bot command to approve a proposal and create the resulting space. That command does not exist in v1.
+
+---
 
 ## 7. Deep dive: each university
 

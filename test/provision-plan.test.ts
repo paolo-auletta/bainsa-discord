@@ -563,6 +563,49 @@ test('provisioning retires the removed anonymous feedback channel', async () => 
   assert.equal(provisioner.summary.channels.deleted, 1);
 });
 
+test('global provisioning moves anonymous feedback guidance into announcements', async () => {
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: { anonymousFeedbackUrl: 'https://example.test/feedback' },
+    db: null,
+    dryRun: true,
+    plan: { universities: [] },
+    logger: {},
+  });
+  const createdChannels = [];
+  const seededMessages = [];
+  provisioner.ensureCategory = async (_guild, name) => ({ id: name });
+  provisioner.ensureTextChannel = async (_guild, name) => {
+    createdChannels.push(name);
+    return { id: name, name };
+  };
+  provisioner.ensureVoiceChannel = async (_guild, name) => ({ id: name, name });
+  provisioner.ensureForumChannel = async (_guild, name) => ({ id: name, name });
+  provisioner.retireStartHereChannels = async () => {};
+  provisioner.seedForumGuide = async () => {};
+  provisioner.seedMessage = async (_channel, key, content) => seededMessages.push({ key, content });
+
+  await provisioner.ensureStructure(
+    { channels: { cache: new Map() } },
+    {
+      everyone: 'everyone',
+      bot: 'bot',
+      researcher: 'researcher',
+      alumni: 'alumni',
+      globalPresident: 'global',
+      universityPresidents: [],
+    },
+  );
+
+  assert.equal(Object.hasOwn(GLOBAL_CHANNELS, 'ANONYMOUS_FEEDBACK'), false);
+  assert.equal(createdChannels.includes('anonymous-feedback'), false);
+  assert.equal(seededMessages.some(({ key }) => key === 'global:anonymous-feedback'), false);
+  const announcements = seededMessages.find(({ key }) => key === 'global:announcements');
+  assert.ok(announcements);
+  assert.match(announcements.content, /\*\*Anonymous feedback\*\*/);
+  assert.match(announcements.content, /https:\/\/example\.test\/feedback/);
+});
+
 test('onboarding review is visible to every university board role', () => {
   const [university] = normalizePlan(samplePlan).universities;
   const overwrites = universityExecutiveOverwrites(
