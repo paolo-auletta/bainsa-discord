@@ -68,6 +68,19 @@ export async function getOpenRequestForUser(db, discordUserId) {
   return rows[0] ?? null;
 }
 
+export async function getLatestRequestForUser(db, discordUserId) {
+  const { rows } = await db.query(
+    `SELECT r.*, u.name AS university_name
+     FROM onboarding_requests r
+     LEFT JOIN universities u ON u.id = r.university_id
+     WHERE r.discord_user_id = $1
+     ORDER BY r.created_at DESC, r.id DESC
+     LIMIT 1`,
+    [discordUserId],
+  );
+  return rows[0] ?? null;
+}
+
 export async function getDefaultUniversity(db) {
   const { rows } = await db.query(
     `SELECT id::text AS id, name
@@ -80,33 +93,41 @@ export async function getDefaultUniversity(db) {
 }
 
 export async function getRequestForUser(db, requestId, discordUserId) {
+  const id = onboardingRequestId(requestId);
+  if (id == null) return null;
   const { rows } = await db.query(
     `SELECT * FROM onboarding_requests
-     WHERE id::text = $1 AND discord_user_id = $2`,
-    [String(requestId), discordUserId],
+     WHERE id = $1::bigint AND discord_user_id = $2`,
+    [id, discordUserId],
   );
   return rows[0] ?? null;
 }
 
 export async function getRequest(db, requestId) {
+  const id = onboardingRequestId(requestId);
+  if (id == null) return null;
   const { rows } = await db.query(
-    `SELECT * FROM onboarding_requests WHERE id::text = $1`,
-    [String(requestId)],
+    `SELECT * FROM onboarding_requests WHERE id = $1::bigint`,
+    [id],
   );
   return rows[0] ?? null;
 }
 
 export async function lockRequest(db, requestId) {
+  const id = onboardingRequestId(requestId);
+  if (id == null) return null;
   const { rows } = await db.query(
     `SELECT * FROM onboarding_requests
-     WHERE id::text = $1
+     WHERE id = $1::bigint
      FOR UPDATE`,
-    [String(requestId)],
+    [id],
   );
   return rows[0] ?? null;
 }
 
 export async function updateDraft(db, requestId, discordUserId, patch) {
+  const id = onboardingRequestId(requestId);
+  if (id == null) return null;
   const allowed = new Map([
     ['member_type', patch.member_type],
     ['university_id', patch.university_id],
@@ -127,19 +148,19 @@ export async function updateDraft(db, requestId, discordUserId, patch) {
   if (sets.length === 0) {
     const { rows } = await db.query(
       `SELECT * FROM onboarding_requests
-       WHERE id::text = $1
+       WHERE id = $1::bigint
          AND discord_user_id = $2
          AND status = $3`,
-      [String(requestId), discordUserId, ONBOARDING_STATUSES.DRAFT],
+      [id, discordUserId, ONBOARDING_STATUSES.DRAFT],
     );
     return rows[0] ?? null;
   }
 
-  values.push(String(requestId), discordUserId, ONBOARDING_STATUSES.DRAFT);
+  values.push(id, discordUserId, ONBOARDING_STATUSES.DRAFT);
   const { rows } = await db.query(
     `UPDATE onboarding_requests
      SET ${sets.join(', ')}, updated_at = NOW()
-     WHERE id::text = $${values.length - 2}
+     WHERE id = $${values.length - 2}::bigint
        AND discord_user_id = $${values.length - 1}
        AND status = $${values.length}
      RETURNING *`,
@@ -149,6 +170,8 @@ export async function updateDraft(db, requestId, discordUserId, patch) {
 }
 
 export async function markReviewed(db, requestId, status, reviewerId, reason = null) {
+  const id = onboardingRequestId(requestId);
+  if (id == null) return null;
   const { rows } = await db.query(
     `UPDATE onboarding_requests
      SET status = $2,
@@ -156,11 +179,20 @@ export async function markReviewed(db, requestId, status, reviewerId, reason = n
          reviewed_at = NOW(),
          review_reason = $4,
          updated_at = NOW()
-     WHERE id::text = $1
+     WHERE id = $1::bigint
      RETURNING *`,
-    [String(requestId), status, reviewerId, reason],
+    [id, status, reviewerId, reason],
   );
   return rows[0] ?? null;
+}
+
+function onboardingRequestId(requestId) {
+  try {
+    return BigInt(requestId);
+  } catch {
+    // A malformed component id used to produce no matching row; keep that behavior.
+    return null;
+  }
 }
 
 export async function listUniversities(db) {
@@ -213,6 +245,20 @@ export async function listDivisionsByIds(db, universityId, divisionIds) {
      FROM divisions
      WHERE university_id::text = $1
        AND active = true
+       AND id = ANY($2::bigint[])
+     ORDER BY name ASC`,
+    [String(universityId), ids],
+  );
+  return rows;
+}
+
+export async function listRequestDivisionsByIds(db, universityId, divisionIds) {
+  const ids = normalizeSelectedDivisionIds(divisionIds);
+  if (ids.length === 0) return [];
+  const { rows } = await db.query(
+    `SELECT id::text AS id, university_id::text AS university_id, name, color, member_role_id, text_channel_id
+     FROM divisions
+     WHERE university_id::text = $1
        AND id = ANY($2::bigint[])
      ORDER BY name ASC`,
     [String(universityId), ids],

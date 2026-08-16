@@ -139,9 +139,17 @@ export async function removeProjectPermissionOverwrites(guild, userId, projects)
       }
       cleanedChannelIds.push(channelId);
     } catch (error) {
+      // Discord error text can contain implementation and infrastructure
+      // details. Retain it only in structured logs, never in a result that
+      // may cross into an interaction or activity payload.
+      logger.warn('Member removal project overwrite cleanup failed', {
+        userId: String(userId),
+        channelId: String(channelId),
+        error: error instanceof Error ? error.message : String(error),
+      });
       failures.push({
         channelId,
-        message: error instanceof Error ? error.message : String(error),
+        code: 'overwrite_cleanup_failed',
       });
     }
   }

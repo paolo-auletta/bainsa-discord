@@ -47,6 +47,22 @@ export function boardRoleLabel(role) {
   return 'Head';
 }
 
+export function assertHeadAssignmentCompatible(boardRoles, universityName) {
+  const normalizedUniversity = String(universityName).toLowerCase();
+  const executiveRole = boardRoles.find(
+    (boardRole) =>
+      String(boardRole.university_name ?? '').toLowerCase() === normalizedUniversity
+      && [BOARD_ROLES.PRESIDENT, BOARD_ROLES.VICE_PRESIDENT].includes(boardRole.role),
+  );
+  if (!executiveRole) return;
+
+  const executiveLabel = boardRoleLabel(executiveRole.role);
+  assertUser(
+    false,
+    `This member is already an active ${executiveLabel} of ${universityName} and cannot also be assigned as a division Head. Remove the ${executiveLabel} role first or choose another member.`,
+  );
+}
+
 export function assertMemberType(value) {
   assertUser(
     Object.values(MEMBER_TYPES).includes(value),
@@ -68,6 +84,42 @@ export function assertNoDivisionRolesForAlumni(memberType, divisions) {
   );
 }
 
+export function memberRequiresDivision(memberType, boardRoles, universityName) {
+  if (memberType !== MEMBER_TYPES.RESEARCHER) return false;
+  const normalizedUniversity = String(universityName ?? '').toLowerCase();
+  const hasExecutiveExemption = boardRoles.some((boardRole) => {
+    if (boardRole.role === BOARD_ROLES.GLOBAL_PRESIDENT) return true;
+    return (
+      [BOARD_ROLES.PRESIDENT, BOARD_ROLES.VICE_PRESIDENT].includes(boardRole.role)
+      && String(boardRole.university_name ?? '').toLowerCase() === normalizedUniversity
+    );
+  });
+  return !hasExecutiveExemption;
+}
+
+export function assertMemberDivisionRequirement(memberType, divisions, boardRoles, universityName) {
+  assertUser(
+    !memberRequiresDivision(memberType, boardRoles, universityName) || divisions.length > 0,
+    'Researchers must belong to at least one division. Only Global Presidents, Presidents, and Vice Presidents can have no division.',
+  );
+}
+
+export function assertHeadDivisionMembership(boardRoles, divisions, universityName) {
+  const selectedDivisionIds = new Set(divisions.map((division) => String(division.id)));
+  const missingHeadMembership = boardRoles.find((boardRole) =>
+    boardRole.role === BOARD_ROLES.HEAD
+    && String(boardRole.university_name ?? '').toLowerCase() === String(universityName).toLowerCase()
+    && boardRole.division_id != null
+    && !selectedDivisionIds.has(String(boardRole.division_id)),
+  );
+  if (!missingHeadMembership) return;
+
+  assertUser(
+    false,
+    `Remove the member's Head of ${missingHeadMembership.division_name ?? 'this division'} board role before removing their division membership.`,
+  );
+}
+
 export function assertCanManageMember(actorMember, targetUniversityName, targetMember) {
   assertUser(!hasRole(targetMember, ROLE_NAMES.BOT), 'The Bot member cannot be managed.');
   if (isGlobalPresident(actorMember)) return;
@@ -86,6 +138,27 @@ export function assertCanManageMember(actorMember, targetUniversityName, targetM
     !(isVicePresident && isUniversityPresident(targetMember, targetUniversityName)),
     'A Vice President cannot manage their university President.',
   );
+}
+
+export function assertCanManageBoardMember(
+  actorMember,
+  targetUniversityName,
+  targetMember,
+  targetBoardRoles = [],
+) {
+  assertCanManageMember(actorMember, targetUniversityName, targetMember);
+  if (
+    isUniversityVicePresident(actorMember, targetUniversityName)
+    && !isUniversityPresident(actorMember, targetUniversityName)
+  ) {
+    assertUser(
+      !targetBoardRoles.some((role) =>
+        role.role === BOARD_ROLES.PRESIDENT
+        && String(role.university_name ?? '').toLowerCase() === String(targetUniversityName).toLowerCase(),
+      ),
+      'A Vice President cannot manage their university President.',
+    );
+  }
 }
 
 function memberManagementUniversityName(member, fallbackUniversityName) {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ChannelType, ForumLayoutType, PermissionFlagsBits } from 'discord.js';
+import { ButtonStyle, ChannelType, ForumLayoutType, PermissionFlagsBits } from 'discord.js';
 
 import { BOARD_ROLES, ROLE_COLORS, ROLE_NAMES } from '../src/constants.js';
 import { globalSeeds } from '../src/content/seeds.js';
@@ -16,7 +16,6 @@ import {
   globalGeneralOverwrites,
   globalVoiceOverwrites,
   globalAnnouncementOverwrites,
-  globalReadOnlyOverwrites,
   peopleDirectoryForumOverwrites,
   peopleDirectoryForumTags,
   legacyDivisionTextAliases,
@@ -29,11 +28,13 @@ import {
   startHereOverwrites,
   stripDangerousHumanPermissions,
   universityExecutiveOverwrites,
+  universityShowcaseOverwrites,
   universityAnnouncementOverwrites,
   universityForumTags,
   universityBotLogOverwrites,
   universityVoiceOverwrites,
   universityBoardOverwrites,
+  universityChannelPositions,
 } from '../src/provision/index.js';
 
 const samplePlan = {
@@ -211,6 +212,163 @@ test('approved channel constants do not include a separate university projects c
   assert.equal(UNIVERSITY_CHANNELS.BOT_LOG, 'bot-log');
 });
 
+test('global channels use the requested deterministic order', async () => {
+  const calls = [];
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: {},
+    db: null,
+    dryRun: true,
+    plan: { universities: [] },
+    logger: {},
+  });
+  provisioner.ensureCategory = async (_guild, name) => ({ id: name, name });
+  provisioner.ensureTextChannel = async (_guild, name, options) => {
+    calls.push({ name, position: options.position });
+    return { id: name, name };
+  };
+  provisioner.ensureForumChannel = async (_guild, name, options) => {
+    calls.push({ name, position: options.position });
+    return { id: name, name };
+  };
+  provisioner.ensureVoiceChannel = async (_guild, name, options) => {
+    calls.push({ name, position: options.position });
+    return { id: name, name };
+  };
+  provisioner.seedMessage = async () => {};
+  provisioner.seedForumGuide = async () => {};
+  provisioner.retireStartHereChannels = async () => {};
+
+  await provisioner.ensureStructure(
+    { channels: { cache: { values: () => [] } } },
+    {
+      everyone: 'everyone',
+      bot: 'bot',
+      researcher: 'researcher',
+      alumni: 'alumni',
+      globalPresident: 'global-president',
+      universityPresidents: [],
+      universityHeadRoleIds: new Map(),
+      roles: new Map(),
+    },
+  );
+
+  assert.deepEqual(
+    calls.filter(({ name }) => [
+      'bainsa-general',
+      'bainsa-announcements',
+      'bainsa-board',
+      'projects-showcase',
+      'resources',
+      'people-database',
+      'channel-proposals',
+    ].includes(name)),
+    [
+      { name: 'bainsa-general', position: 0 },
+      { name: 'bainsa-announcements', position: 1 },
+      { name: 'bainsa-board', position: 2 },
+      { name: 'projects-showcase', position: 3 },
+      { name: 'resources', position: 4 },
+      { name: 'people-database', position: 5 },
+      { name: 'channel-proposals', position: 6 },
+    ],
+  );
+  assert.deepEqual(
+    calls.find(({ name }) => name === 'bainsa-general-room'),
+    { name: 'bainsa-general-room', position: 0 },
+  );
+});
+
+test('university channel positions keep public text, divisions, projects, and voice rooms in order', () => {
+  const channel = (name) => ({ id: name, name });
+  const positions = universityChannelPositions({
+    general: channel('general'),
+    announcements: channel('announcements'),
+    showcase: channel('projects-showcase'),
+    board: channel('board'),
+    botLog: channel('bot-log'),
+    onboardingReview: channel('onboarding-review'),
+    divisionTextChannels: [channel('🟦-projects'), channel('🟧-analysis')],
+    projectChannels: [channel('project-7-atlas')],
+    voice: channel('general-room'),
+    divisionVoiceChannels: [channel('🟦-projects-room'), channel('🟧-analysis-room')],
+  });
+
+  assert.deepEqual(
+    positions.map(({ channel: candidate, position }) => [candidate.name, position]),
+    [
+      ['general', 0],
+      ['announcements', 1],
+      ['projects-showcase', 2],
+      ['board', 3],
+      ['bot-log', 4],
+      ['onboarding-review', 5],
+      ['🟦-projects', 6],
+      ['🟧-analysis', 7],
+      ['project-7-atlas', 8],
+      ['general-room', 0],
+      ['🟦-projects-room', 1],
+      ['🟧-analysis-room', 2],
+    ],
+  );
+});
+
+test('provisioning places all private project workspaces after division text channels', async () => {
+  const channel = (id, name, type, position, parentId = 'bocconi-category', topic = '') => ({
+    id,
+    name,
+    type,
+    position,
+    parentId,
+    topic,
+  });
+  const general = channel('general', 'general', ChannelType.GuildText, 0);
+  const announcements = channel('announcements', 'announcements', ChannelType.GuildText, 1);
+  const showcase = channel('showcase', 'projects-showcase', ChannelType.GuildForum, 2);
+  const board = channel('board', 'board', ChannelType.GuildText, 3);
+  const botLog = channel('bot-log', 'bot-log', ChannelType.GuildText, 4);
+  const onboardingReview = channel('onboarding', 'onboarding-review', ChannelType.GuildText, 5);
+  const projects = channel('division-projects', '🟦-projects', ChannelType.GuildText, 6);
+  const analysis = channel('division-analysis', '🟧-analysis', ChannelType.GuildText, 7);
+  const voice = channel('voice', 'general-room', ChannelType.GuildVoice, 0);
+  const projectsRoom = channel('projects-room', '🟦-projects-room', ChannelType.GuildVoice, 1);
+  const analysisRoom = channel('analysis-room', '🟧-analysis-room', ChannelType.GuildVoice, 2);
+  const projectTen = channel('project-ten', 'project-10-ten', ChannelType.GuildText, 11);
+  const projectTwo = channel('project-two', 'project-2-two', ChannelType.GuildText, 10);
+  const setPositionsCalls = [];
+  const guild = {
+    channels: {
+      cache: { values: () => [projectTen, projectTwo] },
+      async setPositions(changes) { setPositionsCalls.push(changes); },
+    },
+  };
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: {},
+    db: null,
+    dryRun: false,
+    plan: samplePlan,
+    logger: {},
+  });
+
+  await provisioner.reconcileUniversityChannelOrder(guild, { id: 'bocconi-category' }, {
+    general,
+    announcements,
+    showcase,
+    board,
+    botLog,
+    onboardingReview,
+    divisionTextChannels: [projects, analysis],
+    voice,
+    divisionVoiceChannels: [projectsRoom, analysisRoom],
+  });
+
+  assert.deepEqual(
+    setPositionsCalls[0].map(({ channel: candidate, position }) => [candidate.name, position]),
+    [['project-2-two', 8], ['project-10-ten', 9]],
+  );
+});
+
 test('global channel proposals use clear plural naming in the channel and guide', () => {
   const seeds = globalSeeds();
 
@@ -221,8 +379,8 @@ test('global channel proposals use clear plural naming in the channel and guide'
   assert.match(seeds.channelProposals, /Suggest a new shared channel/);
 });
 
-test('people directory has exactly the managed profile taxonomy and no legacy availability tags', () => {
-  assert.equal(GLOBAL_CHANNELS.PEOPLE_DIRECTORY, 'people-directory');
+test('people database has exactly the managed profile taxonomy and no legacy availability tags', () => {
+  assert.equal(GLOBAL_CHANNELS.PEOPLE_DIRECTORY, 'people-database');
   assert.deepEqual(
     peopleDirectoryForumTags().map((tag) => tag.name),
     [
@@ -294,6 +452,32 @@ test('legacy topic proposals forum is renamed in place', async () => {
   assert.deepEqual(edits, [{ name: 'channel-proposals', reason: 'BAINSA v1 provisioning' }]);
 });
 
+test('legacy people-directory forum is renamed in place as people-database', async () => {
+  const edits = [];
+  const legacyForum = {
+    id: 'legacy-people-directory',
+    name: 'people-directory',
+    type: ChannelType.GuildForum,
+    parentId: 'global-category',
+    availableTags: [],
+    async edit(payload) {
+      edits.push(payload);
+      if (payload.name) this.name = payload.name;
+      return this;
+    },
+  };
+  const guild = { channels: { cache: { find: (predicate) => [legacyForum].find(predicate) } } };
+  const provisioner = new DiscordProvisioner({ client: {}, config: {}, db: null, dryRun: false, plan: samplePlan, logger: {} });
+
+  const forum = await provisioner.ensureForumChannel(guild, GLOBAL_CHANNELS.PEOPLE_DIRECTORY, {
+    parent: { id: 'global-category' },
+    aliases: ['people-directory'],
+  });
+
+  assert.equal(forum.name, 'people-database');
+  assert.deepEqual(edits, [{ name: 'people-database', reason: 'BAINSA v1 provisioning' }]);
+});
+
 test('text and start permissions match v1 Discord policy', () => {
   const roleIds = {
     everyone: 'everyone',
@@ -352,22 +536,31 @@ test('application commands are permitted only in global or university bot logs',
   );
 });
 
-test('anonymous feedback is read-only for normal member roles', () => {
-  const overwrites = globalReadOnlyOverwrites({
-    everyone: 'everyone',
-    bot: 'bot',
-    researcher: 'researcher',
-    alumni: 'alumni',
-    globalPresident: 'global',
-    universityPresidents: ['president'],
+test('provisioning retires the removed anonymous feedback channel', async () => {
+  const deletions = [];
+  const feedback = {
+    id: 'feedback',
+    name: 'anonymous-feedback',
+    type: ChannelType.GuildText,
+    parentId: 'global-category',
+    async delete(reason) { deletions.push(reason); },
+  };
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: {},
+    db: null,
+    dryRun: false,
+    plan: samplePlan,
+    logger: {},
   });
-  for (const id of ['researcher', 'alumni']) {
-    const entry = overwrites.find((overwrite) => overwrite.id === id);
-    assert.ok(entry.allow.includes(PermissionFlagsBits.ViewChannel));
-    assert.ok(entry.deny.includes(PermissionFlagsBits.SendMessages));
-    assert.ok(entry.deny.includes(PermissionFlagsBits.CreatePublicThreads));
-    assert.ok(entry.deny.includes(PermissionFlagsBits.SendMessagesInThreads));
-  }
+
+  await provisioner.retireRemovedGlobalChannels(
+    { channels: { cache: { values: () => [feedback] } } },
+    { id: 'global-category' },
+  );
+
+  assert.deepEqual(deletions, ['BAINSA anonymous feedback channel was retired']);
+  assert.equal(provisioner.summary.channels.deleted, 1);
 });
 
 test('onboarding review is visible to every university board role', () => {
@@ -417,7 +610,7 @@ test('university board channels are private to that university board', () => {
   }
 });
 
-test('showcase forums are read-only to humans and postable only by the bot overwrite', () => {
+test('global showcase forums remain read-only to humans and postable only by the bot overwrite', () => {
   const overwrites = showcaseForumOverwrites(
     {
       everyone: 'everyone',
@@ -438,7 +631,34 @@ test('showcase forums are read-only to humans and postable only by the bot overw
   assert.ok(bot.allow.includes(PermissionFlagsBits.SendMessagesInThreads));
 });
 
-test('people directory grants approved identities read-only forum access and bot forum management', () => {
+test('university showcase members may reply and attach without creating showcase posts', () => {
+  const [university] = normalizePlan(samplePlan).universities;
+  const overwrites = universityShowcaseOverwrites(
+    {
+      everyone: 'everyone',
+      bot: 'bot',
+      globalPresident: 'global',
+      universityHeadRoleIds: new Map([['Bocconi', ['head']]]),
+      roles: new Map([
+        [university.universityRole, 'university-member'],
+        [university.presidentRole, 'president'],
+        [university.vicePresidentRole, 'vp'],
+        ['Bocconi - Head of Projects', 'head'],
+      ]),
+    },
+    university,
+  );
+
+  for (const id of ['university-member', 'president', 'vp', 'head', 'global']) {
+    const entry = overwrites.find((candidate) => candidate.id === id);
+    assert.ok(entry.allow.includes(PermissionFlagsBits.SendMessagesInThreads), id);
+    assert.ok(entry.allow.includes(PermissionFlagsBits.AttachFiles), id);
+    assert.ok(entry.deny.includes(PermissionFlagsBits.CreatePublicThreads), id);
+    assert.ok(entry.deny.includes(PermissionFlagsBits.SendMessages), id);
+  }
+});
+
+test('people database grants approved identities read-only forum access and bot forum management', () => {
   const overwrites = peopleDirectoryForumOverwrites({
     everyone: 'everyone',
     bot: 'bot',
@@ -464,7 +684,7 @@ test('directory-only forum options replace managed tags and configure list layou
   const edits = [];
   const forum = {
     id: 'directory',
-    name: 'people-directory',
+    name: 'people-database',
     type: ChannelType.GuildForum,
     parentId: 'global-category',
     availableTags: [{ id: 'university', name: 'Bocconi' }, { id: 'obsolete', name: 'Obsolete' }],
@@ -479,7 +699,7 @@ test('directory-only forum options replace managed tags and configure list layou
   const guild = { channels: { cache: { find: (predicate) => [forum].find(predicate) } } };
   const provisioner = new DiscordProvisioner({ client: {}, config: {}, db: null, dryRun: false, plan: samplePlan, logger: {} });
 
-  await provisioner.ensureForumChannel(guild, 'people-directory', {
+  await provisioner.ensureForumChannel(guild, 'people-database', {
     parent: { id: 'global-category' },
     tags: peopleDirectoryForumTags(),
     exactTags: true,
@@ -507,7 +727,7 @@ test('new directory forum receives the list layout and one-week archive defaults
   };
   const provisioner = new DiscordProvisioner({ client: {}, config: {}, db: null, dryRun: false, plan: samplePlan, logger: {} });
 
-  await provisioner.ensureForumChannel(guild, 'people-directory', {
+  await provisioner.ensureForumChannel(guild, 'people-database', {
     parent: { id: 'global-category' },
     tags: peopleDirectoryForumTags(),
     exactTags: true,
@@ -545,8 +765,11 @@ test('directory provisioning attaches the profile guide buttons from the profile
 
   const [, key, , options] = guideCalls.find(([, candidate]) => candidate === 'global:people-directory');
   assert.equal(key, 'global:people-directory');
-  const componentIds = options.components[0].toJSON().components.map((component) => component.custom_id);
+  const profileActions = options.components[0].toJSON().components;
+  const componentIds = profileActions.map((component) => component.custom_id);
   assert.deepEqual(componentIds, [PROFILE_CUSTOM_IDS.START, PROFILE_CUSTOM_IDS.UNPUBLISH]);
+  assert.equal(profileActions[0].style, ButtonStyle.Primary);
+  assert.equal(profileActions[1].style, ButtonStyle.Secondary);
 });
 
 test('division voice channels grant event creation only to scoped board roles', () => {
@@ -670,7 +893,7 @@ test('provisioning creates one global and one university voice room in their sco
     .map(({ label }) => label);
   assert.ok(createdChannels.includes('channel:bainsa-general-room'));
   assert.ok(createdChannels.includes('channel:general-room'));
-  assert.ok(createdChannels.includes('channel:people-directory'));
+  assert.ok(createdChannels.includes('channel:people-database'));
 });
 
 test('legacy name normalization adopts pipe and emoji-prefixed resources', () => {
@@ -720,6 +943,91 @@ test('plain division channels are adopted into icon-prefixed names', async () =>
   assert.equal(channel.id, existing.id);
   assert.equal(provisioner.summary.channels.adopted, 1);
   assert.equal(provisioner.summary.channels.updated, 1);
+});
+
+test('provisioning writes a durable topic and reconciles a text channel position', async () => {
+  const edits = [];
+  const existing = {
+    id: 'bocconi-general',
+    name: 'general',
+    type: ChannelType.GuildText,
+    parentId: 'bocconi-category',
+    position: 7,
+    topic: 'Old guidance',
+    async edit(payload) {
+      edits.push(payload);
+      Object.assign(this, payload);
+      return this;
+    },
+  };
+  const guild = {
+    channels: {
+      cache: {
+        find(predicate) {
+          return [existing].find(predicate);
+        },
+      },
+    },
+  };
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: {},
+    db: null,
+    dryRun: false,
+    plan: samplePlan,
+    logger: {},
+  });
+
+  await provisioner.ensureTextChannel(guild, 'general', {
+    parent: { id: 'bocconi-category' },
+    topic: 'BAINSA BOCCONI · Local coordination.',
+    position: 0,
+  });
+
+  assert.deepEqual(edits, [{
+    topic: 'BAINSA BOCCONI · Local coordination.',
+    position: 0,
+    reason: 'BAINSA v1 provisioning',
+  }]);
+  assert.equal(provisioner.summary.channels.updated, 1);
+});
+
+test('welcome guidance provisions a persistent personal-space action', async () => {
+  const seedCalls = [];
+  const provisioner = new DiscordProvisioner({
+    client: {},
+    config: {},
+    db: null,
+    dryRun: true,
+    plan: samplePlan,
+    logger: {},
+  });
+  provisioner.seedMessage = async (...args) => seedCalls.push(args);
+  provisioner.seedForumGuide = async () => {};
+  const roleIds = {
+    everyone: 'everyone',
+    bot: 'bot',
+    researcher: 'researcher',
+    alumni: 'alumni',
+    globalPresident: 'global',
+    universityPresidents: ['president'],
+    universityHeadRoleIds: new Map([['Bocconi', ['head']]]),
+    roles: new Map([
+      ['Bocconi', 'university'],
+      ['Bocconi - President', 'president'],
+      ['Bocconi - Vice President', 'vp'],
+      ['Bocconi - Projects', 'projects'],
+      ['Bocconi - Head of Projects', 'head'],
+    ]),
+  };
+
+  await provisioner.ensureStructure({ channels: { cache: { find: () => null, values: () => [] } } }, roleIds);
+
+  const [, , , options] = seedCalls.find(([, key]) => key === 'start:welcome');
+  const component = options.components[0].toJSON().components[0];
+  assert.equal(component.custom_id, 'ob:spc');
+  assert.equal(component.label, 'Find my spaces');
+  assert.equal(options.pin, true);
 });
 
 test('seed messages adopt an untracked matching bot message instead of sending a duplicate', async () => {
@@ -1385,7 +1693,7 @@ test('university forum tags include divisions and status tags', () => {
   const [university] = normalizePlan(samplePlan).universities;
   assert.deepEqual(
     universityForumTags(university).map((tag) => tag.name),
-    ['Projects', 'Analysis', 'Culture', 'Active', 'Completed'],
+    ['Projects', 'Analysis', 'Culture', 'Active', 'Paused', 'Completed'],
   );
 });
 

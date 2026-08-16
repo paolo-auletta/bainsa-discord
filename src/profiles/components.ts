@@ -15,7 +15,7 @@ import {
 } from 'discord.js';
 
 import { profileSessionId, PROFILE_ACTIONS } from './custom-ids.js';
-import { formatProfileSummary } from './formatters.js';
+import { formatProfileReview } from './formatters.js';
 import { selectableProfileTags } from './state.js';
 
 const BRAND = 0x5865f2;
@@ -51,7 +51,7 @@ function wizardPayload(container: ContainerBuilder) {
 }
 
 function profileSummary(session) {
-  return formatProfileSummary(session.profile, { discordUserId: session.actorId });
+  return formatProfileReview(session.profile, { discordUserId: session.actorId });
 }
 
 function navigation(
@@ -114,12 +114,12 @@ export function profileCurrentModal(session) {
 export function profileDirectionModal(session) {
   return new ModalBuilder()
     .setCustomId(profileSessionId(PROFILE_ACTIONS.DIRECTION_MODAL, session.id, session.actorId))
-    .setTitle('Profile · What you want to explore')
+    .setTitle('Profile · Where you want to go')
     .addComponents(
       modalInput('goals', 'What would you like to explore next?', session.profile.goals, {
         required: true, style: TextInputStyle.Paragraph, minLength: 10, maxLength: 250,
       }),
-      modalInput('about', 'You and your interests', session.profile.about, {
+      modalInput('about', 'About you and your interests', session.profile.about, {
         required: true, style: TextInputStyle.Paragraph, minLength: 20, maxLength: 300,
         placeholder: 'Topics, problems, or industries that interest you',
       }),
@@ -159,7 +159,7 @@ export function profileTagsPayload(session) {
     .setAccentColor(BRAND)
     .addTextDisplayComponents(text(profileSummary(session)))
     .addSeparatorComponents(separator())
-    .addTextDisplayComponents(text('### Choose your tags\nPick one to four fields or environments that will help members find you.'))
+    .addTextDisplayComponents(text('### Choose your profile tags\nPick one to four fields or environments that will help other members find you. Your university is added automatically.'))
     .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu))
     .addSeparatorComponents(separator())
     .addActionRowComponents(navigation(
@@ -178,9 +178,9 @@ export function profileDirectionPayload(session) {
     .setAccentColor(BRAND)
     .addTextDisplayComponents(text(profileSummary(session)))
     .addSeparatorComponents(separator())
-    .addTextDisplayComponents(text('### What you want to explore\nShare what you would like to explore next, followed by the topics, problems, or industries that interest you.'))
+    .addTextDisplayComponents(text('### Where you want to go\nShare what you would like to explore next and the topics, problems, or industries that interest you.'))
     .addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(
-      actionButton(session, PROFILE_ACTIONS.DIRECTION_OPEN, session.profile.goals ? 'Edit what you want to explore' : 'Add what you want to explore', ButtonStyle.Primary),
+      actionButton(session, PROFILE_ACTIONS.DIRECTION_OPEN, session.profile.goals ? 'Edit exploration details' : 'Add exploration details', ButtonStyle.Primary),
     ))
     .addSeparatorComponents(separator())
     .addActionRowComponents(navigation(
@@ -214,7 +214,7 @@ export function profileReviewPayload(session) {
     .setAccentColor(BRAND)
     .addTextDisplayComponents(text(profileSummary(session)))
     .addSeparatorComponents(separator())
-    .addTextDisplayComponents(text('### Ready to publish?\nPublishing makes this profile visible to every approved BAINSA member.'))
+    .addTextDisplayComponents(text('### Review your public profile\nPublishing makes the information above visible to every approved BAINSA member. Your BAINSA member path, university, and applicable division are added from the association record.'))
     .addActionRowComponents(navigation(session, PROFILE_ACTIONS.PUBLISH, 'Publish profile', PROFILE_ACTIONS.CONTACT, 'Back to contact'));
   return wizardPayload(container);
 }

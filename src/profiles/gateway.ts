@@ -2,6 +2,8 @@ import {
   ChannelType,
   ContainerBuilder,
   MessageFlags,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
   TextDisplayBuilder,
 } from 'discord.js';
 
@@ -9,6 +11,9 @@ import { GLOBAL_CHANNELS } from '../provision/plan.js';
 
 const DIRECTORY_AUTO_ARCHIVE_MINUTES = 10_080;
 const PROFILE_CARD_COLOR = 0x5865f2;
+const ARCHIVED_PROFILE_RECOVERY_PAGE_LIMIT = 10;
+const PROFILE_CANDIDATE_CONCURRENCY = 10;
+const PROFILE_DELETE_CONCURRENCY = 5;
 const LEGACY_PROFILE_SECTION_HEADINGS = Object.freeze([
   '## 🔭 What I’d like to explore next',
   '## 🧭 Discover & connect',
@@ -18,6 +23,20 @@ function valuesOf(collection) {
   if (!collection) return [];
   if (typeof collection.values === 'function') return [...collection.values()];
   return Array.isArray(collection) ? collection : [];
+}
+
+async function mapWithConcurrency(values, concurrency, operation) {
+  const results = new Array(values.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await operation(values[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, worker));
+  return results;
 }
 
 function sameIds(current, desired) {
@@ -65,7 +84,7 @@ function appliedTagIds(forum, labels) {
   const available = valuesOf(forum?.availableTags);
   return labels.map((label) => {
     const tag = available.find((candidate) => String(candidate.name).toLowerCase() === String(label).toLowerCase());
-    if (!tag?.id) throw new Error(`People-directory forum is missing the managed tag ${label}.`);
+    if (!tag?.id) throw new Error(`People-database forum is missing the managed tag ${label}.`);
     return String(tag.id);
   });
 }
@@ -100,25 +119,36 @@ async function isOwnedProfileThread(thread, ownerId, expectedBotUserId) {
 async function profileThreadCandidates({ forum, ownerId, botId }) {
   const candidates = [];
   const active = await forum?.threads?.fetchActive?.();
-  const archivedThreads = [];
+  const seen = new Set<string>();
+  const inspect = async (threads) => {
+    const uniqueThreads = threads.filter((thread) => {
+      if (!thread?.id || seen.has(String(thread.id))) return false;
+      seen.add(String(thread.id));
+      return true;
+    });
+    const matches = await mapWithConcurrency(
+      uniqueThreads,
+      PROFILE_CANDIDATE_CONCURRENCY,
+      (thread) => isOwnedProfileThread(thread, ownerId, botId),
+    );
+    candidates.push(...matches.filter(Boolean));
+  };
+  await inspect(valuesOf(active?.threads));
+
   let before;
-  let hasMore = typeof forum?.threads?.fetchArchived === 'function';
-  while (hasMore) {
+  for (let pageNumber = 0; typeof forum?.threads?.fetchArchived === 'function' && pageNumber < ARCHIVED_PROFILE_RECOVERY_PAGE_LIMIT; pageNumber += 1) {
     const archived = await forum.threads.fetchArchived({
       limit: 100,
       ...(before ? { before } : {}),
     });
     const page = valuesOf(archived?.threads);
-    archivedThreads.push(...page);
-    hasMore = archived?.hasMore === true && page.length > 0;
+    await inspect(page);
+    const hasMore = archived?.hasMore === true && page.length > 0;
+    if (!hasMore) break;
     before = page.at(-1);
-  }
-  const seen = new Set<string>();
-  for (const thread of [...valuesOf(active?.threads), ...archivedThreads]) {
-    if (!thread?.id || seen.has(String(thread.id))) continue;
-    seen.add(String(thread.id));
-    const candidate = await isOwnedProfileThread(thread, ownerId, botId);
-    if (candidate) candidates.push(candidate);
+    if (pageNumber === ARCHIVED_PROFILE_RECOVERY_PAGE_LIMIT - 1) {
+      throw new Error('Profile recovery reached the archived-thread scan limit; retry after narrowing the forum archive.');
+    }
   }
   return candidates.sort((left, right) => Number(left.thread.createdTimestamp ?? 0) - Number(right.thread.createdTimestamp ?? 0));
 }
@@ -136,14 +166,28 @@ async function recoverOwnedThread({ forum, ownerId, botId }) {
   const matches = await profileThreadCandidates({ forum, ownerId, botId });
   if (matches.length === 0) return null;
   const [adopted, ...duplicates] = matches;
-  await Promise.all(duplicates.map(({ thread }) => deleteThread(thread, 'Remove duplicate BAINSA directory profile')));
+  await mapWithConcurrency(
+    duplicates,
+    PROFILE_DELETE_CONCURRENCY,
+    ({ thread }) => deleteThread(thread, 'Remove duplicate BAINSA people database profile'),
+  );
   return adopted;
 }
 
 function profileCard(post) {
-  return new ContainerBuilder()
-    .setAccentColor(PROFILE_CARD_COLOR)
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(post.content));
+  const sections = Array.isArray(post.sections) && post.sections.length > 0
+    ? post.sections
+    : [post.content];
+  const container = new ContainerBuilder().setAccentColor(PROFILE_CARD_COLOR);
+  sections.forEach((section, index) => {
+    if (index > 0) {
+      container.addSeparatorComponents(
+        new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+      );
+    }
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(section));
+  });
+  return container;
 }
 
 function starterPayload(post) {
@@ -186,7 +230,7 @@ async function removeLegacyProfileSections({ thread, starter, expectedBotUserId 
     && (!expectedBotUserId || String(message?.author?.id ?? '') === String(expectedBotUserId))
     && LEGACY_PROFILE_SECTION_HEADINGS.some((heading) => String(message?.content ?? '').startsWith(heading))
   ));
-  await Promise.all(legacySections.map(deleteMessage));
+  await mapWithConcurrency(legacySections, PROFILE_DELETE_CONCURRENCY, deleteMessage);
 }
 
 /**
@@ -202,7 +246,7 @@ export async function upsertProfileForumPost({
   botUserId: explicitBotUserId = null,
 }) {
   const forum = await resolvePeopleDirectoryForum(guild);
-  if (!forum) throw new Error('The people-directory forum is unavailable.');
+  if (!forum) throw new Error('The people-database forum is unavailable.');
   const tagIds = appliedTagIds(forum, post.appliedTagLabels);
   const resolvedBotUserId = botUserId(guild, explicitBotUserId);
   let thread = await fetchChannel(guild, forumThreadId);
@@ -226,7 +270,7 @@ export async function upsertProfileForumPost({
       autoArchiveDuration: DIRECTORY_AUTO_ARCHIVE_MINUTES,
       appliedTags: tagIds,
       message: starterPayload(post),
-      reason: 'Create BAINSA directory profile',
+      reason: 'Create BAINSA people database profile',
     });
     message = await starterMessage(thread);
     // Discord forum post starter-message IDs are currently the thread IDs.
@@ -234,12 +278,12 @@ export async function upsertProfileForumPost({
     return { forumThreadId: String(thread.id), forumMessageId: String(message?.id ?? thread.id), created: true };
   }
 
-  await unarchive(thread, 'Reconcile BAINSA directory profile');
+  await unarchive(thread, 'Reconcile BAINSA people database profile');
   if (thread.name !== post.threadName && typeof thread.setName === 'function') {
-    await thread.setName(post.threadName, 'Reconcile BAINSA directory profile');
+    await thread.setName(post.threadName, 'Reconcile BAINSA people database profile');
   }
   if (!sameIds(thread.appliedTags, tagIds) && typeof thread.setAppliedTags === 'function') {
-    await thread.setAppliedTags(tagIds, 'Reconcile BAINSA directory profile');
+    await thread.setAppliedTags(tagIds, 'Reconcile BAINSA people database profile');
   }
   // A stale stored message ID is deliberately ignored in favour of the
   // starter-message API identity.
@@ -266,10 +310,14 @@ export async function deleteProfileForumPosts({ guild, ownerId, forumThreadId = 
     const matches = await profileThreadCandidates({ forum, ownerId: String(ownerId), botId: resolvedBotUserId });
     for (const { thread } of matches) targets.set(String(thread.id), thread);
   }
-  await Promise.all([...targets.values()].map((thread) => deleteThread(thread, 'Delete hidden BAINSA directory profile')));
+  await mapWithConcurrency(
+    [...targets.values()],
+    PROFILE_DELETE_CONCURRENCY,
+    (thread) => deleteThread(thread, 'Delete hidden BAINSA people database profile'),
+  );
   // Without the forum we cannot scan for a duplicate or legacy post. Keep the
   // durable reconciliation row pending even when a stored thread was deleted.
-  if (!forum) throw new Error('The people-directory forum is unavailable.');
+  if (!forum) throw new Error('The people-database forum is unavailable.');
   return { deletedThreadIds: [...targets.keys()] };
 }
 
@@ -277,14 +325,14 @@ export async function deleteProfileForumPosts({ guild, ownerId, forumThreadId = 
 export async function refreshProfileForumThread({ guild, forumThreadId }) {
   const thread = await fetchChannel(guild, forumThreadId);
   if (!thread) return { refreshed: false, missing: true };
-  await unarchive(thread, 'Refresh BAINSA directory profile visibility');
+  await unarchive(thread, 'Refresh BAINSA people database profile visibility');
   return { refreshed: true, missing: false };
 }
 
 export async function unarchiveDirectoryGuideThread({ guild, guideThreadId }) {
   const thread = await fetchChannel(guild, guideThreadId);
   if (!thread) return { refreshed: false, missing: true };
-  await unarchive(thread, 'Refresh BAINSA people-directory guide visibility');
+  await unarchive(thread, 'Refresh BAINSA people-database guide visibility');
   return { refreshed: true, missing: false };
 }
 

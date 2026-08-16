@@ -1,6 +1,14 @@
 import { query } from '../../db.js';
 import { canViewProject } from './policy.js';
 import { projectAutocompleteChoice } from './formatters.js';
+import {
+  findActiveProjectDivisions,
+  findActiveProjectUniversities,
+  findVisibleProjectCandidates,
+  loadActiveProjectAutocompleteCache,
+  listActiveProjectDivisions,
+  listActiveProjectUniversities,
+} from './repository.js';
 
 const DEFAULT_DB = { query };
 type ProjectDependencies = { db?: typeof DEFAULT_DB };
@@ -17,40 +25,27 @@ function dbClient(db) {
   return db ?? DEFAULT_DB;
 }
 
+function roleNames(member) {
+  const roles = member?.roles?.cache;
+  if (!roles?.values) return [];
+  return [...roles.values()].map((role) => String(role.name));
+}
+
 export async function searchVisibleProjects(input, deps: ProjectDependencies = {}) {
   const db = dbClient(deps.db);
   const term = `%${String(input.query ?? '').trim()}%`;
   const statuses = input.statuses?.map((status) => String(status)) ?? null;
   if (statuses?.length === 0) return [];
   const statusSet = statuses ? new Set(statuses) : null;
-  const statusFilter = statuses ? ' AND p.status = ANY($3::text[])' : '';
-  const values = statuses
-    ? [term, input.interaction.user.id, statuses]
-    : [term, input.interaction.user.id];
-  const result = await db.query(
-    `SELECT
-       p.id,
-       p.name,
-       p.status,
-       u.name AS university_name,
-       d.name AS division_name,
-       d.color AS division_color,
-       bool_or(pp.discord_user_id IS NOT NULL) AS actor_is_project_person
-     FROM projects p
-     JOIN universities u ON u.id = p.university_id
-     JOIN divisions d ON d.id = p.division_id
-     LEFT JOIN project_people pp
-       ON pp.project_id = p.id
-      AND pp.discord_user_id = $2
-     WHERE ($1 = '%%' OR p.name ILIKE $1 OR u.name ILIKE $1 OR d.name ILIKE $1 OR p.id::text ILIKE $1)
-       ${statusFilter}
-     GROUP BY p.id, p.name, p.status, u.name, d.name, d.color
-     ORDER BY p.updated_at DESC NULLS LAST, p.id DESC`,
-    values,
-  );
-  // Discord renders at most 25 choices. Keep all candidates through the
-  // visibility check first so unauthorized rows cannot consume those slots.
-  return result.rows
+  const candidates = await findVisibleProjectCandidates(db, {
+    term,
+    actorId: input.interaction.user.id,
+    statuses,
+    roleNames: roleNames(input.interaction.member),
+  });
+  // Retain the policy check as defense in depth against role-name convention
+  // changes; SQL already applies the same visibility boundary before LIMIT 25.
+  return candidates
     .filter((project) => !statusSet || statusSet.has(String(project.status)))
     .filter((project) =>
       canViewProject(
@@ -73,16 +68,7 @@ export async function findProjectUniversities(term = '', deps: ProjectDependenci
   }
   const db = dbClient(deps.db);
   const normalizedTerm = String(term).trim();
-  const result = await db.query(
-    `SELECT name
-       FROM universities
-      WHERE active = true
-        AND ($1 = '' OR name ILIKE $2)
-      ORDER BY name
-      LIMIT 25`,
-    [normalizedTerm, `%${normalizedTerm}%`],
-  );
-  return result.rows;
+  return findActiveProjectUniversities(db, normalizedTerm);
 }
 
 export async function findProjectDivisions(universityName, term = '', deps: ProjectDependencies = {}) {
@@ -101,19 +87,7 @@ export async function findProjectDivisions(universityName, term = '', deps: Proj
   }
   const db = dbClient(deps.db);
   const normalizedTerm = String(term).trim();
-  const result = await db.query(
-    `SELECT d.name, d.color
-       FROM divisions d
-       JOIN universities u ON u.id = d.university_id
-      WHERE u.active = true
-        AND d.active = true
-        AND lower(u.name) = lower($1)
-        AND ($2 = '' OR d.name ILIKE $3)
-      ORDER BY d.name
-      LIMIT 25`,
-    [universityName.trim(), normalizedTerm, `%${normalizedTerm}%`],
-  );
-  return result.rows;
+  return findActiveProjectDivisions(db, universityName.trim(), normalizedTerm);
 }
 
 export async function listProjectUniversities(deps: ProjectDependencies = {}) {
@@ -122,13 +96,7 @@ export async function listProjectUniversities(deps: ProjectDependencies = {}) {
     return [...projectAutocompleteCache.universities];
   }
   const db = dbClient(deps.db);
-  const result = await db.query(
-    `SELECT name
-       FROM universities
-      WHERE active = true
-      ORDER BY name`,
-  );
-  return result.rows;
+  return listActiveProjectUniversities(db);
 }
 
 export async function listProjectDivisions(universityName, deps: ProjectDependencies = {}) {
@@ -141,40 +109,14 @@ export async function listProjectDivisions(universityName, deps: ProjectDependen
       .map(({ name, color }) => ({ name, color }));
   }
   const db = dbClient(deps.db);
-  const result = await db.query(
-    `SELECT d.name, d.color
-       FROM divisions d
-       JOIN universities u ON u.id = d.university_id
-      WHERE u.active = true
-        AND d.active = true
-        AND lower(u.name) = lower($1)
-      ORDER BY d.name`,
-    [universityName.trim()],
-  );
-  return result.rows;
+  return listActiveProjectDivisions(db, universityName.trim());
 }
 
 export async function warmProjectAutocompleteCache(deps: ProjectDependencies = {}) {
   const db = dbClient(deps.db);
-  const [universities, divisions] = await Promise.all([
-    db.query(
-      `SELECT name
-         FROM universities
-        WHERE active = true
-        ORDER BY name`,
-    ),
-    db.query(
-      `SELECT u.name AS university_name, d.name, d.color
-         FROM divisions d
-         JOIN universities u ON u.id = d.university_id
-        WHERE u.active = true
-          AND d.active = true
-        ORDER BY u.name, d.name`,
-    ),
-  ]);
-
-  projectAutocompleteCache.universities = universities.rows;
-  projectAutocompleteCache.divisions = divisions.rows;
+  const cache = await loadActiveProjectAutocompleteCache(db);
+  projectAutocompleteCache.universities = cache.universities;
+  projectAutocompleteCache.divisions = cache.divisions;
   projectAutocompleteCache.loadedAt = Date.now();
   return projectAutocompleteCache;
 }

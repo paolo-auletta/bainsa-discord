@@ -31,9 +31,8 @@ export const GLOBAL_CHANNELS = Object.freeze({
   BOARD: 'bainsa-board',
   SHOWCASE: 'projects-showcase',
   RESOURCES: 'resources',
-  PEOPLE_DIRECTORY: 'people-directory',
+  PEOPLE_DIRECTORY: 'people-database',
   CHANNEL_PROPOSALS: 'channel-proposals',
-  ANONYMOUS_FEEDBACK: 'anonymous-feedback',
 });
 
 export const START_CHANNELS = Object.freeze({
@@ -124,6 +123,21 @@ export const FORUM_POST = Object.freeze([
   PermissionFlagsBits.AttachFiles,
   PermissionFlagsBits.EmbedLinks,
   PermissionFlagsBits.AddReactions,
+]);
+
+export const FORUM_REPLY = Object.freeze([
+  PermissionFlagsBits.ViewChannel,
+  PermissionFlagsBits.ReadMessageHistory,
+  PermissionFlagsBits.SendMessagesInThreads,
+  PermissionFlagsBits.AttachFiles,
+  PermissionFlagsBits.EmbedLinks,
+  PermissionFlagsBits.AddReactions,
+]);
+
+export const FORUM_DENY_CREATE = Object.freeze([
+  PermissionFlagsBits.SendMessages,
+  PermissionFlagsBits.CreatePublicThreads,
+  PermissionFlagsBits.CreatePrivateThreads,
 ]);
 
 export const FORUM_DENY_POST = Object.freeze([
@@ -335,20 +349,20 @@ export function globalForumTags() {
 }
 
 /**
- * The people-directory taxonomy is deliberately supplied by the profile
+ * The people-database taxonomy is deliberately supplied by the profile
  * domain. Keeping the provisioning boundary as a small adapter ensures the
  * Discord labels and the persisted profile keys cannot drift apart.
  */
 export function peopleDirectoryForumTags() {
   if (PROFILE_TAGS.length !== 15) {
-    throw new Error('The people-directory taxonomy must contain exactly 15 managed tags.');
+    throw new Error('The people-database taxonomy must contain exactly 15 managed tags.');
   }
   const labels = PROFILE_TAGS.map((tag) => String(tag.label ?? '').trim());
   if (labels.some((label) => !label || label.length > 20)) {
-    throw new Error('People-directory tag labels must be non-empty and at most 20 characters.');
+    throw new Error('People-database tag labels must be non-empty and at most 20 characters.');
   }
   if (new Set(labels.map((label) => label.toLowerCase())).size !== labels.length) {
-    throw new Error('People-directory tag labels must be unique.');
+    throw new Error('People-database tag labels must be unique.');
   }
   return labels.map((name) => ({ name }));
 }
@@ -357,6 +371,7 @@ export function universityForumTags(university) {
   return [
     ...university.divisions.map((division) => ({ name: division.name })),
     { name: 'Active' },
+    { name: 'Paused' },
     { name: 'Completed' },
   ];
 }

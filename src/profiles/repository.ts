@@ -82,6 +82,19 @@ export async function loadActiveMemberProfile(db, discordUserId) {
   return result.rows[0] ?? null;
 }
 
+/** Checks publication state without loading the member's private profile fields. */
+export async function hasPublishedProfile(db, discordUserId) {
+  const result = await db.query(
+    `SELECT 1
+       FROM member_profiles
+      WHERE discord_user_id = $1
+        AND visibility = 'published'
+      LIMIT 1`,
+    [String(discordUserId)],
+  );
+  return result.rows.length > 0;
+}
+
 /** Loads a profile with canonical membership facts, including removed members. */
 export async function loadProfileForReconciliation(db, discordUserId) {
   const result = await db.query(
@@ -126,7 +139,7 @@ export async function publishProfileAndEnqueue(client, discordUserId, input: Pro
   const ownerId = String(discordUserId);
   const profile = assertPublishableProfile(input);
   const member = await loadCanonicalActiveMemberForUpdate(client, ownerId);
-  assertUser(member, 'Only active members can publish a directory profile.');
+  assertUser(member, 'Only active members can publish a people database profile.');
 
   const result = await client.query(
     `INSERT INTO member_profiles (

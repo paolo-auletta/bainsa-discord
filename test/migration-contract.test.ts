@@ -52,6 +52,31 @@ const profileUniversityTagsMigrationUrl = projectPath(
   'migrations',
   '017_replace_profile_identity_tags_with_university_tags.sql',
 );
+const projectCanonicalMessagesMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '018_project_canonical_messages.sql',
+);
+const projectWorkspaceGuideMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '019_project_workspace_guide.sql',
+);
+const projectHomePlainMessageMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '020_render_project_home_as_plain_message.sql',
+);
+const coUniversityBoardSeatsMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '021_allow_co_vice_presidents_and_heads.sql',
+);
+const transitionNotificationsMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '022_transition_notifications.sql',
+);
 
 async function migrationSql() {
   return readFile(migrationUrl, 'utf8');
@@ -75,6 +100,10 @@ async function reconciliationMigrationSql() {
 
 async function coPresidentsMigrationSql() {
   return readFile(coPresidentsMigrationUrl, 'utf8');
+}
+
+async function coUniversityBoardSeatsMigrationSql() {
+  return readFile(coUniversityBoardSeatsMigrationUrl, 'utf8');
 }
 
 async function executivePromotionMigrationSql() {
@@ -113,6 +142,22 @@ async function profileUniversityTagsMigrationSql() {
   return readFile(profileUniversityTagsMigrationUrl, 'utf8');
 }
 
+async function projectCanonicalMessagesMigrationSql() {
+  return readFile(projectCanonicalMessagesMigrationUrl, 'utf8');
+}
+
+async function projectWorkspaceGuideMigrationSql() {
+  return readFile(projectWorkspaceGuideMigrationUrl, 'utf8');
+}
+
+async function projectHomePlainMessageMigrationSql() {
+  return readFile(projectHomePlainMessageMigrationUrl, 'utf8');
+}
+
+async function transitionNotificationsMigrationSql() {
+  return readFile(transitionNotificationsMigrationUrl, 'utf8');
+}
+
 function assertIncludes(sql, snippet) {
   assert.ok(sql.includes(snippet), `Expected migration to include: ${snippet}`);
 }
@@ -138,7 +183,45 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '015_rebuild_profile_forum_layout.sql',
     '016_consolidate_profile_forum_message.sql',
     '017_replace_profile_identity_tags_with_university_tags.sql',
+    '018_project_canonical_messages.sql',
+    '019_project_workspace_guide.sql',
+    '020_render_project_home_as_plain_message.sql',
+    '021_allow_co_vice_presidents_and_heads.sql',
+    '022_transition_notifications.sql',
   ]);
+});
+
+test('adds durable, idempotent transition notification delivery state', async () => {
+  const sql = await transitionNotificationsMigrationSql();
+  assertIncludes(sql, 'CREATE TABLE IF NOT EXISTS transition_notifications');
+  assertIncludes(sql, 'UNIQUE (audit_id, recipient_discord_user_id, kind)');
+  assertIncludes(sql, "status IN ('pending', 'sending', 'delivered', 'failed', 'uncertain')");
+  assertIncludes(sql, 'transition_notifications_delivery_idx');
+  assertIncludes(sql, 'transition_notifications_university_health_idx');
+});
+
+test('adds a durable canonical project-home message identity', async () => {
+  const sql = await projectCanonicalMessagesMigrationSql();
+  assertIncludes(sql, 'ADD COLUMN IF NOT EXISTS home_message_id text');
+  assertIncludes(sql, 'ADD COLUMN IF NOT EXISTS summary text');
+  assertIncludes(sql, 'INSERT INTO project_reconciliation');
+  assertIncludes(sql, 'desired_generation = project_reconciliation.desired_generation + 1');
+  assertIncludes(sql, "status = 'pending'");
+});
+
+test('adds a durable project workspace-guide message identity', async () => {
+  const sql = await projectWorkspaceGuideMigrationSql();
+  assertIncludes(sql, 'ADD COLUMN IF NOT EXISTS workspace_guide_message_id text');
+  assertIncludes(sql, 'INSERT INTO project_reconciliation');
+  assertIncludes(sql, 'desired_generation = project_reconciliation.desired_generation + 1');
+  assertIncludes(sql, "status = 'pending'");
+});
+
+test('queues existing project records for the plain-message project home', async () => {
+  const sql = await projectHomePlainMessageMigrationSql();
+  assertIncludes(sql, 'INSERT INTO project_reconciliation');
+  assertIncludes(sql, 'desired_generation = project_reconciliation.desired_generation + 1');
+  assertIncludes(sql, "status = 'pending'");
 });
 
 test('queues published profiles to adopt the redesigned forum layout', async () => {
@@ -223,6 +306,13 @@ test('allows multiple active university Presidents', async () => {
   assertIncludes(sql, 'DROP INDEX IF EXISTS board_assignments_active_president_per_university_unique');
 });
 
+test('allows multiple active Vice Presidents and division Heads per position', async () => {
+  const sql = await coUniversityBoardSeatsMigrationSql();
+
+  assertIncludes(sql, 'DROP INDEX IF EXISTS board_assignments_active_vp_per_university_unique');
+  assertIncludes(sql, 'DROP INDEX IF EXISTS board_assignments_active_head_per_division_unique');
+});
+
 test('defers and serializes executive division cleanup across all relevant writes', async () => {
   const sql = await executiveExclusivityMigrationSql();
 
@@ -302,6 +392,15 @@ test('defines the core V1 tables and integrity constraints', async () => {
   assertIncludes(sql, 'ALTER TABLE projects ALTER COLUMN expected_end SET NOT NULL');
   assertIncludes(sql, 'PRIMARY KEY (discord_user_id, division_id)');
   assertIncludes(sql, 'member division must belong to the member university');
+});
+
+test('gives audit events a durable identifier before notifications reference them', async () => {
+  const sql = await transitionNotificationsMigrationSql();
+
+  assertIncludes(sql, 'ALTER TABLE audit_log');
+  assertIncludes(sql, 'ADD COLUMN IF NOT EXISTS id bigint GENERATED BY DEFAULT AS IDENTITY');
+  assertIncludes(sql, 'ADD CONSTRAINT audit_log_pkey PRIMARY KEY (id)');
+  assertIncludes(sql, 'audit_id bigint NOT NULL REFERENCES audit_log(id) ON DELETE CASCADE');
 });
 
 test('keeps canonical integration columns', async () => {

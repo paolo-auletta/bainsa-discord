@@ -3,11 +3,22 @@ import { randomUUID } from 'node:crypto';
 import { MessageFlags } from 'discord.js';
 
 import { formatBoardActivity } from '../../activity/formatters.js';
+import { postUniversityBoardActivity } from '../../activity/router.js';
 import { assertNoBotUserIds } from '../../authorization.js';
-import { assertUser } from '../../errors.js';
+import { config } from '../../config.js';
+import { UserFacingError, assertUser } from '../../errors.js';
 import { logger } from '../../logger.js';
 import {
+  ephemeralReplyPayload,
+  interactionOutcome,
+  renderInteractionPanel,
+} from '../../messages/index.js';
+import { botCommandChannelScope } from '../../runtime/command-channels.js';
+import { resolveCommandContext } from '../../runtime/command-scope.js';
+import {
   cancelledPayload,
+  creatingPayload,
+  creationFailedPayload,
   createdPayload,
   detailsPayload,
   participantsPayload,
@@ -41,6 +52,7 @@ const BUTTON_ACTIONS = new Set<string>([
   PROJECT_SETUP_ACTIONS.CANCEL,
   PROJECT_SETUP_ACTIONS.UNIVERSITY_PREVIOUS,
   PROJECT_SETUP_ACTIONS.UNIVERSITY_NEXT,
+  PROJECT_SETUP_ACTIONS.UNIVERSITY_CONTINUE,
   PROJECT_SETUP_ACTIONS.DIVISION_PREVIOUS,
   PROJECT_SETUP_ACTIONS.DIVISION_NEXT,
 ]);
@@ -142,6 +154,7 @@ export function createProjectSetupService({
     assertScopeComplete(session);
     assertPeopleComplete(session);
     assertUser(session.startDate && session.expectedEnd, 'Set the project timeline before continuing.');
+    assertUser(session.summary, 'Add a public project summary before continuing.');
   }
 
   async function start(interaction) {
@@ -159,6 +172,8 @@ export function createProjectSetupService({
       guildId: interaction.guildId,
       name: null,
       university: null,
+      fixedUniversity: false,
+      universityConfirmed: false,
       division: null,
       divisionColor: null,
       universities: [],
@@ -170,6 +185,7 @@ export function createProjectSetupService({
       participantUsers: new Map(),
       startDate: null,
       expectedEnd: null,
+      summary: null,
       notes: null,
       screen: 'scope',
       expiresAt: now() + SESSION_TTL_MS,
@@ -201,6 +217,40 @@ export function createProjectSetupService({
       assertScopeComplete(session);
       session.screen = 'participants';
       await interaction.update(participantsPayload(session));
+      return;
+    }
+
+    if (parsed.action === PROJECT_SETUP_ACTIONS.UNIVERSITY_CONTINUE) {
+      assertUser(session.university, 'Choose a university before continuing.');
+      resolveCommandContext({
+        commandName: 'project-create',
+        channelScope: botCommandChannelScope(interaction.channel),
+        selectedUniversity: session.university,
+      });
+      session.busy = true;
+      await interaction.update(renderInteractionPanel({
+        kind: 'interaction-panel',
+        tone: 'pending',
+        title: `Loading ${session.university} divisions`,
+        description: `${config.botName} is confirming your scope before loading active divisions.`,
+        status: 'This private setup will update when the divisions are ready.',
+        audience: 'actor',
+      }));
+      try {
+        const divisions = await findDivisions(session.university, '');
+        assertUser(divisions.length > 0, `No divisions are available for ${session.university}.`);
+        session.divisions = divisions;
+        session.universityConfirmed = true;
+        session.division = null;
+        session.divisionColor = null;
+        session.divisionPage = 0;
+        session.busy = false;
+        await interaction.editReply(scopePayload(session));
+      } catch (error) {
+        session.busy = false;
+        await interaction.editReply(scopePayload(session));
+        throw error;
+      }
       return;
     }
 
@@ -267,8 +317,19 @@ export function createProjectSetupService({
 
     if (parsed.action !== PROJECT_SETUP_ACTIONS.CREATE) return;
     assertSetupComplete(session);
+    resolveCommandContext({
+      commandName: 'project-create',
+      channelScope: botCommandChannelScope(interaction.channel),
+      selectedUniversity: session.university,
+    });
     session.busy = true;
-    await interaction.deferUpdate();
+    try {
+      await interaction.update(creatingPayload(session));
+    } catch (error) {
+      session.busy = false;
+      touch(session);
+      throw error;
+    }
 
     let result;
     try {
@@ -279,6 +340,7 @@ export function createProjectSetupService({
         division: session.division,
         startDate: session.startDate,
         expectedEnd: session.expectedEnd,
+        summary: session.summary,
         notes: session.notes,
         members: session.memberIds.join(','),
         supervisors: session.supervisorIds.join(','),
@@ -286,7 +348,11 @@ export function createProjectSetupService({
     } catch (error) {
       session.busy = false;
       touch(session);
-      throw error;
+      const message = error instanceof UserFacingError
+        ? error.message
+        : `${config.botName} could not create the project. Review the setup and try again.`;
+      await interaction.editReply(creationFailedPayload(session, message));
+      return;
     }
 
     // The database transaction committed. Never reactivate this setup after
@@ -309,8 +375,13 @@ export function createProjectSetupService({
         acknowledgement += ' Discord reconciliation is pending and will retry automatically.';
       }
       try {
-        await interaction.channel.send({ allowedMentions: { parse: [] }, ...activity });
-        acknowledgement += ' Activity posted in this channel.';
+        const delivery = await postUniversityBoardActivity(
+          interaction,
+          activity,
+          result.university_name,
+        );
+        if (delivery.status !== 'posted') throw new Error('University bot-log is unavailable.');
+        acknowledgement += ' Activity posted in the university bot-log.';
       } catch (error) {
         logger.error('Project creation activity message could not be posted', {
           command: 'project-create',
@@ -330,10 +401,12 @@ export function createProjectSetupService({
       });
       if (typeof interaction.followUp === 'function') {
         try {
-          await interaction.followUp({
-            content: `Created **${result.name}** (#${result.id}), but the initial confirmation could not be delivered.`,
-            flags: MessageFlags.Ephemeral,
-          });
+          await interaction.followUp(ephemeralReplyPayload(renderInteractionPanel(interactionOutcome({
+            outcome: 'delivery-failed',
+            title: 'Project created; confirmation delivery failed',
+            description: `Created **${result.name}** (#${result.id}), but the initial confirmation could not be delivered.`,
+            status: 'The project was saved. Do not submit the setup again.',
+          }))));
         } catch (followUpError) {
           logger.error('Project creation follow-up acknowledgement could not be delivered', {
             command: 'project-create',
@@ -353,11 +426,11 @@ export function createProjectSetupService({
     touch(session);
 
     if (parsed.action === PROJECT_SETUP_ACTIONS.UNIVERSITY) {
+      assertUser(!session.fixedUniversity, 'The university is fixed by this command channel.');
       const university = selectedIndex(interaction, session.universities, 'university');
-      const divisions = await findDivisions(university.name, '');
-      assertUser(divisions.length > 0, `No divisions are available for ${university.name}.`);
       if (session.university !== university.name) {
         session.university = university.name;
+        session.universityConfirmed = false;
         session.division = null;
         session.divisionColor = null;
         session.memberIds = [];
@@ -365,7 +438,7 @@ export function createProjectSetupService({
         session.participantUsers.clear();
         session.divisionPage = 0;
       }
-      session.divisions = divisions;
+      session.divisions = [];
       await interaction.update(scopePayload(session));
       return;
     }
@@ -422,6 +495,23 @@ export function createProjectSetupService({
         session.universities = await findUniversities('');
         assertUser(session.universities.length > 0, 'No universities are available for projects yet.');
       }
+      const resolved = resolveCommandContext({
+        commandName: 'project-create',
+        channelScope: botCommandChannelScope(interaction.channel),
+        requireUniversity: false,
+      });
+      if (resolved.universityName) {
+        const university = session.universities.find(
+          (candidate) => candidate.name.toLowerCase() === resolved.universityName.toLowerCase(),
+        );
+        assertUser(university, `The ${resolved.universityName} bot-log is not linked to an active university.`);
+        const divisions = await findDivisions(university.name, '');
+        assertUser(divisions.length > 0, `No divisions are available for ${university.name}.`);
+        session.university = university.name;
+        session.fixedUniversity = true;
+        session.universityConfirmed = true;
+        session.divisions = divisions;
+      }
       await respondToModal(interaction, payloadForScreen(session));
       return;
     }
@@ -438,7 +528,10 @@ export function createProjectSetupService({
       return;
     }
 
+    const summary = interaction.fields.getTextInputValue('summary')?.trim();
+    assertUser(summary, 'Add a public project summary.');
     const notes = interaction.fields.getTextInputValue('notes')?.trim() || null;
+    session.summary = summary;
     session.notes = notes;
     session.screen = 'details';
     await respondToModal(interaction, detailsPayload(session));

@@ -28,6 +28,7 @@ export interface ProfilePostInput extends ProfileInput {
 
 export interface FormattedProfilePost {
   threadName: string;
+  sections: string[];
   content: string;
   appliedTagKeys: ProfileTagKey[];
   appliedTagLabels: string[];
@@ -47,6 +48,21 @@ function truncate(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
+function fitSections(sections: string[], maxLength: number): string[] {
+  const fitted: string[] = [];
+  let used = 0;
+  for (const section of sections) {
+    const separatorLength = fitted.length === 0 ? 0 : 2;
+    const available = maxLength - used - separatorLength;
+    if (available <= 0) break;
+    const value = truncate(section, available);
+    fitted.push(value);
+    used += separatorLength + value.length;
+    if (value.length < section.length) break;
+  }
+  return fitted;
+}
+
 function optionalSummaryValue(value: unknown): string {
   const normalized = normalizeOptionalProfileText(value);
   return normalized ? escapeProfileMarkdown(normalized) : 'Not added';
@@ -60,13 +76,13 @@ function summaryTagLabels(values: unknown): string {
     .join(', ');
 }
 
-export function formatProfileSummary(
+export function formatProfileReview(
   profile: ProfileInput,
   { discordUserId = null }: { discordUserId?: unknown } = {},
 ): string {
   const discord = normalizeProfileText(discordUserId);
   return [
-    '## Your BAINSA directory profile',
+    '## Your BAINSA profile',
     '',
     '🪪 **Where you are now**',
     `**Headline** · ${optionalSummaryValue(profile.headline)}`,
@@ -74,9 +90,9 @@ export function formatProfileSummary(
     `**Organisation** · ${optionalSummaryValue(profile.current_organization)}`,
     `**Location** · ${optionalSummaryValue(profile.location)}`,
     '',
-    '🧭 **What you want to explore**',
-    `**What would you like to explore next?** · ${optionalSummaryValue(profile.goals)}`,
-    `**You and your interests** · ${optionalSummaryValue(profile.about)}`,
+    '🧭 **Where you want to go**',
+    `**Looking to explore** · ${optionalSummaryValue(profile.goals)}`,
+    `**About you and your interests** · ${optionalSummaryValue(profile.about)}`,
     '',
     '💬 **How members can reach you**',
     ...(discord ? [`**Discord** · <@${discord}>`] : []),
@@ -88,6 +104,53 @@ export function formatProfileSummary(
   ].join('\n');
 }
 
+function memberPathLabel(memberType: unknown): string {
+  return String(memberType ?? '').trim().toLowerCase() === 'alumni' ? 'Alumni' : 'Researcher';
+}
+
+function publicProfileSections(profile: ReturnType<typeof assertPublishableProfile>, member: ProfileDirectoryMember): string[] {
+  const discordUserId = normalizeProfileText(member.discord_user_id);
+  const identity = [
+    `## ${escapeProfileMarkdown(member.full_name)}`,
+    escapeProfileMarkdown(profile.headline),
+    '',
+    '**BAINSA identity**',
+    `**Member path** · ${memberPathLabel(member.member_type)}`,
+    `**University** · ${escapeProfileMarkdown(member.university_name)}`,
+    ...(normalizeOptionalProfileText(member.division_name)
+      ? [`**Division** · ${escapeProfileMarkdown(member.division_name)}`]
+      : []),
+    ...(discordUserId ? [`**Discord** · <@${discordUserId}>`] : []),
+  ].join('\n');
+
+  const currentFocus = [
+    '### Current focus',
+    [profile.current_role, profile.current_organization, profile.location]
+      .filter(Boolean)
+      .map(escapeProfileMarkdown)
+      .join(' · '),
+    '',
+    escapeProfileMarkdown(profile.about),
+  ].join('\n');
+
+  const lookingToExplore = [
+    '### Looking to explore',
+    escapeProfileMarkdown(profile.goals),
+  ].join('\n');
+
+  const discovery = [
+    '### Areas & contact',
+    `**Areas** · ${summaryTagLabels(profile.selected_tags)}`,
+    ...(profile.email ? [`**Email** · ${escapeProfileMarkdown(profile.email)}`] : []),
+    ...(profile.linkedin_url ? [`**LinkedIn** · ${escapeProfileMarkdown(profile.linkedin_url)}`] : []),
+    ...(profile.research_profile_url
+      ? [`**Research profile** · ${escapeProfileMarkdown(profile.research_profile_url)}`]
+      : []),
+  ].join('\n');
+
+  return fitSections([identity, currentFocus, lookingToExplore, discovery], DISCORD_TEXT_DISPLAY_LIMIT);
+}
+
 export function profileThreadName(fullName: unknown, currentRole: unknown): string {
   return truncate(`${normalizeProfileText(fullName)} — ${normalizeProfileText(currentRole)}`, DISCORD_THREAD_NAME_LIMIT);
 }
@@ -97,12 +160,11 @@ export function formatProfilePost(input: ProfilePostInput): FormattedProfilePost
   const tags = appliedProfileTags(input.member.university_name, profile.selected_tags);
   const appliedTagKeys = appliedProfileTagKeys(input.member.university_name, profile.selected_tags);
   const member = input.member;
-  const content = truncate(
-    formatProfileSummary(profile, { discordUserId: member.discord_user_id }),
-    DISCORD_TEXT_DISPLAY_LIMIT,
-  );
+  const sections = publicProfileSections(profile, member);
+  const content = sections.join('\n\n');
   return {
     threadName: profileThreadName(member.full_name, profile.headline),
+    sections,
     content,
     appliedTagKeys,
     appliedTagLabels: tags.map((tag) => tag.label),

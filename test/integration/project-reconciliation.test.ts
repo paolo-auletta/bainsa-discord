@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { ChannelType } from 'discord.js';
+
 import { runMigrations } from '../../src/migrations/runner.js';
 import {
   enqueueProjectReconciliation,
@@ -24,6 +26,32 @@ function roleCache() {
 
 function guildWithChannels(channels, create = async () => { throw new Error('Unexpected channel create'); }) {
   const values = new Map(channels.map((channel) => [channel.id, channel]));
+  let showcaseThreadIndex = 0;
+  values.set('showcase', {
+    id: 'showcase',
+    type: ChannelType.GuildForum,
+    availableTags: [
+      { id: 'analysis', name: 'Analysis' },
+      { id: 'active', name: 'Active' },
+      { id: 'paused', name: 'Paused' },
+      { id: 'completed', name: 'Completed' },
+    ],
+    threads: {
+      async create() {
+        showcaseThreadIndex += 1;
+        const starter = { async edit() {} };
+        const thread = {
+          id: `showcase-thread-${showcaseThreadIndex}`,
+          archived: false,
+          locked: false,
+          async fetchStarterMessage() { return starter; },
+          async setAppliedTags() {},
+        };
+        values.set(thread.id, thread);
+        return thread;
+      },
+    },
+  });
   return {
     id: 'guild',
     roles: { cache: roleCache() },
@@ -45,7 +73,9 @@ function guildWithChannels(channels, create = async () => { throw new Error('Une
 async function seedProject(status = 'pending', channelId = 'channel-1') {
   await database.resetPublicSchema();
   await runMigrations({ databaseUrl });
-  const university = await database.query("INSERT INTO universities (name) VALUES ('Bocconi') RETURNING id");
+  const university = await database.query(
+    "INSERT INTO universities (name, showcase_channel_id) VALUES ('Bocconi', 'showcase') RETURNING id",
+  );
   const division = await database.query(
     "INSERT INTO divisions (university_id, name) VALUES ($1, 'Analysis') RETURNING id",
     [university.rows[0].id],
@@ -64,16 +94,36 @@ async function seedProject(status = 'pending', channelId = 'channel-1') {
 }
 
 function reconciledChannel(set, options = {}) {
-  return {
+  const messages = new Map();
+  const channel = {
     id: options.id ?? 'channel-1',
     name: options.name ?? 'project-1-signals',
     topic: options.topic ?? 'Bocconi / Analysis project 1',
     type: options.type ?? 0,
     parentId: options.parentId ?? null,
     permissionOverwrites: { set },
-    async setName() {},
+    messages: {
+      async fetch(input) { return typeof input === 'string' ? messages.get(input) ?? null : messages; },
+      async fetchPins() {
+        return { items: [...messages.values()].filter((message) => message.pinned).map((message) => ({ message })) };
+      },
+    },
+    async send(payload) {
+      const message = {
+        id: `home-${messages.size + 1}`,
+        content: payload.content,
+        pinned: false,
+        async edit() {},
+        async pin() { this.pinned = true; },
+      };
+      messages.set(message.id, message);
+      return message;
+    },
+    async setName(name) { this.name = name; },
+    async setTopic(topic) { this.topic = topic; },
     async setParent() {},
   };
+  return channel;
 }
 
 test.after(async () => {
@@ -88,8 +138,12 @@ test('records post-commit Discord failures, repairs them, and does not replay a 
     calls += 1;
     if (calls === 1) throw new Error('injected overwrite failure');
   });
-  let announcements = 0;
-  channel.send = async () => { announcements += 1; };
+  let canonicalWrites = 0;
+  const sendCanonicalHome = channel.send.bind(channel);
+  channel.send = async (payload) => {
+    canonicalWrites += 1;
+    return sendCanonicalHome(payload);
+  };
   const guild = guildWithChannels([channel]);
 
   const failed = await reconcileProject({ projectId, guild, db: database });
@@ -105,10 +159,10 @@ test('records post-commit Discord failures, repairs them, and does not replay a 
   const callsAfterSuccess = calls;
   assert.deepEqual(await retryProjectReconciliations({ guild, db: database, limit: 1 }), []);
   assert.equal(calls, callsAfterSuccess);
-  assert.equal(announcements, 0, 'durable retries never replay one-shot history messages');
+  assert.equal(canonicalWrites, 2, 'durable retries create one canonical project record and workspace guide without replaying history');
 });
 
-test('serializes two workers and leaves a newer desired generation pending after an older completion', async () => {
+test('skips a second worker and leaves a newer desired generation pending while Discord work completes', async () => {
   const projectId = await seedProject();
   const entered = deferred();
   const release = deferred();
@@ -124,10 +178,10 @@ test('serializes two workers and leaves a newer desired generation pending after
   const second = await reconcileProject({ projectId, guild, db: database });
   assert.equal(second.status, 'skipped');
 
-  const newerMutation = database.transaction((client) => enqueueProjectReconciliation(client, projectId));
+  const newerGeneration = await database.transaction((client) => enqueueProjectReconciliation(client, projectId));
+  assert.equal(newerGeneration, '2');
   release.resolve();
-  assert.equal((await first).status, 'succeeded');
-  assert.equal(await newerMutation, '2');
+  assert.equal((await first).status, 'superseded');
   const state = await database.query('SELECT desired_generation, status FROM project_reconciliation WHERE project_id = $1', [projectId]);
   assert.deepEqual(state.rows[0], { desired_generation: '2', status: 'pending' });
   assert.equal(calls, 1);

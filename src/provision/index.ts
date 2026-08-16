@@ -22,7 +22,6 @@ export {
   globalVoiceOverwrites,
   globalAnnouncementOverwrites,
   globalBotLogOverwrites,
-  globalReadOnlyOverwrites,
   globalBoardOverwrites,
   memberForumOverwrites,
   showcaseForumOverwrites,
@@ -40,4 +39,9 @@ export {
 } from './permissions.js';
 export { normalizeComparableName, ignoredLegacyWarnings } from './legacy.js';
 export { reconcileExistingMembers, recognizeMemberFromRoles } from './members.js';
-export { provisionDiscord, createProvisionClient, DiscordProvisioner } from './discord.js';
+export {
+  provisionDiscord,
+  createProvisionClient,
+  DiscordProvisioner,
+  universityChannelPositions,
+} from './discord.js';

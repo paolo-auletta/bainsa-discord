@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BAINSA — Profile card system concept</title>
+  <style>
+    :root{color-scheme:dark;--ink:#f2f3f5;--muted:#b5bac1;--quiet:#949ba4;--page:#101114;--rail:#17181c;--surface:#313338;--raised:#2b2d31;--well:#202225;--line:#46484f;--soft:#3b3d44;--brand:#5865f2;--green:#23a55a;--gold:#f0b232;--danger:#da373c;--radius:14px;--sans:"gg sans","Noto Sans","Helvetica Neue",Arial,sans-serif;--mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+    *{box-sizing:border-box} html{background:var(--page);scroll-behavior:smooth} body{margin:0;background:var(--page);color:var(--ink);font:15px/1.5 var(--sans)} button,input{font:inherit} button{cursor:pointer} ::selection{background:var(--brand);color:#fff} :focus-visible{outline:3px solid #b7c0ff;outline-offset:3px} ::-webkit-scrollbar{width:12px} ::-webkit-scrollbar-thumb{border:3px solid var(--page);border-radius:999px;background:#5b5e67}
+    .shell{display:grid;grid-template-columns:270px minmax(0,1fr);min-height:100vh}.rail{position:sticky;top:0;height:100vh;padding:25px 18px;overflow:auto;border-right:1px solid #282a2f;background:var(--rail)}.brand{display:flex;gap:11px;align-items:center;margin:0 8px 34px}.mark{display:grid;width:38px;height:38px;place-items:center;border-radius:11px;background:var(--brand);font-size:15px;font-weight:850;letter-spacing:-.05em}.brand b{display:block;font-size:14px}.brand span{display:block;color:var(--quiet);font-size:12px}.nav-title{margin:0 10px 7px;color:var(--quiet);font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.nav{display:grid;gap:3px;margin:0 0 30px;padding:0;list-style:none}.nav button{width:100%;min-height:38px;padding:8px 10px;border:0;border-radius:7px;background:transparent;color:var(--muted);text-align:left;font-size:13px;font-weight:650}.nav button:hover,.nav button[aria-current="page"]{background:#282a2f;color:var(--ink)}.nav button[aria-current="page"]{box-shadow:inset 2px 0 0 var(--brand)}.principle{margin:auto 8px 0;padding:14px 0 0;border-top:1px solid #292b30;color:var(--quiet);font-size:12px;line-height:1.5}.principle b{display:block;margin-bottom:4px;color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase}
+    .main{min-width:0;background:var(--surface)}.topbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:66px;padding:12px clamp(20px,4vw,48px);border-bottom:1px solid #292b30;background:rgb(49 51 56 / .96);backdrop-filter:blur(10px)}.topbar h1{margin:0;font-size:16px;letter-spacing:-.015em}.topbar p{margin:1px 0 0;color:var(--quiet);font-size:12px}.status{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px;white-space:nowrap}.status i{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgb(35 165 90 / .15)}.content{width:min(1180px,100%);margin:auto;padding:clamp(28px,5vw,58px) clamp(20px,4vw,48px) 80px}.view{display:none}.view.active{display:block;animation:reveal .32s cubic-bezier(.2,.8,.2,1)}@keyframes reveal{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}.intro{max-width:770px;margin-bottom:38px}.intro h2{max-width:18ch;margin:0 0 12px;font-size:clamp(30px,4vw,50px);line-height:1.04;letter-spacing:-.04em;text-wrap:balance}.intro p{max-width:66ch;margin:0;color:var(--muted);font-size:16px}.rule{height:1px;margin:38px 0;background:var(--line)}.section-title{margin:0 0 15px;font-size:17px;letter-spacing:-.02em}.section-note{margin:-7px 0 20px;color:var(--quiet);font-size:13px}
+    .directory{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(290px,.65fr);gap:26px;align-items:start}.forum{overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);background:#292b2f}.forum-head{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--soft);background:#242529}.hash{color:var(--quiet);font-size:22px;font-weight:500}.forum-head b{font-size:14px}.forum-head span{margin-left:auto;color:var(--quiet);font-size:12px}.thread-list{padding:9px}.thread{display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:11px;align-items:center;min-height:67px;padding:10px;border-radius:10px}.thread:hover,.thread.selected{background:#36383e}.avatar{display:grid;width:38px;height:38px;place-items:center;overflow:hidden;border-radius:50%;background:#6b5b95;color:#fff;font-size:13px;font-weight:800}.avatar.alt{background:#2b8a7e}.avatar.gold{background:#b7791f}.thread b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.thread small{display:block;overflow:hidden;color:var(--quiet);text-overflow:ellipsis;white-space:nowrap;font-size:12px}.thread time{color:var(--quiet);font-size:11px}.side-notes{display:grid;gap:12px}.note{padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--raised)}.note h3{margin:0 0 7px;font-size:13px}.note p{margin:0;color:var(--muted);font-size:13px}.note strong{color:var(--ink)}
+    .message{overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);background:#2b2d31}.message-top{display:flex;align-items:center;gap:9px;padding:13px 15px;border-bottom:1px solid var(--soft);color:var(--quiet);font-size:12px}.mini-mark{display:grid;width:22px;height:22px;place-items:center;border-radius:7px;background:var(--brand);color:#fff;font-size:10px;font-weight:850}.message-top b{color:var(--muted)}.message-body{padding:20px}.identity-block{display:grid;grid-template-columns:auto minmax(0,1fr);gap:14px;align-items:center;padding-bottom:18px;border-bottom:1px solid var(--soft)}.identity-block .avatar{width:48px;height:48px;font-size:15px}.identity-block h3{margin:0;font-size:20px;letter-spacing:-.025em}.headline{margin:2px 0 0;color:var(--muted);font-size:13px}.identity-strip{display:flex;flex-wrap:wrap;gap:7px;margin:15px 0 0}.identity-item{display:inline-flex;align-items:center;gap:6px;min-height:27px;padding:4px 8px;border:1px solid #535661;border-radius:6px;background:#23252a;color:#d9dbe0;font-size:12px}.identity-item svg{width:14px;height:14px;color:#aeb5ff}.identity-item b{color:var(--quiet);font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}.identity-item span{color:var(--ink);font-weight:650}.profile-sections{display:grid;gap:21px;padding-top:20px}.profile-section{display:grid;grid-template-columns:150px minmax(0,1fr);gap:16px}.profile-section h4{margin:0;color:var(--quiet);font-size:11px;font-weight:800;letter-spacing:.075em;text-transform:uppercase}.profile-section p{max-width:62ch;margin:0;color:var(--muted);font-size:13px}.profile-section p strong{color:var(--ink)}.tag-row{display:flex;flex-wrap:wrap;gap:6px}.tag{display:inline-flex;align-items:center;min-height:22px;padding:2px 8px;border:1px solid #5761bd;border-radius:5px;background:#3a4388;color:#dfe2ff;font-size:11px;font-weight:700;white-space:nowrap}.tag.green{border-color:#277955;background:#245f46;color:#d2f4df}.tag.gold{border-color:#977526;background:#6b531e;color:#ffecb0}.contact{display:inline-flex;align-items:center;gap:7px;color:#cbd0ff;font-size:13px;font-weight:700;text-decoration:none}.contact:hover{color:#fff;text-decoration:underline;text-underline-offset:3px}.contact svg{width:16px;height:16px}.public-foot{margin:20px -20px -20px;padding:12px 20px;border-top:1px solid var(--soft);color:var(--quiet);font-size:11px}
+    .comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.comparison h3{margin:0 0 10px;font-size:14px}.before,.after{padding:18px;border-radius:12px}.before{border:1px solid #5c4548;background:#30272a}.after{border:1px solid #456356;background:#26332e}.comparison pre{overflow:auto;margin:0;color:#d4d6db;font:12px/1.55 var(--mono);white-space:pre-wrap}.architecture{display:grid;grid-template-columns:1fr 1fr;gap:18px}.architecture article{padding:19px;border:1px solid var(--line);border-radius:var(--radius);background:var(--raised)}.architecture h3{margin:0 0 9px;font-size:15px}.architecture p{margin:0;color:var(--muted);font-size:13px}.architecture ul{display:grid;gap:8px;margin:15px 0 0;padding-left:17px;color:var(--muted);font-size:13px}.architecture code,.change-list code{color:#cfd3ff;font-family:var(--mono);font-size:11px}.compact-message{margin-top:18px}.alumni-note{margin-top:12px;color:var(--quiet);font-size:12px}
+    .wizard-shell{display:grid;grid-template-columns:225px minmax(0,680px);gap:28px;align-items:start}.steps{padding:10px 0}.step{display:grid;grid-template-columns:24px 1fr;gap:9px;align-items:center;min-height:38px;color:var(--quiet);font-size:13px}.step span{display:grid;width:20px;height:20px;place-items:center;border:1px solid #59606a;border-radius:50%;font-size:10px;font-weight:800}.step.done{color:var(--muted)}.step.done span{border-color:var(--green);background:var(--green);color:#fff}.step.current{color:var(--ink);font-weight:750}.step.current span{border-color:#8790ff;background:var(--brand);color:#fff}.private-card{overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);background:#2b2d31}.private-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 17px;border-bottom:1px solid var(--soft)}.private-head b{font-size:13px}.private-head span{color:var(--quiet);font-size:11px;font-weight:700}.private-body{padding:21px}.private-body h3{margin:0 0 7px;font-size:22px;letter-spacing:-.025em}.private-body>p{margin:0 0 20px;color:var(--muted);font-size:13px}.private-actions{display:flex;justify-content:space-between;gap:10px;margin:22px -21px -21px;padding:14px 21px;border-top:1px solid var(--soft);background:#27292d}.action-group{display:flex;flex-wrap:wrap;gap:8px}.button{min-height:34px;padding:7px 12px;border:0;border-radius:5px;background:#4e5058;color:#fff;font-size:12px;font-weight:750}.button:hover{filter:brightness(1.1)}.button.primary{background:var(--brand)}.button.ghost{background:transparent;color:var(--muted)}.button.danger{background:transparent;box-shadow:inset 0 0 0 1px #a63d42;color:#ffb6bb}.privacy-note{display:flex;gap:9px;margin-top:17px;padding:11px;border:1px solid #4c526e;border-radius:8px;background:#272b40;color:#c8ccfa;font-size:12px}.privacy-note svg{flex:0 0 auto;width:17px;height:17px}.review{display:grid;gap:12px}.review-row{padding-bottom:12px;border-bottom:1px solid var(--soft)}.review-row:last-child{padding-bottom:0;border-bottom:0}.review-row b{display:block;margin-bottom:3px;color:var(--quiet);font-size:10px;letter-spacing:.07em;text-transform:uppercase}.review-row span{color:var(--muted);font-size:13px}
+    .boundary{display:grid;grid-template-columns:1fr 42px 1fr 42px 1fr;gap:10px;align-items:stretch;margin-top:22px}.node{padding:17px;border:1px solid var(--line);border-radius:12px;background:var(--raised)}.node b{display:block;margin-bottom:4px;font-size:13px}.node span{color:var(--muted);font-size:12px}.arrow{display:grid;place-items:center;color:#8993ff;font-size:22px}.change-list{display:grid;gap:9px;margin:0;padding:0;list-style:none}.change-list li{position:relative;padding-left:22px;color:var(--muted);font-size:13px}.change-list li::before{position:absolute;left:0;color:var(--green);content:"✓";font-weight:800}
+    @media(max-width:900px){.shell{grid-template-columns:1fr}.rail{position:static;height:auto;padding:15px 20px;border-right:0;border-bottom:1px solid #292b30}.brand{margin:0 0 13px}.nav{display:flex;gap:5px;overflow:auto;margin:0}.nav-title,.principle{display:none}.nav button{width:auto;min-width:max-content}.directory,.wizard-shell{grid-template-columns:1fr}.steps{display:flex;gap:12px;overflow:auto;padding:0}.step{grid-template-columns:20px max-content}}@media(max-width:640px){.topbar{align-items:flex-start}.status{display:none}.content{padding-inline:14px}.directory{gap:16px}.thread{grid-template-columns:34px minmax(0,1fr)}.thread time{display:none}.comparison,.architecture{grid-template-columns:1fr}.profile-section{grid-template-columns:1fr;gap:5px}.profile-section h4{font-size:10px}.identity-block{align-items:start}.boundary{grid-template-columns:1fr}.arrow{min-height:20px;transform:rotate(90deg)}.private-actions{align-items:stretch;flex-direction:column-reverse}.action-group{width:100%}.action-group .button{flex:1}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand"><div class="mark">B</div><div><b>BAINSA</b><span>Profile system concept</span></div></div>
+      <p class="nav-title">Explore the system</p>
+      <nav><ul class="nav">
+        <li><button type="button" data-view="public" aria-current="page">Public directory</button></li>
+        <li><button type="button" data-view="card">Profile card anatomy</button></li>
+        <li><button type="button" data-view="private">Private profile flow</button></li>
+        <li><button type="button" data-view="implementation">Implementation approach</button></li>
+      </ul></nav>
+      <p class="principle"><b>Design rule</b>Public cards describe the member to the reader. Private screens speak to the profile owner.</p>
+    </aside>
+    <main class="main">
+      <header class="topbar"><div><h1>People database</h1><p>Issue #51 · profile-card identity hierarchy</p></div><div class="status"><i></i> Concept artifact</div></header>
+      <div class="content">
+        <section id="public" class="view active">
+          <div class="intro"><h2>Find the right person before reading their whole story.</h2><p>The directory behaves like a member registry, not a set of personal landing pages. The first read is canonical BAINSA context; the second is the member’s work and collaboration intent.</p></div>
+          <div class="directory">
+            <div class="forum"><div class="forum-head"><span class="hash">#</span><b>people-directory</b><span>Forum · list view</span></div><div class="thread-list">
+              <div class="thread selected"><div class="avatar">AL</div><div><b>Ada Lovelace — Practical AI systems</b><small>Researcher · Bocconi · Analysis</small></div><time>now</time></div>
+              <div class="thread"><div class="avatar alt">MB</div><div><b>Marco Bianchi — Early-stage ventures</b><small>Alumni · Bocconi</small></div><time>2h</time></div>
+              <div class="thread"><div class="avatar gold">OS</div><div><b>Olivia Smith — Inclusive design research</b><small>Researcher · University of Milan · Culture</small></div><time>1d</time></div>
+            </div></div>
+            <aside class="side-notes">
+              <div class="note"><h3>What changed</h3><p>The list subtitle and opened card both expose <strong>member path, university, and division when applicable</strong>.</p></div>
+              <div class="note"><h3>What stays private</h3><p>Unpublished profiles, unused contact choices, wizard drafts, and internal reconciliation state never enter this surface.</p></div>
+              <div class="note"><h3>Why the subtitle matters</h3><p>List view is often the first and fastest scan. It earns a compact canonical identity line.</p></div>
+            </aside>
+          </div>
+          <div class="rule"></div>
+          <h2 class="section-title">Opened forum post</h2>
+          <p class="section-note">One bot-managed starter card. “Profile” copy is reader-first; canonical facts are visually distinct from member-authored content.</p>
+          <article class="message">
+            <div class="message-top"><div class="mini-mark">B</div><b>BAINSA</b><span>BOT&nbsp;&nbsp;·&nbsp;&nbsp;Today at 10:30</span></div>
+            <div class="message-body">
+              <div class="identity-block"><div class="avatar">AL</div><div><h3>Ada Lovelace</h3><p class="headline">Researcher building practical AI systems</p></div></div>
+              <div class="identity-strip" aria-label="Ada's BAINSA identity">
+                <span class="identity-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3 4 7l8 4 8-4-8-4Z"/><path d="m6 10 6 3 6-3"/><path d="m6 14 6 3 6-3"/></svg><b>Path</b><span>Researcher</span></span>
+                <span class="identity-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 21h18M5 21V9l7-5 7 5v12M9 21v-7h6v7"/></svg><b>University</b><span>Bocconi</span></span>
+                <span class="identity-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20V4h16v16M8 8h8M8 12h8M8 16h5"/></svg><b>Division</b><span>Analysis</span></span>
+              </div>
+              <div class="profile-sections">
+                <div class="profile-section"><h4>Current focus</h4><p><strong>Research assistant · Applied AI Lab</strong><br>Based in Milan, working on robust methods that make AI systems more useful in real settings.</p></div>
+                <div class="profile-section"><h4>Looking to explore</h4><p>Collaborations around applied machine learning, responsible deployment, and projects that connect research with organisations.</p></div>
+                <div class="profile-section"><h4>Areas</h4><div class="tag-row"><span class="tag">Bocconi</span><span class="tag green">Technology</span><span class="tag green">Industry</span><span class="tag gold">Entrepreneurship</span></div></div>
+                <div class="profile-section"><h4>Connect</h4><a href="#" class="contact" onclick="return false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/></svg>Message Ada on Discord</a></div>
+              </div>
+              <div class="public-foot">This opt-in member profile is managed by BAINSA. It reflects current BAINSA membership context.</div>
+            </div>
+          </article>
+        </section>
+        <section id="card" class="view">
+          <div class="intro"><h2>Two kinds of truth, clearly separated.</h2><p>The strongest refinement is structural: canonical BAINSA facts are deterministic and concise; authored profile content follows as a personal, editable layer.</p></div>
+          <div class="comparison">
+            <article class="before"><h3>Current public summary</h3><pre>## Your BAINSA people database profile
+
+Where you are now
+Headline · …
+What are you doing now? · …
+Organisation · …
+Location · …
+
+What you want to explore
+…</pre></article>
+            <article class="after"><h3>Proposed public summary</h3><pre>## Ada Lovelace
+Researcher building practical AI systems
+
+BAINSA identity
+Researcher · Bocconi · Analysis
+
+Current focus
+Research assistant · Applied AI Lab
+
+Looking to explore
+…
+
+Areas · Technology, Industry</pre></article>
+          </div>
+          <div class="rule"></div>
+          <h2 class="section-title">Public-card hierarchy</h2>
+          <div class="architecture">
+            <article><h3>1. Person</h3><p>Full name makes the post legible when opened from search, tags, notifications, or a copied forum link. The headline gives a human shorthand, not the only identity.</p><ul><li><code>full_name</code> — canonical</li><li><code>headline</code> — member-authored</li></ul></article>
+            <article><h3>2. BAINSA identity</h3><p>A fixed, scannable strip sits before biography. It states the member path, university, and division only when the canonical membership supplies one.</p><ul><li><code>member_type</code> — canonical</li><li><code>university_name</code> — canonical</li><li><code>division_name</code> — canonical, optional</li></ul></article>
+            <article><h3>3. Collaboration signal</h3><p>Current focus, then what the person wants to explore. These explain why a reader might contact them, without competing with identity.</p><ul><li><code>current_role</code>, organisation, location</li><li><code>goals</code>, <code>about</code></li></ul></article>
+            <article><h3>4. Discovery and contact</h3><p>Managed tags remain forum-native filters. Contact is a deliberately chosen action; Discord is the default route and no unused field gets a “Not added” placeholder.</p><ul><li>Canonical university tag + selected tags</li><li>Only opted-in public contact details</li></ul></article>
+          </div>
+          <div class="rule"></div>
+          <h2 class="section-title">The alumni case</h2><p class="section-note">An absent division is not an empty field. The identity strip simply contains two facts.</p>
+          <article class="message compact-message"><div class="message-top"><div class="mini-mark">B</div><b>BAINSA</b><span>BOT&nbsp;&nbsp;·&nbsp;&nbsp;Today</span></div><div class="message-body"><div class="identity-block"><div class="avatar alt">MB</div><div><h3>Marco Bianchi</h3><p class="headline">Building early-stage ventures</p></div></div><div class="identity-strip"><span class="identity-item"><b>Path</b><span>Alumni</span></span><span class="identity-item"><b>University</b><span>Bocconi</span></span></div><p class="alumni-note">No Division row, no “None”, and no invented affiliation.</p></div></article>
+        </section>
+        <section id="private" class="view">
+          <div class="intro"><h2>Private editing is a guided checklist, not the public card in edit mode.</h2><p>Owner-centric language belongs here. The wizard preserves the current private, actor-bound workflow while its review screen makes the public boundary explicit.</p></div>
+          <div class="wizard-shell">
+            <nav class="steps" aria-label="Profile setup steps"><div class="step done"><span>✓</span>Where you are now</div><div class="step done"><span>✓</span>Where you want to go</div><div class="step done"><span>✓</span>Tags</div><div class="step done"><span>✓</span>Contact</div><div class="step current"><span>5</span>Review &amp; publish</div></nav>
+            <article class="private-card">
+              <div class="private-head"><b>Private to you</b><span>PROFILE REVIEW</span></div>
+              <div class="private-body">
+                <h3>Review your public profile</h3><p>Everything below will be visible to approved BAINSA members after you publish.</p>
+                <div class="review"><div class="review-row"><b>Where you are now</b><span>Researcher building practical AI systems<br>Research assistant · Applied AI Lab · Milan</span></div><div class="review-row"><b>Where you want to go</b><span>Applied machine learning, responsible deployment, and research-to-organisation collaboration.</span></div><div class="review-row"><b>Areas</b><span>Bocconi · Technology · Industry · Entrepreneurship</span></div><div class="review-row"><b>Contact</b><span>Discord is always available. LinkedIn is included because you chose to add it.</span></div></div>
+                <div class="privacy-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span><strong>Private until you publish.</strong> Cancelling changes nothing. You can update or unpublish the profile later.</span></div>
+                <div class="private-actions"><div class="action-group"><button class="button ghost" type="button" data-view="private">Back to contact</button><button class="button danger" type="button" data-toast="Profile editing cancelled. Nothing changed.">Cancel</button></div><button class="button primary" type="button" data-toast="Concept only — profile published.">Publish profile</button></div>
+              </div>
+            </article>
+          </div>
+          <div class="rule"></div>
+          <h2 class="section-title">Every profile component, by responsibility</h2>
+          <div class="architecture">
+            <article><h3>Directory guide</h3><p>Public guidance speaks to the whole community: “Browse member profiles by interests, current work, and BAINSA context.” Owner actions stay as clearly labelled buttons.</p><ul><li>Create or update my profile</li><li>Unpublish my profile</li></ul></article>
+            <article><h3>Current / direction / tag / contact screens</h3><p>Private, progressive screens use “you” because they are only visible to the owner. Each has one purpose, a review summary, back navigation, and Cancel.</p><ul><li>Required fields block only forward progress</li><li>Optional contact is visibly optional</li></ul></article>
+            <article><h3>Review screen</h3><p>Names the visibility boundary in plain language. It previews public content, not hidden operational IDs, persistence state, or private reconciliation detail.</p><ul><li>Explicit publishing notice</li><li>Publish, Back, Cancel</li></ul></article>
+            <article><h3>Terminal states</h3><p>Publishing, pending sync, failure, unpublish confirmation, and cancellation are concise private messages. They explain the outcome and recovery path; never echo sensitive profile data.</p><ul><li>Saved; syncing automatically</li><li>Unpublished; cleanup retries if needed</li></ul></article>
+          </div>
+        </section>
+        <section id="implementation" class="view">
+          <div class="intro"><h2>Implement it as a formatter split, not a new data model.</h2><p>Issue #51 can remain narrowly scoped: read canonical identity during reconciliation, format it for the public starter card, and update the directory guide copy. The durable one-post reconciliation contract does not change.</p></div>
+          <div class="boundary"><div class="node"><b>Canonical membership</b><span>member path, university, active division</span></div><div class="arrow">→</div><div class="node"><b>Public formatter</b><span>reader-first card; omit private / absent values</span></div><div class="arrow">→</div><div class="node"><b>Existing reconciler</b><span>edits the tracked starter message in place</span></div></div>
+          <div class="rule"></div>
+          <h2 class="section-title">Recommended implementation slice</h2>
+          <ul class="change-list">
+            <li>Use <code>formatProfileReview</code> for the owner-only wizard and a separate public post formatter for the reader-facing card. Owner-centric “your profile” language stays private.</li>
+            <li>In the public formatter, lead with the canonical full name and an identity line: <code>Researcher · Bocconi · Analysis</code>. Build that line only from reconciliation-loaded membership facts.</li>
+            <li>Keep division conditional: researchers with a current division display it; alumni do not receive a blank or placeholder division row.</li>
+            <li>Render authored sections after canonical context, and omit optional fields that are absent. Keep Markdown escaping and <code>allowedMentions: { parse: [] }</code> unchanged.</li>
+            <li>Update the people-directory guide to address readers (“Browse profiles…”) and label the owner buttons separately (“Create or update my profile”).</li>
+            <li>Use the existing thread/message identity and reconciliation generation unchanged, so a profile update edits one tracked starter card rather than creating a duplicate post.</li>
+          </ul>
+          <div class="rule"></div>
+          <h2 class="section-title">Acceptance-test map</h2>
+          <div class="architecture"><article><h3>Hierarchy</h3><p>Assert public content includes the member name and canonical member path, university, and division; confirm ordering places identity ahead of biography.</p></article><article><h3>Copy boundary</h3><p>Assert public content does not contain “Your BAINSA … profile”; keep “your” language in private review and modal components.</p></article><article><h3>Privacy</h3><p>Assert absent optional values and unpublished/draft content are omitted. Continue testing escaping and inert mentions for authored content.</p></article><article><h3>Reconciliation</h3><p>Retain the existing upsert identity test and add a content-change case proving the same forum thread/starter message is edited in place.</p></article></div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script>
+    const controls=document.querySelectorAll('[data-view]'),views=document.querySelectorAll('.view');
+    function selectView(id){views.forEach(view=>view.classList.toggle('active',view.id===id));controls.forEach(control=>control.setAttribute('aria-current',control.dataset.view===id?'page':'false'));window.scrollTo({top:0,behavior:'smooth'})}
+    controls.forEach(control=>control.addEventListener('click',()=>selectView(control.dataset.view)));
+    document.querySelectorAll('[data-toast]').forEach(button=>button.addEventListener('click',()=>{const old=button.textContent;button.textContent=button.dataset.toast;button.disabled=true;window.setTimeout(()=>{button.textContent=old;button.disabled=false},1800)}));
+  </script>
+</body>
+</html>

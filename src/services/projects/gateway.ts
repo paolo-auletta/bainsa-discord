@@ -5,10 +5,52 @@ import { PROJECT_MEMBER_FETCH_CONCURRENCY } from '../../constants.js';
 import { assertUser } from '../../errors.js';
 import { universityCategoryName } from '../../naming.js';
 import { mapWithConcurrency } from './concurrency.js';
-import { formatProjectIntro, formatShowcasePost } from './formatters.js';
+import {
+  projectAssignmentMessage,
+  projectHomePayload,
+  projectRemovalMessage,
+  projectStatusLabel,
+  showcasePostPayload,
+  projectWorkspaceGuidePayload,
+} from './formatters.js';
 import { formatDiscordUserReferences } from './validation.js';
 
 const PROJECT_HISTORY_ALLOWED_MENTIONS = Object.freeze({ parse: [] as string[] });
+const UNKNOWN_CHANNEL = 10_003;
+const UNKNOWN_MESSAGE = 10_008;
+
+function isDiscordError(error, code) {
+  return Number(error?.code) === code;
+}
+
+async function fetchChannelIfPresent(guild, channelId) {
+  try {
+    return await guild.channels.fetch(channelId);
+  } catch (error) {
+    if (isDiscordError(error, UNKNOWN_CHANNEL)) return null;
+    throw error;
+  }
+}
+
+async function fetchStarterIfPresent(thread) {
+  if (!thread?.fetchStarterMessage) return null;
+  try {
+    return await thread.fetchStarterMessage();
+  } catch (error) {
+    if (isDiscordError(error, UNKNOWN_CHANNEL) || isDiscordError(error, UNKNOWN_MESSAGE)) return null;
+    throw error;
+  }
+}
+
+async function fetchMessageIfPresent(channel, messageId) {
+  if (!messageId || !channel.messages?.fetch) return null;
+  try {
+    return await channel.messages.fetch(messageId);
+  } catch (error) {
+    if (isDiscordError(error, UNKNOWN_MESSAGE)) return null;
+    throw error;
+  }
+}
 
 async function fetchGuildMember(guild, userId) {
   try {
@@ -42,43 +84,209 @@ export function findProjectParentId(guild, project) {
   return findCategoryId(guild, project.category_id, universityCategoryName(project.university_name));
 }
 
-export async function createShowcaseThread(guild, project, people) {
-  if (!project.showcase_channel_id) return null;
-  const forum = await guild.channels.fetch(project.showcase_channel_id).catch(() => null);
-  if (!forum || forum.type !== ChannelType.GuildForum) return null;
-  const existing = forum.availableTags.find((tag) => tag.name.toLowerCase() === project.division_name.toLowerCase());
-  const tags = existing
-    ? forum.availableTags
-    : (await forum.setAvailableTags([...forum.availableTags.map((tag) => ({ id: tag.id, name: tag.name, moderated: tag.moderated })), { name: project.division_name }], `Create ${project.division_name} project tag`)).availableTags;
-  const tagId = tags.find((tag) => tag.name.toLowerCase() === project.division_name.toLowerCase())?.id ?? null;
+function forumTagPayload(tag) {
+  return { id: tag.id, name: tag.name, moderated: tag.moderated };
+}
+
+function lifecycleTagName(status) {
+  return status === 'archived' ? 'Completed' : projectStatusLabel(status);
+}
+
+async function ensureShowcaseTags(forum, project) {
+  const desiredNames = [project.division_name, 'Active', 'Paused', 'Completed'];
+  let tags = forum.availableTags ?? [];
+  const existingNames = new Set(tags.map((tag) => tag.name.toLowerCase()));
+  const missing = desiredNames.filter((name) => !existingNames.has(name.toLowerCase()));
+  if (missing.length > 0 && typeof forum.setAvailableTags === 'function') {
+    const updated = await forum.setAvailableTags(
+      [...tags.map(forumTagPayload), ...missing.map((name) => ({ name }))],
+      `Reconcile project ${project.id} showcase tags`,
+    );
+    tags = updated.availableTags ?? tags;
+  }
+  return tags;
+}
+
+function showcaseAppliedTagIds(tags, project) {
+  const desired = new Set([
+    project.division_name.toLowerCase(),
+    lifecycleTagName(project.status).toLowerCase(),
+  ]);
+  return tags.filter((tag) => desired.has(tag.name.toLowerCase())).map((tag) => tag.id);
+}
+
+async function createShowcaseThread(forum, project, people, tags) {
+  const appliedTags = showcaseAppliedTagIds(tags, project);
+  const payload = showcasePostPayload(project, people);
   return forum.threads.create({
     name: project.name,
-    appliedTags: tagId ? [tagId] : [],
+    appliedTags,
     message: {
-      content: formatShowcasePost(project, people),
+      ...payload,
       allowedMentions: PROJECT_HISTORY_ALLOWED_MENTIONS,
     },
     reason: `Project ${project.id} showcase post`,
   });
 }
 
-export async function updateShowcaseThread(guild, project, people, extra = '') {
-  if (!project.showcase_thread_id) return;
-  const thread = await guild.channels.fetch(project.showcase_thread_id).catch(() => null);
-  if (!thread) return;
-  await thread.setName(project.name, `Update project ${project.id} showcase`).catch(() => undefined);
-  await thread.send({
-    content: formatShowcasePost(project, people, extra),
+export async function syncShowcaseThread(guild, project, people) {
+  if (!project.showcase_channel_id) {
+    throw new Error(`Project ${project.id} has no configured university showcase forum.`);
+  }
+  const forum = await fetchChannelIfPresent(guild, project.showcase_channel_id);
+  if (!forum) throw new Error(`Project ${project.id}'s university showcase forum is missing.`);
+  if (forum.type !== ChannelType.GuildForum) {
+    throw new Error(`Project ${project.id}'s configured showcase channel is not a forum.`);
+  }
+  const tags = await ensureShowcaseTags(forum, project);
+  let thread = project.showcase_thread_id
+    ? await fetchChannelIfPresent(guild, project.showcase_thread_id)
+    : null;
+  let starter = await fetchStarterIfPresent(thread);
+
+  if (!thread || !starter) {
+    if (thread?.setArchived) await thread.setArchived(true, `Replace incomplete project ${project.id} showcase`).catch(() => undefined);
+    thread = await createShowcaseThread(forum, project, people, tags);
+    starter = await fetchStarterIfPresent(thread);
+    return thread;
+  }
+
+  if (thread.archived && typeof thread.setArchived === 'function') {
+    await thread.setArchived(false, `Refresh project ${project.id} showcase`);
+  }
+  if (thread.locked && typeof thread.setLocked === 'function') {
+    await thread.setLocked(false, `Refresh project ${project.id} showcase`);
+  }
+  if (thread.name !== project.name && typeof thread.setName === 'function') {
+    await thread.setName(project.name, `Update project ${project.id} showcase`);
+  }
+  if (typeof thread.setAppliedTags === 'function') {
+    await thread.setAppliedTags(showcaseAppliedTagIds(tags, project), `Update project ${project.id} showcase tags`);
+  }
+  await starter.edit({
+    ...showcasePostPayload(project, people),
     allowedMentions: PROJECT_HISTORY_ALLOWED_MENTIONS,
-  }).catch(() => undefined);
+  });
+  return thread;
 }
 
-export async function updateProjectChannel(guild, project, people, extra = '') {
+function projectHomeMarker(projectId) {
+  return `-# Project #${projectId} · Pinned project record · Updates automatically`;
+}
+
+function legacyProjectHomeMarker(projectId) {
+  return `-# Project #${projectId} ·`;
+}
+
+function projectWorkspaceGuideMarker(projectId) {
+  return `-# Project #${projectId} · Pinned workspace guide`;
+}
+
+function matchingProjectHome(messages, channel, projectId) {
+  const botUserId = channel.client?.user?.id;
+  return messages.find(
+    (message) =>
+      (message.content?.endsWith(projectHomeMarker(projectId))
+        || message.content?.startsWith(legacyProjectHomeMarker(projectId)))
+      && (!botUserId || !message.author?.id || String(message.author.id) === String(botUserId)),
+  ) ?? null;
+}
+
+async function findProjectHome(channel, projectId) {
+  if (channel.messages?.fetchPins) {
+    const response = await channel.messages.fetchPins();
+    const pinned = response?.items
+    ?.map((item) => item.message)
+      ?? [];
+    const match = matchingProjectHome(pinned, channel, projectId);
+    if (match) return match;
+  }
+  if (!channel.messages?.fetch) return null;
+  const recent = await channel.messages.fetch({ limit: 100 });
+  return matchingProjectHome([...recent.values()], channel, projectId);
+}
+
+function matchingProjectWorkspaceGuide(messages, channel, projectId) {
+  const botUserId = channel.client?.user?.id;
+  return messages.find(
+    (message) =>
+      message.content?.endsWith(projectWorkspaceGuideMarker(projectId))
+      && (!botUserId || !message.author?.id || String(message.author.id) === String(botUserId)),
+  ) ?? null;
+}
+
+async function findProjectWorkspaceGuide(channel, projectId) {
+  if (channel.messages?.fetchPins) {
+    const response = await channel.messages.fetchPins();
+    const pinned = response?.items
+      ?.map((item) => item.message)
+      ?? [];
+    const match = matchingProjectWorkspaceGuide(pinned, channel, projectId);
+    if (match) return match;
+  }
+  if (!channel.messages?.fetch) return null;
+  const recent = await channel.messages.fetch({ limit: 100 });
+  return matchingProjectWorkspaceGuide([...recent.values()], channel, projectId);
+}
+
+export async function syncProjectHome(guild, project, people) {
   if (!project.discord_channel_id) return;
-  const channel = await guild.channels.fetch(project.discord_channel_id).catch(() => null);
+  const channel = await fetchChannelIfPresent(guild, project.discord_channel_id);
   if (!channel) return;
-  await channel.send({
-    content: formatProjectIntro(project, people, extra),
+  let message = await fetchMessageIfPresent(channel, project.home_message_id);
+  if (!message) message = await findProjectHome(channel, project.id);
+  const payload = {
+    ...projectHomePayload(project, people),
     allowedMentions: PROJECT_HISTORY_ALLOWED_MENTIONS,
-  }).catch(() => undefined);
+  };
+  if (!message) {
+    message = await channel.send(payload);
+  } else {
+    await message.edit(payload);
+  }
+  if (!message.pinned && typeof message.pin === 'function') {
+    await message.pin(`Pin canonical project ${project.id} overview`);
+  }
+  return message;
+}
+
+export async function syncProjectWorkspaceGuide(guild, project) {
+  if (!project.discord_channel_id) return;
+  const channel = await fetchChannelIfPresent(guild, project.discord_channel_id);
+  if (!channel) return;
+  let message = await fetchMessageIfPresent(channel, project.workspace_guide_message_id);
+  if (!message) message = await findProjectWorkspaceGuide(channel, project.id);
+  const payload = {
+    ...projectWorkspaceGuidePayload(project),
+    allowedMentions: PROJECT_HISTORY_ALLOWED_MENTIONS,
+  };
+  if (!message) {
+    message = await channel.send(payload);
+  } else {
+    await message.edit(payload);
+  }
+  if (!message.pinned && typeof message.pin === 'function') {
+    await message.pin(`Pin project ${project.id} workspace guide`);
+  }
+  return message;
+}
+
+export async function sendProjectTransition(guild, project, payload) {
+  if (!project.discord_channel_id) return null;
+  const channel = await guild.channels.fetch(project.discord_channel_id).catch(() => null);
+  if (!channel) return null;
+  return channel.send({
+    ...payload,
+    allowedMentions: PROJECT_HISTORY_ALLOWED_MENTIONS,
+  });
+}
+
+export async function notifyProjectAssignment(guild, project, person, previousRole = null) {
+  const member = await guild.members.fetch(String(person.discord_user_id));
+  await member.send(projectAssignmentMessage(guild.id, project, person.role, previousRole));
+}
+
+export async function notifyProjectRemoval(guild, project, userId, reason = null) {
+  const member = await guild.members.fetch(String(userId));
+  await member.send(projectRemovalMessage(guild.id, project, reason));
 }

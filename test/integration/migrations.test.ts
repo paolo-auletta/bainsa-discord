@@ -48,10 +48,10 @@ test.after(async () => {
 test('runs every migration against a fresh database and keeps the final contract idempotent', async () => {
   const first = await resetAndMigrate();
   assert.equal(first.pending, 0);
-  assert.equal(first.appliedNow.length, 15);
+  assert.equal(first.appliedNow.length, 20);
   assert.deepEqual(first.status.map((row) => row.status), [
     'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
-    'applied', 'applied', 'applied', 'applied', 'applied',
+    'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied', 'applied',
   ]);
 
   const tables = await database.query(`
@@ -74,6 +74,7 @@ test('runs every migration against a fresh database and keeps the final contract
     'project_reconciliation',
     'provisioned_messages',
     'schema_migrations',
+    'transition_notifications',
     'universities',
   ]) {
     assert.ok(tables.rows.some((row) => row.table_name === table), `missing ${table}`);
@@ -90,7 +91,8 @@ test('runs every migration against a fresh database and keeps the final contract
          'board_assignments_active_head_per_division_unique'
        )
   `);
-  assert.equal(indexes.rowCount, 4);
+  assert.equal(indexes.rowCount, 3);
+  assert.equal(indexes.rows.some((row) => row.indexname === 'board_assignments_active_head_per_division_unique'), false);
 
   const reapplicationColumn = await database.query(`
     SELECT data_type, is_nullable, column_default
@@ -104,6 +106,20 @@ test('runs every migration against a fresh database and keeps the final contract
     is_nullable: 'NO',
     column_default: 'false',
   });
+
+  const projectUxColumns = await database.query(`
+    SELECT column_name, data_type
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'projects'
+       AND column_name IN ('summary', 'home_message_id', 'workspace_guide_message_id')
+     ORDER BY column_name
+  `);
+  assert.deepEqual(projectUxColumns.rows, [
+    { column_name: 'home_message_id', data_type: 'text' },
+    { column_name: 'summary', data_type: 'text' },
+    { column_name: 'workspace_guide_message_id', data_type: 'text' },
+  ]);
 
   const universityId = await insertUniversity('Bocconi');
   const otherUniversityId = await insertUniversity('Sapienza');
@@ -155,11 +171,11 @@ test('runs every migration against a fresh database and keeps the final contract
 
   const second = await migrate();
   assert.deepEqual(second.appliedNow, []);
-  assert.equal(second.applied, 15);
+  assert.equal(second.applied, 19);
   assert.equal(second.pending, 0);
 
   const status = await migrate({ statusOnly: true });
-  assert.equal(status.applied, 15);
+  assert.equal(status.applied, 19);
   assert.equal(status.pending, 0);
 });
 
@@ -594,7 +610,7 @@ test('upgrades the tracked legacy university and division shape in place', async
   );
 
   const result = await migrate();
-  assert.equal(result.applied, 15);
+  assert.equal(result.applied, 19);
   assert.equal(result.recordedNotLocal, 1);
 
   const university = await database.query(

@@ -1,3 +1,5 @@
+import { config } from '../config.js';
+
 const MARKER_PREFIX = '<!-- bainsa:seed:';
 
 export function seedMarker(key) {
@@ -24,34 +26,27 @@ export function startHereSeeds() {
       key: 'start:welcome',
       title: 'Welcome to BAINSA',
       body: [
-        'BAINSA Discord connects our university community for research, ideas, and collaboration. This guide shows where each conversation belongs.',
+        'BAINSA Discord connects university chapters for research, ideas, and collaboration.',
         '',
         '**Start here**',
         '1. Complete #onboarding to request access.',
-        '2. Once approved, use the global and university spaces available to you.',
-        '3. Cannot see a channel? It is not in your access—ask in university general if unsure.',
+        '2. Once approved, use **Find my spaces** to reopen your personal channel guide.',
+        '3. Cannot see a channel? Ask in your university general channel.',
         '',
-        '**How the server is organised**',
-        '• **Global BAINSA** connects every university: conversations, resources, and ideas for the whole community.',
-        '• **Your university category** is for local coordination, announcements, and university-specific work.',
-        '• **Division spaces** are focused working areas for Researchers. Onboarding starts you in one division; your board can add further division access when needed. Alumni do not need one.',
-        '• **Project channels** are private spaces for assigned teams: discussion, files, and handoffs.',
+        '**Find the right space**',
+        '• **Global BAINSA** — cross-university conversation and shared knowledge.',
+        '• **Your university** — local coordination, announcements, and updates.',
+        '• **Division rooms** — focused Researcher work. Alumni use university-level spaces.',
+        '• **Project channels** — private workspaces for assigned teams.',
         '',
-        '**Where to post**',
-        '• **Global general** — cross-university questions, discussion, and updates.',
-        '• **Resources** — useful papers, datasets, tools, and templates for everyone.',
-        '• **Channel proposals** — requests for a new shared channel that could help the wider community.',
-        '• **University general** — questions and updates that concern your university only.',
-        '• **Division channel** — planning and work for your division.',
-        '• **Project channel** — work for a specific project and its assigned team.',
-        '',
-        '**Announcements and showcases**',
-        'Global and university announcement channels are for official updates. Project showcase channels let you browse completed or featured work; use the appropriate project workspace for active work instead.',
+        '**Share and discover**',
+        '• **Resources** — papers, datasets, tools, and templates for everyone.',
+        '• **People database** — opt-in member profiles for finding collaborators by interests, current work, and goals.',
+        '• **Projects showcase** — browse work; active projects stay in their private channels.',
         '',
         '**Keep the community useful**',
-        '• Use your real name or a recognizable name.',
         '• Keep work in the narrowest relevant space: global, university, division, or project.',
-        '• Do not share private research, member data, credentials, or internal discussions outside the appropriate channel.',
+        '• Do not share private research, member data, credentials, or internal discussions outside the right space.',
       ].join('\n'),
     }),
     onboarding: buildSeedContent({
@@ -66,7 +61,8 @@ export function startHereSeeds() {
         '• Your university — and, for Researchers, one division',
         '',
         '**What happens next**',
-        'Your university board reviews the request and assigns access once the details are confirmed.',
+        `Your university board reviews the request and assigns access once the details are confirmed. ${config.botName} will try to send the decision by DM.`,
+        'Already applied? Use **Check application status** below to see whether your application is in progress, pending, approved, or declined.',
         '',
         'Ready? Use the button below to begin.',
       ].join('\n'),
@@ -74,7 +70,14 @@ export function startHereSeeds() {
   };
 }
 
-export function globalSeeds({ anonymousFeedbackUrl }: { anonymousFeedbackUrl?: string | null } = {}) {
+export function startHereTopics() {
+  return {
+    welcome: 'START HERE · Learn how BAINSA is organised, then use Find my spaces to reopen your personal arrival card after approval.',
+    onboarding: 'START HERE · Submit or check a BAINSA membership application. Your university board reviews access requests.',
+  };
+}
+
+export function globalSeeds() {
   return {
     general: buildSeedContent({
       key: 'global:general',
@@ -95,7 +98,7 @@ export function globalSeeds({ anonymousFeedbackUrl }: { anonymousFeedbackUrl?: s
       key: 'global:bot-log',
       title: 'Global Bot Log',
       body: [
-        'Use this channel for BAINSA bot commands that operate across university scope. Only Global Presidents should use this command channel.',
+        `Use this channel for ${config.botName} commands that operate across university scope. Only Global Presidents should use this command channel.`,
         '',
         'Successful shared-state changes are recorded here. Guides, lookups, and errors stay private.',
         'Need help? Run `/guide` here. You will only see commands available to you.',
@@ -113,17 +116,21 @@ export function globalSeeds({ anonymousFeedbackUrl }: { anonymousFeedbackUrl?: s
     }),
     peopleDirectory: buildSeedContent({
       key: 'global:people-directory',
-      title: 'People Directory',
+      title: 'People Database',
       body: [
-        'An opt-in directory for approved BAINSA members. Search the post text and forum tags to discover people by interests, current work, and what they want to explore next.',
+        'An opt-in people database for approved BAINSA members. Browse profiles and forum tags to discover people by BAINSA context, current work, interests, and what they want to explore next.',
         '',
-        '**How it works**',
-        '• Create or update your own profile with the button below. Publishing is optional and your post is managed by the bot.',
+        '**Browse the directory**',
+        '• Open a profile to see the member’s BAINSA path, university, and applicable division before their current focus and collaboration interests.',
+        '• Use forum tags to narrow the directory by university, field, or working environment.',
+        '• Discord is the default way to contact a member. Email and professional links appear only when that member chooses to publish them.',
+        '',
+        '**Manage your profile**',
+        '• Create or update your profile with the button below. Publishing is optional and the bot maintains one canonical post for you.',
         '• Choose one to four field or environment tags. Your BAINSA university tag is added automatically.',
-        '• Email and professional links are optional. Discord is the default way to contact a member.',
-        '• Update or unpublish your profile at any time with these buttons. Unpublishing removes the directory post while keeping your details ready if you choose to return.',
+        '• Update or unpublish your profile at any time. Unpublishing removes the directory post while keeping your details ready if you choose to return.',
         '',
-        'Please contact one another respectfully and keep the directory focused on genuine research, professional interests, and collaboration.',
+        'Please contact one another respectfully and keep the people database focused on genuine research, professional interests, and collaboration.',
       ].join('\n'),
     }),
     channelProposals: buildSeedContent({
@@ -131,13 +138,19 @@ export function globalSeeds({ anonymousFeedbackUrl }: { anonymousFeedbackUrl?: s
       title: 'Channel Proposals',
       body: 'Suggest a new shared channel for research, events, or discussion. Include its purpose, intended audience, and what help you need.',
     }),
-    anonymousFeedback: buildSeedContent({
-      key: 'global:anonymous-feedback',
-      title: 'Anonymous Feedback',
-      body: anonymousFeedbackUrl
-        ? `Use this form when you want feedback routed privately to the right reviewers:\n${anonymousFeedbackUrl}`
-        : 'Anonymous feedback is enabled by configuration. Ask a board member for the current feedback form if it is not displayed here yet.',
-    }),
+  };
+}
+
+export function globalTopics() {
+  return {
+    general: 'GLOBAL BAINSA · Cross-university questions, discussion, and updates. Keep university-specific work in the relevant university category.',
+    announcements: 'GLOBAL BAINSA · Official network-wide updates from BAINSA leadership.',
+    board: 'GLOBAL BAINSA · Private cross-university governance and coordination.',
+    showcase: 'GLOBAL BAINSA · Read-only overview of BAINSA project work. Active work stays in private project channels.',
+    resources: 'GLOBAL BAINSA · Searchable resources, tools, papers, datasets, and templates for the whole community.',
+    peopleDirectory: 'GLOBAL BAINSA · Opt-in people database for research and collaboration discovery.',
+    channelProposals: 'GLOBAL BAINSA · Propose a shared space for a clear cross-university need.',
+    botLog: 'GLOBAL BAINSA · Commands and activity that operate across university scope. Global Presidents only.',
   };
 }
 
@@ -162,7 +175,7 @@ export function universitySeeds(universityName) {
       key: `university:${universityName}:bot-log`,
       title: `${universityName} Bot Log`,
       body: [
-        `Use this channel for BAINSA bot commands scoped to ${universityName}. University board members can use the commands here; ordinary discussion belongs in the other university channels.`,
+        `Use this channel for ${config.botName} commands scoped to ${universityName}. University board members can use the commands here; ordinary discussion belongs in the other university channels.`,
         '',
         'Successful shared-state changes are recorded here. Guides, lookups, and errors stay private.',
         'Need help? Run `/guide` here. You will only see commands available to you.',
@@ -171,7 +184,16 @@ export function universitySeeds(universityName) {
     showcase: buildSeedContent({
       key: `university:${universityName}:showcase`,
       title: `${universityName} Projects Showcase`,
-      body: 'Bot-managed university project showcase. Members can read showcased work; project channels remain private to assigned members, supervisors, and scoped board roles.',
+      body: [
+        'This is the durable, shareable record of university projects. The bot creates and maintains one post per project; members cannot create showcase posts themselves.',
+        '',
+        '**Inside a project post**',
+        '• Project members can share progress, supporting details, links, and files that are appropriate for the university community.',
+        '• Other university members can ask a relevant question or express a concrete interest in contributing.',
+        '• Drafts, private decisions, internal notes, and handover details stay in the private project channel.',
+        '',
+        'Use division and status tags to browse active, paused, and completed work. The starter message is the current project record; replies are the chronological discussion and materials.',
+      ].join('\n'),
     }),
     onboardingReview: buildSeedContent({
       key: `university:${universityName}:onboarding-review`,
@@ -190,6 +212,18 @@ export function universitySeeds(universityName) {
   };
 }
 
+export function universityTopics(universityName) {
+  const scope = `BAINSA ${universityName.toUpperCase()}`;
+  return {
+    general: `${scope} · Local member coordination, questions, and lightweight updates. Division-specific work belongs in its division room.`,
+    announcements: `${scope} · Official university announcements and calendar events from the local board.`,
+    board: `${scope} · Private board operations: members, divisions, projects, and escalations.`,
+    botLog: `${scope} · Commands and activity scoped only to ${universityName}.`,
+    showcase: `${scope} · Read-only university project showcase. Active work remains in private project channels.`,
+    onboardingReview: `${scope} · Private review queue for ${universityName} membership applications.`,
+  };
+}
+
 export function divisionSeed(universityName, divisionName, divisionIcon = '') {
   const label = `${divisionIcon ? `${divisionIcon} ` : ''}${divisionName}`;
   return buildSeedContent({
@@ -197,6 +231,10 @@ export function divisionSeed(universityName, divisionName, divisionIcon = '') {
     title: label,
     body: `${label} working room for ${universityName}. Use this for division-specific work, planning, and handoffs.`,
   });
+}
+
+export function divisionTopic(universityName, divisionName) {
+  return `BAINSA ${universityName.toUpperCase()} · ${divisionName} division working room for planning, research, and handoffs. University-wide updates belong in #general.`;
 }
 
 export const FORUM_GUIDE_THREAD_NAME = 'Start here';

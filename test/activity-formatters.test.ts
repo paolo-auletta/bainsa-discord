@@ -21,18 +21,15 @@ const division = { name: 'Culture' };
 
 test('activity policy contains every state-changing command and no lookup command', () => {
   assert.deepEqual([...BOARD_ACTIVITY_COMMANDS].sort(), [
-    'board-assign',
-    'board-remove',
+    'board-update',
     'division-add-member',
     'division-create',
     'division-remove-member',
     'division-update',
     'member-remove',
     'member-update',
-    'project-add-member',
     'project-close',
     'project-create',
-    'project-remove-member',
     'project-update',
   ]);
   for (const command of ['guide', 'member-info', 'board-info', 'project-info']) {
@@ -75,7 +72,7 @@ test('notes-only member updates do not create board activity', () => {
   );
 });
 
-test('division and board activity use consistent action, scope, and role fields', () => {
+test('division and board activity use consistent action and scope fields', () => {
   const divisionPayload = formatBoardActivity('division-create', {
     actorId,
     result: {
@@ -92,36 +89,33 @@ test('division and board activity use consistent action, scope, and role fields'
   assert.match(fieldValue(divisionEmbed, 'Channels created'), /<#200>/);
   assert.match(fieldValue(divisionEmbed, 'Channels created'), /Voice: No/);
 
-  const boardPayload = formatBoardActivity('board-assign', {
+  const boardPayload = formatBoardActivity('board-update', {
     actorId,
-    result: { target, university, division, role: 'head' },
+    result: {
+      university,
+      positionChanges: [{
+        label: 'Head of Culture',
+        currentUserIds: ['100'],
+        nextUserIds: ['101'],
+      }],
+    },
   });
   const boardEmbed = embedJson(boardPayload);
-  assert.equal(boardEmbed.title, '🟢 Board role assigned');
-  assert.equal(fieldValue(boardEmbed, 'Member'), '<@100>');
-  assert.equal(fieldValue(boardEmbed, 'Scope'), 'Bocconi › Culture');
-  assert.equal(fieldValue(boardEmbed, 'Role'), 'Head of Culture');
+  assert.equal(boardEmbed.title, '🟠 Board updated');
+  assert.equal(fieldValue(boardEmbed, 'University'), 'Bocconi');
+  assert.equal(fieldValue(boardEmbed, 'Scope'), 'Bocconi');
+  assert.match(fieldValue(boardEmbed, 'Position changes'), /Head of Culture: <@100> → <@101>/);
 });
 
-test('activity keeps a member display name when Discord cannot resolve their bot-log mention', () => {
-  const nonBoardMember = {
-    id: '100',
-    displayName: 'Sellaceo',
-    user: { username: 'sellaceo' },
-  };
-
-  for (const command of ['board-assign', 'board-remove']) {
-    const payload = formatBoardActivity(command, {
-      actorId,
-      result: { target: nonBoardMember, university, division, role: 'head' },
-    });
-
-    assert.equal(
-      fieldValue(embedJson(payload), 'Member'),
-      'Sellaceo (<@100>)',
-      `${command} should retain both the display name and native mention`,
-    );
-  }
+test('board update activity presents vacant seats and member mentions clearly', () => {
+  const payload = formatBoardActivity('board-update', {
+    actorId,
+    result: {
+      university,
+      positionChanges: [{ label: 'Vice President', currentUserIds: [], nextUserIds: ['100'] }],
+    },
+  });
+  assert.match(fieldValue(embedJson(payload), 'Position changes'), /Vice President: Vacant → <@100>/);
 });
 
 test('division update activity reports a color-only change without inventing a name change', () => {
@@ -166,29 +160,14 @@ test('project creation lists the team and reports pending Discord reconciliation
   assert.doesNotMatch(JSON.stringify(embed), /PRIVATE PROJECT NOTE/);
 });
 
-test('project participant role changes and project field changes use old-to-new values', () => {
-  const participant = formatBoardActivity('project-add-member', {
-    actorId,
-    result: {
-      project: {
-        name: 'Spring Festival',
-        university_name: 'Bocconi',
-        division_name: 'Culture',
-        reconciliation_pending: false,
-      },
-      participant: { userId: '100', user: { username: 'Sellaceo' }, role: 'supervisor', previousRole: 'member' },
-    },
-  });
-  assert.equal(embedJson(participant).title, '🟠 Project participant updated');
-  assert.match(fieldValue(embedJson(participant), 'Participant'), /Sellaceo \(<@100>\)/);
-  assert.match(fieldValue(embedJson(participant), 'Participant'), /Member → Supervisor/);
-
+test('project and team changes are summarized together with old-to-new values', () => {
   const updated = formatBoardActivity('project-update', {
     actorId,
     result: {
       before: {
         name: 'Spring Festival',
         expected_end: '2026-12-15',
+        summary: 'Original summary',
         status: 'active',
       },
       project: {
@@ -196,31 +175,25 @@ test('project participant role changes and project field changes use old-to-new 
         university_name: 'Bocconi',
         division_name: 'Culture',
         expected_end: '2026-12-22',
+        summary: 'Updated summary',
         status: 'paused',
         reconciliation_pending: false,
       },
+      participantChanges: {
+        added: [{ userId: '101', role: 'member' }],
+        roleChanged: [{ userId: '100', previousRole: 'member', role: 'supervisor' }],
+        removed: [{ userId: '102', role: 'member' }],
+      },
     },
   });
-  const changes = fieldValue(embedJson(updated), 'Changes');
+  const changes = fieldValue(embedJson(updated), 'Project changes');
   assert.match(changes, /2026-12-15 → 2026-12-22/);
   assert.match(changes, /Active → Paused/);
-});
-
-test('reapplying the same project role does not create a board activity entry', () => {
-  assert.equal(
-    formatBoardActivity('project-add-member', {
-      actorId,
-      result: {
-        project: {
-          name: 'Spring Festival',
-          university_name: 'Bocconi',
-          division_name: 'Culture',
-        },
-        participant: { userId: '100', role: 'member', previousRole: 'member' },
-      },
-    }),
-    null,
-  );
+  assert.match(changes, /Public summary updated/);
+  const team = fieldValue(embedJson(updated), 'Team changes');
+  assert.match(team, /Added <@101> · Member/);
+  assert.match(team, /<@100>: Member → Supervisor/);
+  assert.match(team, /Removed <@102> · Member/);
 });
 
 test('notes-only project updates do not create activity and close messages omit final notes', () => {

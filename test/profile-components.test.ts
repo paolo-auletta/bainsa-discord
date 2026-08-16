@@ -58,7 +58,7 @@ test('profile modals split authored fields within Discord component limits and p
   assert.equal(direction.components[1].components[0].value, session.profile.about);
   assert.equal(contact.components[0].components[0].value, session.profile.email);
   assert.equal(parseProfileId(current.custom_id)?.action, PROFILE_ACTIONS.CURRENT_MODAL);
-  assert.equal(direction.title, 'Profile · What you want to explore');
+  assert.equal(direction.title, 'Profile · Where you want to go');
   assert.equal(contact.title, 'Profile · How members can reach you');
 });
 
@@ -71,11 +71,13 @@ test('every profile screen keeps a complete grouped summary and the same three n
   ];
   for (const { payload, labels } of screens) {
     assert.equal(payload.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2);
+    assert.equal(payload.components.length, 1);
     const all = nestedComponents(payload);
-    const summary = all.find((item) => item.content?.includes('## Your BAINSA directory profile'))?.content ?? '';
+    assert.ok(all.length <= 30);
+    const summary = all.find((item) => item.content?.includes('## Your BAINSA profile'))?.content ?? '';
     for (const expected of [
       'Where you are now', 'Headline', 'What are you doing now?', 'Organisation', 'Location',
-      'What you want to explore', 'What would you like to explore next?', 'You and your interests',
+      'Where you want to go', 'Looking to explore', 'About you and your interests',
       'How members can reach you', 'Discord', 'Email', 'LinkedIn', 'Research profile', 'Tags',
     ]) assert.match(summary, new RegExp(expected));
     assert.doesNotMatch(summary, /Discoverability/);
@@ -116,6 +118,7 @@ test('tags stay private, expose only selectable tags, and review has one clear r
   }
   assert.equal(actions.length, 3);
   assert.match(nestedComponents(review).filter((item) => item.content).map((item) => item.content).join('\n'), /visible to every approved BAINSA member/);
+  assert.match(nestedComponents(review).filter((item) => item.content).map((item) => item.content).join('\n'), /member path, university, and applicable division/);
 });
 
 test('unpublish confirmation is private and owner-bound', () => {

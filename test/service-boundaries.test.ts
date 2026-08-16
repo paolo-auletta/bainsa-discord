@@ -19,8 +19,11 @@ const GOVERNANCE_PUBLIC_API = [
   'formatMemberInfo',
   'getBoardInfo',
   'getMemberInfo',
+  'getMemberUpdateContext',
   'hideDepartedMemberProfile',
   'invalidateGovernanceAutocompleteCache',
+  'listDivisions',
+  'listUniversities',
   'memberRemovalCleanupPlan',
   'projectChannelCleanupTargets',
   'removeBoardRole',
@@ -28,6 +31,7 @@ const GOVERNANCE_PUBLIC_API = [
   'removeMember',
   'resolveDivisionTextForMemberUpdate',
   'roleNamesForDivisionHead',
+  'updateBoardRoster',
   'updateDivision',
   'updateMember',
   'warmGovernanceAutocompleteCache',
@@ -45,6 +49,7 @@ const PROJECT_PUBLIC_API = [
   'findProjectParentId',
   'findProjectUniversities',
   'getProjectInfo',
+  'getProjectManagementContext',
   'parseDiscordUserIds',
   'projectCreateSetup',
   'projectIdFromOption',
@@ -53,6 +58,7 @@ const PROJECT_PUBLIC_API = [
   'removeProjectMember',
   'searchVisibleProjects',
   'updateProject',
+  'updateProjectWithPeople',
   'validateProjectDates',
   'warmProjectAutocompleteCache',
 ];
@@ -67,6 +73,16 @@ test('command modules resolve every workflow and autocomplete handler through th
     assert.equal(typeof command.execute, 'function', `${command.data.name} execute`);
     const hasAutocomplete = command.data.toJSON().options?.some((option) => option.autocomplete);
     if (hasAutocomplete) assert.equal(typeof command.autocomplete, 'function', `${command.data.name} autocomplete`);
+  }
+});
+
+test('service orchestration entrypoints delegate all SQL to repositories', async () => {
+  for (const path of [
+    '../src/services/governance/service.js',
+    '../src/services/projects/index.js',
+  ]) {
+    const source = await readFile(new URL(path, import.meta.url), 'utf8');
+    assert.doesNotMatch(source, /\.query\s*\(/);
   }
 });
 

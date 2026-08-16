@@ -2,7 +2,7 @@
 
 ## Local quality gate
 
-Use Node 22 and npm 10.9.2 (the versions declared in `.nvmrc` and `package.json`). Install the exact locked dependency tree with `npm ci`, then run:
+Use Node 22.13+ and npm 10.9.2 (the versions declared in `.nvmrc` and `package.json`). Install the exact locked dependency tree with `npm ci`, then run:
 
 ```bash
 npm run check
@@ -11,11 +11,12 @@ npm run typecheck:tests
 npm run lint
 npm run format:check
 npm test
+TEST_DATABASE_URL=postgres://localhost/bainsa_discord_test npm run test:integration
 npm audit --omit=dev --audit-level=high
 ```
 
-The CI workflow runs the same commands without credentials. `npm run check` type-checks production
-source and operational scripts; `npm run build` emits the complete project to `dist/`.
+The CI workflow runs the same commands with a disposable PostgreSQL service and no Discord credentials.
+`npm run check` type-checks production source and operational scripts; `npm run build` emits the complete project to `dist/`.
 `npm run typecheck:tests` is a ratcheting test-type baseline: it rejects new test diagnostics while
 the existing fake and boundary typing backlog is reduced. `npm test`
 supplies inert local test values, so it does not read `.env`. Keep new checks deterministic and

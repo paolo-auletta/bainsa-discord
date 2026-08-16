@@ -1,11 +1,11 @@
 import { handleInteractionError } from '../discord/reply.js';
 import { assertUser, UserFacingError } from '../errors.js';
 import { assertNoBotCommandTarget } from '../authorization.js';
-import { assertBotCommandChannel, botCommandChannelScope } from './command-channels.js';
+import { assertCommandChannel, commandChannelScope } from './command-channels.js';
 import { canDiscoverCommand } from './command-permissions.js';
 import { buildCommandMap, type CommandDefinition } from './command-registry.js';
 
-interface ComponentHandler {
+export interface ComponentHandler {
   canHandle: (customId: string) => boolean;
   handleButton?: (interaction: unknown) => unknown;
   handleStringSelect?: (interaction: unknown) => unknown;
@@ -14,9 +14,11 @@ interface ComponentHandler {
   handleComponent?: (interaction: unknown) => unknown;
 }
 
-interface InteractionDispatcherOptions {
+export interface InteractionDispatcherOptions {
   commands?: readonly CommandDefinition[];
+  componentHandlers?: readonly ComponentHandler[];
   onboarding?: ComponentHandler;
+  governance?: ComponentHandler;
   guide?: ComponentHandler;
   projectSetup?: ComponentHandler;
   profiles?: ComponentHandler;
@@ -40,7 +42,9 @@ function requireComponentHandler(handler: ((interaction: unknown) => unknown) | 
 
 export function createInteractionDispatcher({
   commands,
+  componentHandlers = [],
   onboarding,
+  governance,
   guide,
   projectSetup,
   profiles,
@@ -55,13 +59,13 @@ export function createInteractionDispatcher({
       if (route === 'chatInput') {
         const command = commandMap.get(interaction.commandName);
         if (!command) throw new UserFacingError(`Unknown command: ${interaction.commandName}`);
-        assertBotCommandChannel(interaction);
+        const channelScope = assertCommandChannel(interaction, interaction.commandName);
         const allowed = canDiscoverCommand({
           commandName: interaction.commandName,
           member: interaction.member,
-          channelScope: botCommandChannelScope(interaction.channel),
+          channelScope,
         });
-        assertUser(allowed, 'This command is not available in this bot-log channel.');
+        assertUser(allowed, 'This command is not available in this channel.');
         assertNoBotCommandTarget(interaction);
         await command.execute(interaction);
         return;
@@ -73,7 +77,7 @@ export function createInteractionDispatcher({
         const allowed = canDiscoverCommand({
           commandName: interaction.commandName,
           member: interaction.member,
-          channelScope: botCommandChannelScope(interaction.channel),
+          channelScope: commandChannelScope(interaction.channel),
         });
         // Do this before invoking a handler: autocomplete handlers may query
         // Postgres or Discord's guild-member directory.
@@ -82,8 +86,28 @@ export function createInteractionDispatcher({
         return;
       }
 
+      if (['button', 'stringSelect', 'userSelect', 'modalSubmit'].includes(route)) {
+        const handler = componentHandlers.find((candidate) => candidate.canHandle?.(interaction.customId));
+        if (handler) {
+          const method = route === 'button'
+            ? handler.handleButton
+            : route === 'stringSelect'
+              ? handler.handleStringSelect
+              : route === 'userSelect'
+                ? handler.handleUserSelect
+                : handler.handleModalSubmit;
+          await requireComponentHandler(method)(interaction);
+          return;
+        }
+      }
+
       if (route === 'button' && onboarding?.canHandle?.(interaction.customId)) {
         await requireComponentHandler(onboarding.handleButton)(interaction);
+        return;
+      }
+
+      if (route === 'button' && governance?.canHandle?.(interaction.customId)) {
+        await requireComponentHandler(governance.handleButton)(interaction);
         return;
       }
 

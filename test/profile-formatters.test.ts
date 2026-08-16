@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { formatProfilePost, formatProfileSummary, profileThreadName } from '../src/profiles/formatters.js';
+import { formatProfilePost, formatProfileReview, profileThreadName } from '../src/profiles/formatters.js';
 
 const member = Object.freeze({
   discord_user_id: '123456789012345678',
@@ -19,24 +19,45 @@ const profile = Object.freeze({
   selected_tags: ['ai_data', 'academia'],
 });
 
-test('profile formatter uses the exact review summary in one starter card', () => {
+test('public profile formatter leads with canonical BAINSA identity in a reader-first hierarchy', () => {
   const formatted = formatProfilePost({ ...profile, member, updated_at: '2026-08-08T10:30:00.000Z' });
   assert.equal(formatted.threadName, 'Ada Lovelace — Researcher building practical AI systems');
-  assert.equal(
-    formatted.content,
-    formatProfileSummary(profile, { discordUserId: member.discord_user_id }),
-  );
-  assert.match(formatted.content, /🪪 \*\*Where you are now\*\*/);
-  assert.match(formatted.content, /🧭 \*\*What you want to explore\*\*/);
-  assert.match(formatted.content, /💬 \*\*How members can reach you\*\*/);
+  assert.equal(formatted.sections.length, 4);
+  assert.equal(formatted.content, formatted.sections.join('\n\n'));
+  assert.match(formatted.sections[0], /^## Ada Lovelace/);
+  assert.match(formatted.sections[0], /\*\*BAINSA identity\*\*/);
+  assert.match(formatted.sections[0], /\*\*Member path\*\* · Researcher/);
+  assert.match(formatted.sections[0], /\*\*University\*\* · Bocconi/);
+  assert.match(formatted.sections[0], /\*\*Division\*\* · Analysis/);
   assert.match(formatted.content, /\*\*Discord\*\* · <@123456789012345678>/);
-  assert.match(formatted.content, /\*\*Tags\*\* · AI & Data, Academia$/);
-  assert.equal((formatted.content.match(/🪪|🧭|💬/gu) ?? []).length, 3);
-  assert.doesNotMatch(formatted.content, /Discoverability|💼|🏢|📍|💡|✉️|🔗|🔬|🏷️/u);
-  assert.equal('sections' in formatted, false);
+  assert.match(formatted.sections[1], /^### Current focus/);
+  assert.match(formatted.sections[2], /^### Looking to explore/);
+  assert.match(formatted.sections[3], /^### Areas & contact/);
+  assert.match(formatted.content, /\*\*Areas\*\* · AI & Data, Academia$/);
+  assert.doesNotMatch(formatted.content, /Your BAINSA|Not added|🪪|🧭|💬/u);
+  assert.ok(formatted.content.indexOf('**BAINSA identity**') < formatted.content.indexOf('### Current focus'));
   assert.deepEqual(formatted.appliedTagKeys, ['bocconi', 'ai_data', 'academia']);
   assert.deepEqual(formatted.appliedTagLabels, ['Bocconi', 'AI & Data', 'Academia']);
   assert.deepEqual(formatted.allowedMentions, { parse: [] });
+});
+
+test('private review stays owner-facing and complete without leaking into the public card', () => {
+  const review = formatProfileReview(profile, { discordUserId: member.discord_user_id });
+  assert.match(review, /^## Your BAINSA profile/);
+  assert.match(review, /🪪 \*\*Where you are now\*\*/);
+  assert.match(review, /🧭 \*\*Where you want to go\*\*/);
+  assert.match(review, /💬 \*\*How members can reach you\*\*/);
+  assert.match(review, /\*\*Email\*\* · Not added/);
+});
+
+test('alumni cards omit division instead of rendering an empty canonical fact', () => {
+  const formatted = formatProfilePost({
+    ...profile,
+    member: { ...member, member_type: 'alumni', division_name: null },
+  });
+  assert.match(formatted.sections[0], /\*\*Member path\*\* · Alumni/);
+  assert.match(formatted.sections[0], /\*\*University\*\* · Bocconi/);
+  assert.doesNotMatch(formatted.content, /Division|None|Not added/);
 });
 
 test('profile formatter escapes authored markdown, keeps mentions inert, and renders optional contact cleanly', () => {
@@ -57,6 +78,7 @@ test('profile formatter escapes authored markdown, keeps mentions inert, and ren
   assert.match(formatted.content, /ada@example\.com/);
   assert.match(formatted.content, /https:\/\/www\.linkedin\.com\/in\/ada/);
   assert.match(formatted.content, /https:\/\/orcid\.org\/0000-0001/);
+  assert.ok(formatted.sections.every((section) => section.length <= 4_000));
 });
 
 test('thread names and maximum legal profiles remain within Discord limits', () => {

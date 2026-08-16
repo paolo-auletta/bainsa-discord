@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ChannelType, MessageFlags } from 'discord.js';
+import { ChannelType, ComponentType, MessageFlags } from 'discord.js';
 
 import { deleteProfileForumPosts, upsertProfileForumPost } from '../src/profiles/gateway.js';
 
 const post = Object.freeze({
   threadName: 'Ada Lovelace — Researcher building practical AI systems',
-  content: '**Discord:** <@owner>',
+  sections: [
+    '## Ada Lovelace\n**Discord** · <@owner>',
+    '### Current focus\nMSc student',
+    '### Looking to explore\nApplied AI',
+  ],
+  content: '## Ada Lovelace\n**Discord** · <@owner>\n\n### Current focus\nMSc student\n\n### Looking to explore\nApplied AI',
   appliedTagLabels: ['Bocconi', 'AI & Data'],
   allowedMentions: { parse: [] },
 });
@@ -15,7 +20,7 @@ const post = Object.freeze({
 function forumWith(threads = {}) {
   const forum = {
     id: 'forum',
-    name: 'people-directory',
+    name: 'people-database',
     type: ChannelType.GuildForum,
     availableTags: [{ id: 'bocconi', name: 'Bocconi' }, { id: 'ai', name: 'AI & Data' }],
     threads,
@@ -53,8 +58,12 @@ test('creates one no-ping forum starter post and persists both current API ident
   assert.deepEqual(createPayload.message.allowedMentions, { parse: [] });
   assert.equal(createPayload.message.content, undefined);
   assert.equal(createPayload.message.flags, MessageFlags.IsComponentsV2);
-  assert.equal(createPayload.message.components[0].toJSON().accent_color, 0x5865f2);
-  assert.equal(createPayload.message.components[0].toJSON().components[0].content, post.content);
+  assert.equal(createPayload.message.components.length, 1);
+  const card = createPayload.message.components[0].toJSON();
+  assert.equal(card.accent_color, 0x5865f2);
+  assert.deepEqual(card.components.filter((component) => component.type === ComponentType.TextDisplay).map((component) => component.content), post.sections);
+  assert.equal(card.components.filter((component) => component.type === ComponentType.Separator).length, 2);
+  assert.ok(card.components.length < 30);
 });
 
 test('updates the existing starter in place after unarchiving and changing tags', async () => {
@@ -79,15 +88,23 @@ test('updates the existing starter in place after unarchiving and changing tags'
   };
   const guild = forumWith({ async fetchActive() { return { threads: new Map() }; }, async fetchArchived() { return { threads: new Map() }; } });
   guild.add(thread);
-  const identity = await upsertProfileForumPost({ guild, ownerId: 'owner', post, forumThreadId: 'thread-1', forumMessageId: 'old-message' });
+  const updatedPost = {
+    ...post,
+    sections: [post.sections[0], '### Current focus\nUpdated role', post.sections[2]],
+    content: post.content.replace('MSc student', 'Updated role'),
+  };
+  const identity = await upsertProfileForumPost({ guild, ownerId: 'owner', post: updatedPost, forumThreadId: 'thread-1', forumMessageId: 'old-message' });
   assert.equal(identity.created, false);
   assert.equal(unarchived, 1);
   assert.equal(edited, 2);
-  assert.equal(name, post.threadName);
+  assert.equal(name, updatedPost.threadName);
   assert.deepEqual(tags, ['bocconi', 'ai']);
   assert.deepEqual(starterEdits[0], { content: null, embeds: [], components: [] });
   assert.equal(starterEdits[1].flags, MessageFlags.IsComponentsV2);
-  assert.equal(starterEdits[1].components[0].toJSON().components[0].content, post.content);
+  const updatedText = starterEdits[1].components[0].toJSON().components
+    .filter((component) => component.type === ComponentType.TextDisplay)
+    .map((component) => component.content);
+  assert.deepEqual(updatedText, updatedPost.sections);
   assert.deepEqual(deletedSections, ['section-1', 'section-2']);
 });
 
@@ -171,7 +188,7 @@ test('transient Discord fetch failures stay retryable and never create a duplica
   assert.equal(creates, 0);
 });
 
-test('recovery scans every archived page before deciding to create', async () => {
+test('recovery scans subsequent archived pages before deciding to create', async () => {
   let archivedCalls = 0;
   let creates = 0;
   const recovered = {
@@ -204,6 +221,61 @@ test('recovery scans every archived page before deciding to create', async () =>
   assert.equal(identity.forumThreadId, 'recovered');
   assert.equal(archivedCalls, 2);
   assert.equal(creates, 0);
+});
+
+test('recovery stops at the archived-page ceiling without creating a possible duplicate', async () => {
+  let archivedCalls = 0;
+  let creates = 0;
+  const guild = forumWith({
+    async fetchActive() { return { threads: new Map() }; },
+    async fetchArchived() {
+      archivedCalls += 1;
+      return {
+        threads: new Map([[`unrelated-${archivedCalls}`, {
+          id: `unrelated-${archivedCalls}`,
+          async fetchStarterMessage() { return { author: { id: 'bot' }, content: 'another member' }; },
+        }]]),
+        hasMore: true,
+      };
+    },
+    async create() { creates += 1; },
+  });
+
+  await assert.rejects(
+    () => upsertProfileForumPost({ guild, ownerId: 'owner', post }),
+    /archived-thread scan limit/,
+  );
+  assert.equal(archivedCalls, 10);
+  assert.equal(creates, 0);
+});
+
+test('duplicate deletion is concurrency-bounded during unpublish cleanup', async () => {
+  let deleting = 0;
+  let maxDeleting = 0;
+  const deleted = [];
+  const threads = Array.from({ length: 12 }, (_, index) => {
+    const id = `duplicate-${index}`;
+    return {
+      id,
+      async fetchStarterMessage() { return { id, author: { id: 'bot' }, content: post.content }; },
+      async delete() {
+        deleting += 1;
+        maxDeleting = Math.max(maxDeleting, deleting);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        deleted.push(id);
+        deleting -= 1;
+      },
+    };
+  });
+  const guild = forumWith({
+    async fetchActive() { return { threads: new Map(threads.map((thread) => [thread.id, thread])) }; },
+    async fetchArchived() { return { threads: new Map(), hasMore: false }; },
+  });
+
+  const result = await deleteProfileForumPosts({ guild, ownerId: 'owner' });
+  assert.equal(maxDeleting, 5);
+  assert.deepEqual(result.deletedThreadIds.sort(), threads.map(({ id }) => id).sort());
+  assert.equal(deleted.length, threads.length);
 });
 
 test('unpublishing never deletes a stored thread that is not confidently owner-matched', async () => {
@@ -249,7 +321,7 @@ test('stored owner-matched posts are deleted but cleanup stays retryable when th
 
   await assert.rejects(
     () => deleteProfileForumPosts({ guild, ownerId: 'owner', forumThreadId: stored.id }),
-    /people-directory forum is unavailable/,
+    /people-database forum is unavailable/,
   );
   assert.equal(deleted, 1);
 });

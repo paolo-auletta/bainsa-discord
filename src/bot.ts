@@ -6,28 +6,41 @@ import { guideInteractions } from './guide/service.js';
 import { logger } from './logger.js';
 import { createOnboardingService } from './onboarding/service.js';
 import { createBotClient } from './runtime/client.js';
+import { composeInteractionDispatcher } from './runtime/dispatcher-composition.js';
 import { createInteractionDispatcher } from './runtime/dispatcher.js';
 import { isConfiguredGuildEvent } from './runtime/guild-events.js';
 import { installGracefulShutdown } from './runtime/shutdown.js';
 import { config } from './config.js';
 import { createProfileService } from './profiles/index.js';
 import { createProfileReconciliationWorker } from './profiles/reconciliation.js';
+import { createTransitionNotificationWorker } from './notifications/service.js';
+import { governanceMembershipPanels } from './services/governance/membership-panels.js';
+import { boardUpdatePanel } from './services/governance/board-update-panel.js';
+import { boardInfoPanel } from './services/governance/board-info-panel.js';
+import { governanceCommandPanels } from './services/governance/panels.js';
 import { hideDepartedMemberProfile, warmGovernanceAutocompleteCache } from './services/governance/service.js';
 import { projectCreateSetup, warmProjectAutocompleteCache } from './services/projects/index.js';
+import { projectManagementPanels } from './services/projects/management-panels.js';
 import { createProjectReconciliationWorker } from './services/projects/reconciliation.js';
 
 const client = createBotClient();
 const onboarding = createOnboardingService();
 const profiles = createProfileService();
-const dispatchInteraction = createInteractionDispatcher({
+const dispatchInteraction = createInteractionDispatcher(composeInteractionDispatcher({
   commands,
+  governanceCommandPanels,
+  governanceMembershipPanels,
+  boardUpdatePanel,
+  boardInfoPanel,
+  projectManagementPanels,
   onboarding,
   guide: guideInteractions,
   projectSetup: projectCreateSetup,
   profiles,
-});
+}));
 let projectReconciliationWorker: ReturnType<typeof createProjectReconciliationWorker> | null = null;
 let profileReconciliationWorker: ReturnType<typeof createProfileReconciliationWorker> | null = null;
+let transitionNotificationWorker: ReturnType<typeof createTransitionNotificationWorker> | null = null;
 
 const lifecycle = installGracefulShutdown({
   client,
@@ -36,6 +49,7 @@ const lifecycle = installGracefulShutdown({
     await Promise.all([
       projectReconciliationWorker?.stop(),
       profileReconciliationWorker?.stop(),
+      transitionNotificationWorker?.stop(),
     ]);
   },
 });
@@ -60,6 +74,7 @@ client.once(Events.ClientReady, (readyClient) => {
   if (guild) {
     projectReconciliationWorker = createProjectReconciliationWorker({ guild, db: { query, transaction } });
     profileReconciliationWorker = createProfileReconciliationWorker({ guild, db: { query, transaction } });
+    transitionNotificationWorker = createTransitionNotificationWorker({ guild, db: { query, transaction } });
   } else {
     logger.warn('Reconciliation workers were not started because the configured guild is unavailable');
   }

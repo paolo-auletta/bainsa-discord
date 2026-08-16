@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MessageFlags } from 'discord.js';
+import { ComponentType, MessageFlags } from 'discord.js';
 
 import { commands } from '../src/commands/index.js';
 import { buildGuideAccess, guideScopeLabel } from '../src/guide/access.js';
-import { GUIDE_CATALOG, GUIDE_COMMAND_NAMES } from '../src/guide/catalog.js';
+import { GUIDE_CATALOG, GUIDE_COMMAND_NAMES, GUIDE_TOPICS } from '../src/guide/catalog.js';
 import {
+  commandPayload,
   guideInteractions,
   homePayload,
   parseCustomId,
@@ -24,6 +25,31 @@ function memberWithRoles(names) {
 
 function universityScope(name = 'BOCCONI') {
   return { kind: 'university', universityName: name };
+}
+
+function guideComponents(payload) {
+  return payload.components.map((component) => component.toJSON?.() ?? component);
+}
+
+function guideText(payload) {
+  const queue = [...guideComponents(payload)];
+  const content = [];
+  while (queue.length > 0) {
+    const component = queue.shift();
+    if (component.type === ComponentType.TextDisplay) content.push(component.content);
+    if (component.components) queue.push(...component.components);
+  }
+  return content.join('\n');
+}
+
+function guideComponent(payload, predicate) {
+  const queue = [...guideComponents(payload)];
+  while (queue.length > 0) {
+    const component = queue.shift();
+    if (predicate(component)) return component;
+    if (component.components) queue.push(...component.components);
+  }
+  return null;
 }
 
 test('guide catalogue deliberately covers every operational command', () => {
@@ -47,16 +73,14 @@ test('a division Head sees only Head commands in the owned division scope', () =
       'division-add-member',
       'division-remove-member',
       'member-info',
-      'project-add-member',
       'project-close',
       'project-create',
       'project-info',
-      'project-remove-member',
       'project-update',
     ],
   );
   assert.equal(guideScopeLabel(access, { scopeKind: 'division' }), 'Bocconi › Culture');
-  assert.equal(access.availableCommands.has('board-assign'), false);
+  assert.equal(access.availableCommands.has('board-update'), false);
 });
 
 test('multiple board roles combine their current effective access', () => {
@@ -72,8 +96,7 @@ test('multiple board roles combine their current effective access', () => {
   assert.equal(access.vicePresident, true);
   assert.deepEqual(access.divisions, ['Culture']);
   assert.equal(access.availableCommands.has('division-create'), false);
-  assert.equal(access.availableCommands.has('board-assign'), true);
-  assert.equal(access.availableCommands.has('board-remove'), true);
+  assert.equal(access.availableCommands.has('board-update'), true);
   assert.equal(guideScopeLabel(access, { scopeKind: 'division' }), 'Bocconi › all divisions');
 });
 
@@ -90,11 +113,43 @@ test('President and Global President guides expose the intended wider tiers', ()
     channelScope: { kind: 'global' },
   });
   assert.equal(global.availableCommands.size, GUIDE_CATALOG.length);
+  assert.equal(global.availableCommands.has('board-update'), true);
+  assert.equal(global.availableCommands.has('division-add-member'), true);
+  assert.equal(global.availableCommands.has('division-remove-member'), true);
   assert.equal(guideScopeLabel(global), 'All universities');
 
-  const members = topicPayload({ user: { id: '42' } }, global, 'members');
-  assert.equal(members.embeds[0].toJSON().title, 'Members and divisions');
-  assert.match(members.embeds[0].toJSON().description, /\/division-create/);
+  const divisions = topicPayload({ user: { id: '42' } }, global, GUIDE_TOPICS.DIVISIONS);
+  assert.match(guideText(divisions), /^\*\*Manage divisions\*\*/);
+  assert.match(guideText(divisions), /\/division-create/);
+});
+
+test('guide separates member, division, and appointment work and explains confirmation plus recovery', () => {
+  const interaction = { user: { id: '42' } };
+  const access = buildGuideAccess({
+    member: memberWithRoles(['Bocconi - President']),
+    channelScope: universityScope(),
+  });
+
+  const members = guideText(topicPayload(interaction, access, GUIDE_TOPICS.MEMBERS));
+  assert.match(members, /\/member-update/);
+  assert.match(members, /\/member-remove/);
+  assert.doesNotMatch(members, /\/division-create|\/board-update/);
+
+  const divisions = guideText(topicPayload(interaction, access, GUIDE_TOPICS.DIVISIONS));
+  assert.match(divisions, /\/division-create/);
+  assert.match(divisions, /\/division-remove-member/);
+  assert.doesNotMatch(divisions, /\/member-update|\/board-update/);
+
+  const appointments = guideText(topicPayload(interaction, access, GUIDE_TOPICS.APPOINTMENTS));
+  assert.match(appointments, /\/board-update/);
+  assert.doesNotMatch(appointments, /\/member-update|\/division-create/);
+
+  const detail = guideText(commandPayload(interaction, access, 'board-update'));
+  assert.match(detail, /\*\*Your scope\*\*[\s\S]*Bocconi/);
+  assert.match(detail, /\*\*Before you start\*\*/);
+  assert.match(detail, /\*\*Confirmation and safeguards\*\*/);
+  assert.match(detail, /\*\*What happens after success\*\*/);
+  assert.match(detail, /\*\*If something stops the workflow\*\*/);
 });
 
 test('guide access denies ordinary members and cross-university board roles', () => {
@@ -124,20 +179,19 @@ test('guide home and topics render one private navigable message payload', () =>
   });
 
   const home = homePayload(interaction, access);
-  const homeJson = home.embeds[0].toJSON();
-  assert.equal(homeJson.title, 'BAINSA Bot Guide');
+  assert.match(guideText(home), /^\*\*BAINSA Bot Guide\*\*/);
+  assert.match(guideText(home), /\*\*Working scope\*\*\nBocconi › Culture/);
   assert.equal(
-    homeJson.fields.find((field) => field.name === 'Working scope').value,
-    'Bocconi › Culture',
+    guideComponent(home, (component) => component.label === 'Manage Culture division access')?.label,
+    'Manage Culture division access',
   );
-  assert.equal(home.components[0].components[0].data.label, 'Manage Culture members');
-  assert.ok(home.components[0].components.length >= 4);
+  assert.ok(guideComponents(home)[0].components.length <= 10);
 
   const projects = topicPayload(interaction, access, 'projects');
-  const projectJson = projects.embeds[0].toJSON();
-  assert.equal(projectJson.title, 'Manage Culture projects');
-  assert.match(projectJson.description, /\/project-create/);
-  assert.equal(projects.components.length, 2);
+  assert.match(guideText(projects), /^\*\*Manage Culture projects\*\*/);
+  assert.match(guideText(projects), /\/project-create/);
+  assert.ok(guideComponent(projects, (component) => component.type === ComponentType.StringSelect));
+  assert.ok(guideComponent(projects, (component) => component.label === 'Guide home'));
 });
 
 test('/guide defers an ephemeral response and never sends to the channel', async () => {
@@ -162,7 +216,7 @@ test('/guide defers an ephemeral response and never sends to the channel', async
   await showGuide(interaction);
 
   assert.deepEqual(deferred, { flags: MessageFlags.Ephemeral });
-  assert.equal(edited.embeds[0].toJSON().title, 'BAINSA Bot Guide');
+  assert.match(guideText(edited), /^\*\*BAINSA Bot Guide\*\*/);
 });
 
 test('/guide accepts scoped board roles under provisioned uppercase university categories', async () => {
@@ -178,7 +232,7 @@ test('/guide accepts scoped board roles under provisioned uppercase university c
       },
     });
 
-    assert.equal(edited.embeds[0].toJSON().title, 'BAINSA Bot Guide');
+    assert.match(guideText(edited), /^\*\*BAINSA Bot Guide\*\*/);
   }
 });
 
@@ -199,7 +253,7 @@ test('guide component ids are bound to the initiating member and update in place
     value: 'projects',
   });
   await guideInteractions.handleComponent(interaction);
-  assert.equal(interaction.updated.embeds[0].toJSON().title, 'Manage Culture projects');
+  assert.match(guideText(interaction.updated), /^\*\*Manage Culture projects\*\*/);
 });
 
 test('guide component navigation rechecks roles and rejects stale access', async () => {

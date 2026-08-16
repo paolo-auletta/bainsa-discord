@@ -180,7 +180,7 @@ async function assertSubmitRaceLosesDraftMutation(action) {
     customId: onboardingId(ONBOARDING_ACTIONS.SUBMIT, requestId),
     user: { id: 'onboarding-race-user' },
     guild,
-    async deferUpdate() {},
+    async update() {},
     async editReply() {},
   };
   const racingInteraction = action === 'edit'
@@ -260,7 +260,7 @@ async function assertDraftMutationWinsBeforeSubmit(action) {
     customId: onboardingId(ONBOARDING_ACTIONS.SUBMIT, requestId),
     user: { id: 'onboarding-race-user' },
     guild,
-    async deferUpdate() {},
+    async update() {},
     async editReply() {},
   };
 
@@ -271,10 +271,7 @@ async function assertDraftMutationWinsBeforeSubmit(action) {
   }
 
   if (action === 'cancel') {
-    await assert.rejects(
-      service.handleButton(submitInteraction),
-      /onboarding request is no longer editable/i,
-    );
+    await service.handleButton(submitInteraction);
     assert.equal(reviewSendCount, 0);
     assert.equal(
       (await database.query('SELECT status FROM onboarding_requests WHERE id = $1', [requestId])).rows[0].status,
@@ -364,10 +361,11 @@ test('onboarding approval rolls back its PostgreSQL transaction and Discord role
     user: { id: reviewer.id },
     guild,
     member: reviewer,
-    async deferReply() {},
+    async update() {},
+    async editReply() {},
   };
 
-  await assert.rejects(service.handleButton(interaction), /Controlled integration transaction failure/);
+  await service.handleButton(interaction);
   assert.equal(target.roles.cache.has('researcher-role'), false);
   assert.equal(target.roles.cache.has('bocconi-role'), false);
   assert.equal(target.roles.cache.has('analysis-role'), false);
@@ -409,7 +407,7 @@ test('member-update restores mocked Discord roles when its PostgreSQL transactio
       { user: { id: target.id }, university: 'Bocconi', memberType: 'researcher', divisionsText: 'Analysis' },
       { db: failingDatabase },
     ),
-    /Discord roles were restored because the database update failed/i,
+    /Discord roles were restored because the membership update could not be saved/i,
   );
   assert.equal(target.roles.cache.has('researcher-role'), false);
   assert.equal(target.roles.cache.has('bocconi-role'), false);
@@ -494,9 +492,17 @@ test('member updates enqueue published profiles only when canonical directory fa
     [target.id],
   );
   assert.deepEqual(divisions.rows, [{ name: 'Culture' }]);
+  const accessHandoff = await database.query(
+    `SELECT tn.kind, tn.status
+       FROM transition_notifications tn
+       JOIN audit_log a ON a.id = tn.audit_id
+      WHERE a.action = 'member.update' AND a.target_id = $1`,
+    [target.id],
+  );
+  assert.deepEqual(accessHandoff.rows.map((row) => row.kind), ['member.access_updated']);
 });
 
-test('member removal rolls profile visibility and reconciliation back when its transaction fails', async () => {
+test('member removal rolls profile visibility and reconciliation back when its transaction fails before Discord side effects', async () => {
   await resetAndMigrate();
   const { universityId, divisionId } = await seedUniversityAndDivision();
   await database.query(
@@ -553,9 +559,9 @@ test('member removal rolls profile visibility and reconciliation back when its t
       { user: { id: target.id }, reason: 'test rollback' },
       { db: failingDatabase },
     ),
-    /kicked, but the database\/audit update failed/i,
+    /membership record could not be saved/i,
   );
-  assert.equal(kickCount, 1);
+  assert.equal(kickCount, 0);
   const member = await database.query('SELECT status FROM members WHERE discord_user_id = $1', [target.id]);
   const profile = await database.query(
     `SELECT visibility, forum_thread_id, forum_message_id
@@ -573,6 +579,95 @@ test('member removal rolls profile visibility and reconciliation back when its t
     forum_message_id: 'removal-directory-message',
   });
   assert.equal(reconciliation.rows[0].count, 0);
+});
+
+test('member removal keeps canonical departure and project reconciliation intent when the Discord kick fails', async () => {
+  await resetAndMigrate();
+  const { universityId, divisionId } = await seedUniversityAndDivision();
+  const project = await database.query(
+    `INSERT INTO projects (name, university_id, division_id, start_date, expected_end, status)
+     VALUES ('Removal access repair', $1, $2, '2026-07-01', '2026-08-01', 'active') RETURNING id`,
+    [universityId, divisionId],
+  );
+  await database.query(
+    `INSERT INTO members (discord_user_id, university_id, member_type, status)
+     VALUES ('kick-failure-member', $1, 'researcher', 'active')`,
+    [universityId],
+  );
+  await database.query(
+    'INSERT INTO member_divisions (discord_user_id, division_id) VALUES ($1, $2)',
+    ['kick-failure-member', divisionId],
+  );
+  await database.query(
+    "INSERT INTO project_people (project_id, discord_user_id, role) VALUES ($1, $2, 'member')",
+    [String((project.rows[0] as unknown as { id: string | number }).id), 'kick-failure-member'],
+  );
+
+  const guild: Record<string, unknown> & { id: string } = { id: 'guild' };
+  guild.roles = {
+    cache: roleCache([
+      role('global-president', ROLE_NAMES.GLOBAL_PRESIDENT),
+      role('researcher-role', ROLE_NAMES.RESEARCHER),
+      role('bocconi-role', 'Bocconi'),
+      role('analysis-role', 'Bocconi - Analysis'),
+    ]),
+  };
+  guild.channels = { cache: { has: () => false, find: () => null }, async fetch() { return null; } };
+  const target = Object.assign(
+    managedMember('kick-failure-member', guild, [
+      role('researcher-role', ROLE_NAMES.RESEARCHER),
+      role('bocconi-role', 'Bocconi'),
+      role('analysis-role', 'Bocconi - Analysis'),
+    ]),
+    { async kick() { throw new Error('Discord REST internal details'); } },
+  );
+  const actor = globalPresident('kick-failure-actor');
+  guild.members = { async fetch(id) { return String(id) === target.id ? target : actor; } };
+
+  const firstRemoval = await removeMember(
+    { guild, user: { id: actor.id }, member: actor },
+    { user: { id: target.id } },
+    { db: database as never },
+  );
+  assert.equal(firstRemoval.discordRemoval.status, 'pending_recovery');
+  assert.equal(firstRemoval.discordRemoval.managedRolesRemoved, true);
+  assert.equal(target.roles.cache.has('researcher-role'), false);
+  assert.equal(target.roles.cache.has('bocconi-role'), false);
+  assert.equal(target.roles.cache.has('analysis-role'), false);
+  assert.equal(((await database.query(
+    'SELECT status FROM members WHERE discord_user_id = $1', ['kick-failure-member'],
+  )).rows[0] as unknown as { status: string }).status, 'removed');
+  assert.equal(((await database.query(
+    'SELECT count(*)::int AS count FROM project_people WHERE discord_user_id = $1', ['kick-failure-member'],
+  )).rows[0] as unknown as { count: number }).count, 0);
+  const projectId = String((project.rows[0] as unknown as { id: string | number }).id);
+  assert.equal(((await database.query(
+    'SELECT status FROM project_reconciliation WHERE project_id = $1', [projectId],
+  )).rows[0] as unknown as { status: string }).status, 'failed');
+  const removalHandoff = await database.query(
+    `SELECT kind, status, payload->>'content' AS content
+       FROM transition_notifications
+      WHERE recipient_discord_user_id = $1`,
+    [target.id],
+  );
+  assert.equal(removalHandoff.rows.length, 1);
+  assert.equal(removalHandoff.rows[0].kind, 'member.removed');
+  assert.match(removalHandoff.rows[0].content, /Server membership removed/);
+  assert.doesNotMatch(removalHandoff.rows[0].content, /Discord REST internal details/);
+
+  const repairAttempt = await removeMember(
+    { guild, user: { id: actor.id }, member: actor },
+    { user: { id: target.id } },
+    { db: database as never },
+  );
+  assert.equal(repairAttempt.discordRemoval.status, 'pending_recovery');
+  assert.equal(((await database.query(
+    "SELECT count(*)::int AS count FROM audit_log WHERE action = 'member.remove' AND target_id = $1",
+    [target.id],
+  )).rows[0] as unknown as { count: number }).count, 1);
+  assert.equal(((await database.query(
+    'SELECT desired_generation FROM project_reconciliation WHERE project_id = $1', [projectId],
+  )).rows[0] as unknown as { desired_generation: string }).desired_generation, '1');
 });
 
 test('member-update rejects an ineligible active PostgreSQL project assignment before Discord or transaction side effects', async () => {
@@ -691,6 +786,7 @@ test('project creation retains its committed record and records a pending reconc
     division: 'Analysis',
     startDate: '2026-07-01',
     expectedEnd: '2026-08-01',
+    summary: 'Public Signals summary',
     notes: null,
     members: member.id,
     supervisors: supervisor.id,
@@ -764,6 +860,7 @@ test('project creation excludes a Head removal that commits before the locked He
     division: 'Analysis',
     startDate: '2026-07-01',
     expectedEnd: '2026-08-01',
+    summary: 'Public locked-head summary',
     members: memberId,
     supervisors: supervisorId,
   }, { db: database });
@@ -780,7 +877,7 @@ test('project creation excludes a Head removal that commits before the locked He
   );
 });
 
-test('successful project create, update, and close retain their one-shot history posts', async () => {
+test('successful project create, update, and close maintain canonical Discord records', async () => {
   await resetAndMigrate();
   const { universityId, divisionId } = await seedUniversityAndDivision();
   await database.query('UPDATE universities SET showcase_channel_id = $1 WHERE id = $2', ['showcase', universityId]);
@@ -800,8 +897,19 @@ test('successful project create, update, and close retain their one-shot history
 
   const channels = new Map();
   const workspaceMessages = [];
-  const threadMessages = [];
-  const thread = { id: 'thread', async setName() {}, async send(payload) { threadMessages.push(payload); } };
+  const workspaceEdits = [];
+  const workspaceGuides = [];
+  const workspaceGuideEdits = [];
+  const workspaceTransitions = [];
+  const starterEdits = [];
+  let appliedTags = [];
+  const starter = { async edit(payload) { starterEdits.push(payload); } };
+  const thread = {
+    id: 'thread', name: 'Signals', archived: false, locked: false,
+    async fetchStarterMessage() { return starter; },
+    async setName(name) { thread.name = name; },
+    async setAppliedTags(tags) { appliedTags = tags; },
+  };
   const forum = {
     id: 'showcase', type: ChannelType.GuildForum, availableTags: [],
     async setAvailableTags(tags) { forum.availableTags = tags.map((tag, index) => ({ ...tag, id: tag.id ?? `tag-${index}` })); return forum; },
@@ -818,10 +926,43 @@ test('successful project create, update, and close retain their one-shot history
     cache: { has: (id) => channels.has(id), find: (predicate) => [...channels.values()].find(predicate) },
     async fetch(id) { return id == null ? channels : channels.get(id) ?? null; },
     async create(options) {
+      const projectMessages = new Map();
+      const homeMessage = {
+        id: 'home-message', pinned: false,
+        async edit(payload) { workspaceEdits.push(payload); },
+        async pin() { homeMessage.pinned = true; },
+      };
+      const workspaceGuide = {
+        id: 'workspace-guide', pinned: false,
+        async edit(payload) { workspaceGuideEdits.push(payload); },
+        async pin() { workspaceGuide.pinned = true; },
+      };
       const workspace = {
         id: 'workspace', name: options.name, topic: options.topic, parentId: null,
-        permissionOverwrites: { async set() {} }, async setName() {}, async setParent() {},
-        async send(payload) { workspaceMessages.push(payload); },
+        permissionOverwrites: { async set() {} }, async setName() {}, async setParent() {}, async setTopic() {},
+        messages: {
+          async fetch(id) {
+            if (typeof id === 'string') return projectMessages.get(id) ?? null;
+            return projectMessages;
+          },
+          async fetchPins() {
+            return { items: [...projectMessages.values()].filter((message) => message.pinned).map((message) => ({ message })) };
+          },
+        },
+        async send(payload) {
+          if (payload.content?.endsWith('Pinned project record · Updates automatically')) {
+            workspaceMessages.push(payload);
+            projectMessages.set(homeMessage.id, homeMessage);
+            return homeMessage;
+          }
+          if (payload.content?.endsWith('Pinned workspace guide')) {
+            workspaceGuides.push(payload);
+            projectMessages.set(workspaceGuide.id, workspaceGuide);
+            return workspaceGuide;
+          }
+          workspaceTransitions.push(payload);
+          return { id: `transition-${workspaceTransitions.length}` };
+        },
       };
       channels.set(workspace.id, workspace);
       return workspace;
@@ -830,16 +971,25 @@ test('successful project create, update, and close retain their one-shot history
   const interaction = { guild, member: actor, user: { id: actor.id } };
   const created = await createProject({
     interaction, name: 'Signals', university: 'Bocconi', division: 'Analysis',
-    startDate: '2026-07-01', expectedEnd: '2026-08-01', notes: null, members: member.id, supervisors: supervisor.id,
+    startDate: '2026-07-01', expectedEnd: '2026-08-01', summary: 'Public Signals summary', notes: null,
+    members: member.id, supervisors: supervisor.id,
   }, { db: database });
   await updateProject({ interaction, project: String(created.id), notes: 'Updated notes' }, { db: database });
   await closeProject({ interaction, project: String(created.id), outcome: 'Done', finalNotes: 'Handed over' }, { db: database });
-  assert.equal(workspaceMessages.length, 3);
-  assert.match(workspaceMessages[0].content, /# Signals/);
-  assert.match(workspaceMessages[1].content, /Project details were updated/);
-  assert.match(workspaceMessages[2].content, /\*\*Outcome:\*\* Done/);
+  assert.equal(workspaceMessages.length, 1);
+  assert.equal(workspaceEdits.length, 2);
+  assert.equal(workspaceGuides.length, 1);
+  assert.equal(workspaceGuideEdits.length, 2);
+  assert.match(workspaceGuides[0].content, /^## How to use this space/);
+  assert.equal(workspaceTransitions.length, 2);
+  assert.match(workspaceEdits.at(-1).content, /\*\*Conclusion\*\*\nDone/);
+  assert.match(workspaceEdits.at(-1).content, /\*\*Internal handover notes\*\*\nHanded over/);
+  assert.equal(JSON.stringify(workspaceTransitions.at(-1)).includes('Handed over'), false);
   assert.equal(forum.created.name, 'Signals');
-  assert.equal(threadMessages.length, 2);
+  assert.deepEqual(forum.created.appliedTags.map((tag) => forum.availableTags.find((candidate) => candidate.id === tag).name), ['Analysis', 'Active']);
+  assert.equal(starterEdits.length, 2);
+  assert.equal(JSON.stringify(starterEdits.at(-1)).includes('Handed over'), false);
+  assert.deepEqual(appliedTags.map((tag) => forum.availableTags.find((candidate) => candidate.id === tag).name), ['Analysis', 'Completed']);
 });
 
 function lockedTransactionDatabase() {
@@ -1196,6 +1346,7 @@ test('project eligibility boundary serializes real PostgreSQL add/create races w
     division: 'Analysis',
     startDate: '2026-07-01',
     expectedEnd: '2026-08-01',
+    summary: 'Public created-signals summary',
     members: createRace.userId,
     supervisors: createRace.supervisorId,
   }, { db: blockingDbForCreate });
@@ -1260,6 +1411,7 @@ test('membership-first transactions make concurrent project writes fail their lo
       division: 'Analysis',
       startDate: '2026-07-01',
       expectedEnd: '2026-08-01',
+      summary: 'Public membership-first summary',
       members: createRace.userId,
       supervisors: createRace.supervisorId,
     }, { db }),
@@ -1341,9 +1493,10 @@ test('project lifecycle mutations revalidate the locked project and preserve con
   await closeDb.locked;
 
   const add = addProjectMember(projectAddInput(closing), { db: database as never });
+  const addRejected = assert.rejects(add, /Completed or archived projects cannot be changed/);
   closeDb.release();
   await close;
-  await assert.rejects(add, /Completed or archived projects cannot be changed/);
+  await addRejected;
   assert.equal(
     ((await database.query('SELECT status FROM projects WHERE id = $1', [closing.projectId])) as unknown as {
       rows: Array<{ status: string }>;

@@ -1,23 +1,18 @@
-import {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  EmbedBuilder,
-  MessageFlags,
-  StringSelectMenuBuilder,
-} from 'discord.js';
+import { MessageFlags } from 'discord.js';
 
+import { config } from '../config.js';
 import { replyEphemeral } from '../discord/reply.js';
 import { UserFacingError } from '../errors.js';
+import { interactionAction, interactionOutcome, renderInteractionPanel } from '../messages/index.js';
 import { botCommandChannelScope } from '../runtime/command-channels.js';
 import { buildGuideAccess, guideScopeLabel } from './access.js';
 import { GUIDE_CATALOG, GUIDE_TOPICS, guideEntry } from './catalog.js';
 
 const GUIDE_PREFIX = 'guide:v1:';
-const GUIDE_COLOR = 0x5865f2;
-
 const TOPICS = Object.freeze([
-  Object.freeze({ id: GUIDE_TOPICS.MEMBERS, label: 'Members and divisions', emoji: '👥' }),
+  Object.freeze({ id: GUIDE_TOPICS.MEMBERS, label: 'Manage members', emoji: '👥' }),
+  Object.freeze({ id: GUIDE_TOPICS.DIVISIONS, label: 'Manage divisions', emoji: '🧭' }),
+  Object.freeze({ id: GUIDE_TOPICS.APPOINTMENTS, label: 'Board appointments', emoji: '🏛️' }),
   Object.freeze({ id: GUIDE_TOPICS.PROJECTS, label: 'Manage projects', emoji: '📁' }),
   Object.freeze({ id: GUIDE_TOPICS.LOOKUPS, label: 'Look up information', emoji: '🔎' }),
   Object.freeze({ id: GUIDE_TOPICS.RULES, label: 'Rules and limits', emoji: '📌' }),
@@ -28,8 +23,8 @@ function topicLabel(topic, access) {
     && !access.president
     && !access.vicePresident
     && access.divisions.length === 1;
-  if (scopedHead && topic.id === GUIDE_TOPICS.MEMBERS) {
-    return `Manage ${access.divisions[0]} members`;
+  if (scopedHead && topic.id === GUIDE_TOPICS.DIVISIONS) {
+    return `Manage ${access.divisions[0]} division access`;
   }
   if (scopedHead && topic.id === GUIDE_TOPICS.PROJECTS) {
     return `Manage ${access.divisions[0]} projects`;
@@ -66,6 +61,7 @@ function requireAccess(interaction) {
   return access;
 }
 
+/** @returns {import('../messages/types.js').InteractionActionSpec[]} */
 function topicButtons(userId, access) {
   const availableTopics = new Set(
     GUIDE_CATALOG
@@ -73,41 +69,39 @@ function topicButtons(userId, access) {
       .map((item) => item.topic),
   );
   availableTopics.add(GUIDE_TOPICS.RULES);
-  const buttons = TOPICS
+  return TOPICS
     .filter((topic) => availableTopics.has(topic.id))
-    .map((topic) =>
-      new ButtonBuilder()
-        .setCustomId(customId(userId, 'topic', topic.id))
-        .setLabel(topicLabel(topic, access).slice(0, 80))
-        .setEmoji(topic.emoji)
-        .setStyle(ButtonStyle.Primary),
-    );
-  return [new ActionRowBuilder().addComponents(...buttons)];
+    .map((topic) => interactionAction({
+      id: customId(userId, 'topic', topic.id),
+      label: topicLabel(topic, access).slice(0, 80),
+      emoji: topic.emoji,
+      style: 'primary',
+    }));
 }
 
+/** @returns {import('../messages/types.js').InteractionActionSpec[]} */
 function navigationButtons(userId) {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(customId(userId, 'home', 'home'))
-      .setLabel('Guide home')
-      .setStyle(ButtonStyle.Secondary),
-  );
+  return [interactionAction({
+    id: customId(userId, 'home', 'home'),
+    label: 'Guide home',
+    style: 'secondary',
+  })];
 }
 
 function homePayload(interaction, access) {
-  const embed = new EmbedBuilder()
-    .setColor(GUIDE_COLOR)
-    .setTitle('BAINSA Bot Guide')
-    .setDescription('This private guide only shows commands available to your current board roles.')
-    .addFields(
-      { name: 'Your access', value: access.roleLabels.join('\n') },
-      { name: 'Working scope', value: guideScopeLabel(access) },
-      { name: 'Choose a topic', value: 'Use the buttons below. This message will update in place.' },
-    );
-  return {
-    embeds: [embed],
-    components: topicButtons(interaction.user.id, access),
-  };
+  return renderInteractionPanel({
+    kind: 'interaction-panel',
+    tone: 'brand',
+    title: `${config.botName} Bot Guide`,
+    description: 'This private guide only shows commands available to your current board roles.',
+    facts: [
+      { label: 'Your access', value: access.roleLabels.join('\n') },
+      { label: 'Working scope', value: guideScopeLabel(access) },
+    ],
+    status: 'Choose a topic below. This message will update in place.',
+    actions: topicButtons(interaction.user.id, access),
+    audience: 'actor',
+  });
 }
 
 function rulesFor(access) {
@@ -144,12 +138,15 @@ function rulesFor(access) {
 
 function topicPayload(interaction, access, topicId) {
   if (topicId === GUIDE_TOPICS.RULES) {
-    const embed = new EmbedBuilder()
-      .setColor(GUIDE_COLOR)
-      .setTitle('Rules and limits')
-      .setDescription(rulesFor(access).map((rule) => `• ${rule}`).join('\n'))
-      .addFields({ name: 'Your scope', value: guideScopeLabel(access) });
-    return { embeds: [embed], components: [navigationButtons(interaction.user.id)] };
+    return renderInteractionPanel({
+      kind: 'interaction-panel',
+      tone: 'brand',
+      title: 'Rules and limits',
+      facts: [{ label: 'Your scope', value: guideScopeLabel(access) }],
+      sections: [{ body: rulesFor(access).map((rule) => `• ${rule}`) }],
+      actions: navigationButtons(interaction.user.id),
+      audience: 'actor',
+    });
   }
 
   const topic = TOPICS.find((candidate) => candidate.id === topicId);
@@ -158,28 +155,25 @@ function topicPayload(interaction, access, topicId) {
   );
   if (!topic || entries.length === 0) throw new UserFacingError('That guide section is not available to you.');
 
-  const embed = new EmbedBuilder()
-    .setColor(GUIDE_COLOR)
-    .setTitle(topicLabel(topic, access))
-    .setDescription(entries.map((item) => `**/${item.command}**\n${item.summary}`).join('\n\n'))
-    .addFields({ name: 'Your scope', value: guideScopeLabel(access) });
-  const select = new StringSelectMenuBuilder()
-    .setCustomId(customId(interaction.user.id, 'command', topicId))
-    .setPlaceholder('Choose a command for full details')
-    .addOptions(
-      ...entries.map((item) => ({
+  return renderInteractionPanel({
+    kind: 'interaction-panel',
+    tone: 'brand',
+    title: topicLabel(topic, access),
+    facts: [{ label: 'Your scope', value: guideScopeLabel(access) }],
+    sections: entries.map((item) => ({ heading: `/${item.command}`, body: item.summary })),
+    controls: [{
+      kind: 'string-select',
+      id: customId(interaction.user.id, 'command', topicId),
+      placeholder: 'Choose a command for full details',
+      options: entries.map((item) => ({
         label: item.title.slice(0, 100),
         description: item.summary.slice(0, 100),
         value: item.command,
       })),
-    );
-  return {
-    embeds: [embed],
-    components: [
-      new ActionRowBuilder().addComponents(select),
-      navigationButtons(interaction.user.id),
-    ],
-  };
+    }],
+    actions: navigationButtons(interaction.user.id),
+    audience: 'actor',
+  });
 }
 
 function commandPayload(interaction, access, commandName) {
@@ -187,31 +181,29 @@ function commandPayload(interaction, access, commandName) {
   if (!item || !access.availableCommands.has(commandName)) {
     throw new UserFacingError('That command guide is not available to you.');
   }
-  const embed = new EmbedBuilder()
-    .setColor(GUIDE_COLOR)
-    .setTitle(item.title)
-    .setDescription(`**/${item.command}**\n${item.summary}`)
-    .addFields(
-      { name: 'Your scope', value: guideScopeLabel(access, item) },
-      { name: 'Before you start', value: item.before.map((line) => `• ${line}`).join('\n') },
-      { name: 'What you provide', value: item.inputs.map((line) => `• ${line}`).join('\n') },
-      { name: 'What happens after success', value: `${item.success}\n\n${item.activity}` },
-    );
-  return {
-    embeds: [embed],
-    components: [
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(customId(interaction.user.id, 'topic', item.topic))
-          .setLabel('Back')
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId(customId(interaction.user.id, 'home', 'home'))
-          .setLabel('Guide home')
-          .setStyle(ButtonStyle.Secondary),
-      ),
+  return renderInteractionPanel({
+    kind: 'interaction-panel',
+    tone: 'brand',
+    title: item.title,
+    description: `**/${item.command}**\n${item.summary}`,
+    facts: [{ label: 'Your scope', value: guideScopeLabel(access, item) }],
+    sections: [
+      { heading: 'Before you start', body: item.before.map((line) => `• ${line}`) },
+      { heading: 'What you provide', body: item.inputs.map((line) => `• ${line}`) },
+      { heading: 'Confirmation and safeguards', body: item.confirmation },
+      { heading: 'What happens after success', body: [item.success, item.activity] },
+      { heading: 'If something stops the workflow', body: item.recovery },
     ],
-  };
+    actions: [
+      interactionAction({
+        id: customId(interaction.user.id, 'topic', item.topic),
+        label: 'Back',
+        style: 'secondary',
+      }),
+      ...navigationButtons(interaction.user.id),
+    ],
+    audience: 'actor',
+  });
 }
 
 export async function showGuide(interaction) {
@@ -229,7 +221,11 @@ export const guideInteractions = Object.freeze({
     const parsed = parseCustomId(interaction.customId);
     if (!parsed) throw new UserFacingError('This guide is no longer available. Run /guide again.');
     if (String(parsed.userId) !== String(interaction.user.id)) {
-      await replyEphemeral(interaction, 'This private guide belongs to another member. Run /guide for your own guide.');
+      await replyEphemeral(interaction, renderInteractionPanel(interactionOutcome({
+        outcome: 'forbidden',
+        title: 'This guide belongs to another member',
+        description: 'Run `/guide` to open a private guide for your own roles and scope.',
+      })));
       return;
     }
     const access = requireAccess(interaction);

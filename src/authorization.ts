@@ -41,6 +41,11 @@ export function isGlobalPresident(member) {
   return hasRole(member, ROLE_NAMES.GLOBAL_PRESIDENT);
 }
 
+/** The single runtime predicate for current cross-university authority. */
+export function hasGlobalAuthority(member) {
+  return isGlobalPresident(member);
+}
+
 export function isUniversityPresident(member, universityName) {
   return hasRole(member, universityBoardRoleName(universityName, 'President'));
 }

@@ -58,7 +58,8 @@ function assertConsistentSummary(payload, projectName) {
   assert.match(content, /\*\*Scope\*\*/);
   assert.match(content, /\*\*Team\*\*/);
   assert.match(content, /\*\*Timeline\*\*/);
-  assert.match(content, /\*\*Notes\*\*/);
+  assert.match(content, /\*\*Public summary\*\*/);
+  assert.match(content, /\*\*Internal notes\*\*/);
   assert.doesNotMatch(content, /^>/m);
   assert.doesNotMatch(content, /BAINSA · Project setup|Private setup/);
 }
@@ -114,6 +115,12 @@ async function chooseScope(service, initialPayload) {
     update: async (next) => { payload = next; },
   });
 
+  await service.handleButton({
+    ...baseInteraction(componentForAction(payload, PROJECT_SETUP_ACTIONS.UNIVERSITY_CONTINUE).custom_id),
+    update: async () => undefined,
+    editReply: async (next) => { payload = next; },
+  });
+
   await service.handleStringSelect({
     ...baseInteraction(componentForAction(payload, PROJECT_SETUP_ACTIONS.DIVISION).custom_id),
     values: ['0'],
@@ -153,7 +160,7 @@ async function completeDetails(service, participantPayload) {
   });
   assertConsistentSummary(payload, 'Native project');
   assert.match(allText(payload), /\*\*Project timeline\*\*/);
-  assert.match(allText(payload), /\*\*Project notes\*\*/);
+  assert.match(allText(payload), /\*\*Summary and internal notes\*\*/);
   assert.doesNotMatch(allText(payload), /Add the required timeline|Not added · Optional/);
   assert.equal(componentForAction(payload, PROJECT_SETUP_ACTIONS.DATES_OPEN).style, ButtonStyle.Primary);
   assert.equal(componentForAction(payload, PROJECT_SETUP_ACTIONS.NOTES_OPEN).style, ButtonStyle.Primary);
@@ -182,7 +189,7 @@ async function completeDetails(service, participantPayload) {
   });
   await service.handleModalSubmit({
     ...baseInteraction(notesModal.custom_id),
-    fields: fieldValues({ notes: 'Private context' }),
+    fields: fieldValues({ summary: 'Public project context', notes: 'Private context' }),
     isFromMessage: () => true,
     update: async (next) => { payload = next; },
   });
@@ -198,6 +205,7 @@ test('project setup renders a polished five-step wizard and creates only from re
   let createdInput;
   let activity;
   let finalReply;
+  let waitingReply;
   const result = {
     id: '7',
     name: 'Native project',
@@ -223,12 +231,12 @@ test('project setup renders a polished five-step wizard and creates only from re
   assert.equal(scope.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2);
   assertConsistentSummary(scope, result.name);
   assert.match(allText(scope), /\*\*University\*\*/);
-  assert.match(allText(scope), /\*\*Division\*\*/);
+  assert.doesNotMatch(allText(scope), /\*\*Division\*\*/);
   assert.doesNotMatch(allText(scope), /responsible for this project|ordinary project members/);
   assert.equal(componentForAction(scope, PROJECT_SETUP_ACTIONS.UNIVERSITY).type, ComponentType.StringSelect);
-  assert.equal(componentForAction(scope, PROJECT_SETUP_ACTIONS.DIVISION).disabled, true);
+  assert.equal(componentForAction(scope, PROJECT_SETUP_ACTIONS.UNIVERSITY_CONTINUE).disabled, true);
   assert.deepEqual(bottomButtons(scope).map((button) => button.label), [
-    'Continue to team',
+    'Continue to division',
     'Back to name',
     'Cancel setup',
   ]);
@@ -279,17 +287,24 @@ test('project setup renders a polished five-step wizard and creates only from re
     ...baseInteraction(componentForAction(review, PROJECT_SETUP_ACTIONS.CREATE).custom_id),
     member: { roles: { cache: [] } },
     channel: { send: async (payload) => { activity = payload; } },
-    deferUpdate: async () => undefined,
+    update: async (payload) => {
+      assert.equal(createdInput, undefined);
+      waitingReply = payload;
+    },
     editReply: async (payload) => { finalReply = payload; },
   });
 
   assert.equal(createdInput.name, result.name);
+  assert.match(allText(waitingReply), /Creating Native project/);
+  assert.match(allText(waitingReply), /message will update/i);
+  assert.equal(componentPayload(waitingReply).some((component) => component.type === ComponentType.ActionRow), false);
   assert.equal(createdInput.university, 'Bocconi');
   assert.equal(createdInput.division, 'Projects');
   assert.equal(createdInput.members, MEMBER_ID);
   assert.equal(createdInput.supervisors, SUPERVISOR_ID);
   assert.equal(createdInput.startDate, result.start_date);
   assert.equal(createdInput.expectedEnd, result.expected_end);
+  assert.equal(createdInput.summary, 'Public project context');
   assert.equal(createdInput.notes, 'Private context');
   assert.equal(activity.allowedMentions.parse.length, 0);
   const activityEmbed = activity.embeds[0].toJSON();
@@ -307,13 +322,13 @@ test('project setup renders a polished five-step wizard and creates only from re
   await assert.rejects(
     () => service.handleButton({
       ...baseInteraction(componentForAction(review, PROJECT_SETUP_ACTIONS.CREATE).custom_id),
-      deferUpdate: async () => assert.fail('must not retry project creation'),
+      update: async () => assert.fail('must not retry project creation'),
     }),
     /expired/,
   );
 });
 
-test('project setup preserves its last valid scope when loading a new university fails', async () => {
+test('project setup preserves the selected university when its divisions fail to load', async () => {
   const service = setupService({
     findDivisions: async (university) => {
       if (university === 'Sapienza') throw new Error('Division lookup unavailable');
@@ -328,21 +343,21 @@ test('project setup preserves its last valid scope when loading a new university
     update: async (payload) => { selectedScope = payload; },
   });
 
-  await assert.rejects(
-    () => service.handleStringSelect({
+  await service.handleStringSelect({
       ...baseInteraction(componentForAction(selectedScope, PROJECT_SETUP_ACTIONS.UNIVERSITY).custom_id),
       values: ['1'],
-      update: async () => assert.fail('must not update after a failed lookup'),
+      update: async (payload) => { selectedScope = payload; },
+    });
+  await assert.rejects(
+    () => service.handleButton({
+      ...baseInteraction(componentForAction(selectedScope, PROJECT_SETUP_ACTIONS.UNIVERSITY_CONTINUE).custom_id),
+      update: async () => undefined,
+      editReply: async (payload) => { selectedScope = payload; },
     }),
     /Division lookup unavailable/,
   );
-
-  await service.handleStringSelect({
-    ...baseInteraction(componentForAction(selectedScope, PROJECT_SETUP_ACTIONS.DIVISION).custom_id),
-    values: ['0'],
-    update: async (payload) => { selectedScope = payload; },
-  });
-  assert.match(summaryContent(selectedScope), /Bocconi · 🟦 Projects/);
+  assert.match(summaryContent(selectedScope), /Sapienza · Choose a division/);
+  assert.ok(componentForAction(selectedScope, PROJECT_SETUP_ACTIONS.UNIVERSITY_CONTINUE));
 });
 
 test('project setup pagination makes universities and divisions after the first 25 selectable', async () => {
@@ -372,6 +387,12 @@ test('project setup pagination makes universities and divisions after the first 
     ...baseInteraction(lastUniversityMenu.custom_id),
     values: ['25'],
     update: async (next) => { payload = next; },
+  });
+
+  await service.handleButton({
+    ...baseInteraction(componentForAction(payload, PROJECT_SETUP_ACTIONS.UNIVERSITY_CONTINUE).custom_id),
+    update: async () => undefined,
+    editReply: async (next) => { payload = next; },
   });
 
   assert.equal(componentForAction(payload, PROJECT_SETUP_ACTIONS.DIVISION).options.length, 25);
@@ -419,21 +440,53 @@ test('project setup keeps a committed project closed when acknowledgement delive
   await service.handleButton({
     ...baseInteraction(createId),
     channel: { send: async () => undefined },
-    deferUpdate: async () => undefined,
+    update: async () => undefined,
     editReply: async () => { throw new Error('Discord acknowledgement unavailable'); },
     followUp: async (payload) => { followUp = payload; },
   });
 
   assert.equal(createCalls, 1);
-  assert.match(followUp.content, /Created \*\*Native project\*\* \(#8\)/);
-  assert.equal(followUp.flags, MessageFlags.Ephemeral);
+  assert.match(allText(followUp), /Created \*\*Native project\*\* \(#8\)/);
+  assert.equal(followUp.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2);
   await assert.rejects(
     () => service.handleButton({
       ...baseInteraction(createId),
-      deferUpdate: async () => assert.fail('must not retry project creation'),
+      update: async () => assert.fail('must not retry project creation'),
     }),
     /expired/,
   );
+});
+
+test('project setup replaces a failed pre-commit wait with retry, back, and cancel controls', async () => {
+  const service = setupService({
+    createProject: async () => { throw new Error('Database unavailable'); },
+  });
+  const participants = await chooseScope(service, await beginSetup(service));
+  const review = await completeDetails(service, await chooseTeam(service, participants));
+  let waiting;
+  let failed;
+
+  await service.handleButton({
+    ...baseInteraction(componentForAction(review, PROJECT_SETUP_ACTIONS.CREATE).custom_id),
+    update: async (payload) => { waiting = payload; },
+    editReply: async (payload) => { failed = payload; },
+  });
+
+  assert.match(allText(waiting), /Creating Native project/);
+  assert.match(allText(failed), /Project not created/);
+  assert.match(allText(failed), /Nothing was saved/);
+  assert.deepEqual(bottomButtons(failed).map((button) => button.label), [
+    'Try creating project',
+    'Back to details',
+    'Cancel setup',
+  ]);
+
+  let details;
+  await service.handleButton({
+    ...baseInteraction(componentForAction(failed, PROJECT_SETUP_ACTIONS.BACK_DETAILS).custom_id),
+    update: async (payload) => { details = payload; },
+  });
+  assert.match(allText(details), /Set the project details/);
 });
 
 test('project setup rejects the Bot and cross-role duplicate selections', async () => {
