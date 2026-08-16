@@ -2,7 +2,7 @@
 target: "Issue #47 notification and access-transition handoffs"
 total_score: 21
 max_score: 40
-na_heuristics: 
+na_heuristics:
 p0_count: 1
 p1_count: 2
 timestamp: 2026-08-12T04-34-26Z
