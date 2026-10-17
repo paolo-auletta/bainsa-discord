@@ -216,6 +216,11 @@ export function universitySeeds(universityName) {
         '• For Researchers, confirm the requested division',
         '',
         'Use the action buttons on each request to approve access or decline it with an optional reason. Approved roles are applied automatically.',
+        '',
+        '**@bainsa.ai email requests**',
+        `Approved ${universityName} members who need an @bainsa.ai email also appear here with their first name, last name, and the main email where credentials should go.`,
+        '1. Create the account and send the login credentials to that main email. Never share passwords in Discord.',
+        '2. Press **Account created and credentials sent** so the member is told by DM.',
       ].join('\n'),
     }),
   };
@@ -229,7 +234,7 @@ export function universityTopics(universityName) {
     board: `${scope} · Private board operations: members, divisions, projects, and escalations.`,
     botLog: `${scope} · Commands and activity scoped only to ${universityName}.`,
     showcase: `${scope} · Read-only university project showcase. Active work remains in private project channels.`,
-    onboardingReview: `${scope} · Private review queue for ${universityName} membership applications.`,
+    onboardingReview: `${scope} · Private review queue for ${universityName} membership applications and @bainsa.ai email requests.`,
   };
 }
 

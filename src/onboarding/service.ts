@@ -8,6 +8,7 @@ import {
 } from 'discord.js';
 
 import { assertUniversityAuthority } from '../authorization.js';
+import { enqueueBainsaEmailPrompt } from '../bainsa-email/service.js';
 import { writeAudit } from '../audit.js';
 import { config } from '../config.js';
 import { BOARD_ROLES, divisionLabel, MEMBER_TYPES, ROLE_NAMES } from '../constants.js';
@@ -415,6 +416,7 @@ export function createOnboardingService({
     let university;
     let divisions = [];
     let notificationId = null;
+    let emailPromptNotificationId = null;
     let rollbackDiscordState = null;
 
     try {
@@ -464,6 +466,11 @@ export function createOnboardingService({
             divisions,
           }),
         });
+        emailPromptNotificationId = await enqueueBainsaEmailPrompt(client, {
+          auditId,
+          recipientId: request.discord_user_id,
+          universityId: request.university_id,
+        });
       });
     } catch (error) {
       if (rollbackDiscordState) {
@@ -507,6 +514,14 @@ export function createOnboardingService({
         userId: String(reviewed.discord_user_id),
       });
     });
+    // Sent after the approval handoff so the member reads them in order.
+    await deliverTransitionNotification({ db, guild: interaction.guild, notificationId: emailPromptNotificationId })
+      .catch(() => {
+        logger.warn('Could not send the BAINSA email question', {
+          requestId: String(requestId),
+          userId: String(reviewed.discord_user_id),
+        });
+      });
   }
 
   async function rejectRequest(interaction, requestId, reason) {

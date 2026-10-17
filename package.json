@@ -22,6 +22,7 @@
     "provision:dry-run": "node --enable-source-maps --env-file=.env dist/scripts/provision-discord.js --dry-run",
     "discord:reset": "node --enable-source-maps --env-file=.env dist/scripts/reset-discord.js",
     "discord:bootstrap": "node --enable-source-maps --env-file=.env dist/scripts/bootstrap-member.js",
+    "bainsa-email:prompt": "node --enable-source-maps --env-file=.env dist/scripts/send-bainsa-email-prompt.js",
     "check": "npm run typecheck",
     "lint": "eslint src scripts test",
     "format:check": "npm run build && node dist/scripts/check-format.js",

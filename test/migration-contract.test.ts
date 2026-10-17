@@ -72,6 +72,11 @@ const coUniversityBoardSeatsMigrationUrl = projectPath(
   'migrations',
   '021_allow_co_vice_presidents_and_heads.sql',
 );
+const bainsaEmailRequestsMigrationUrl = projectPath(
+  'db',
+  'migrations',
+  '023_bainsa_email_requests.sql',
+);
 const transitionNotificationsMigrationUrl = projectPath(
   'db',
   'migrations',
@@ -188,6 +193,7 @@ test('keeps migrations append-only from the live V1 upgrade path', async () => {
     '020_render_project_home_as_plain_message.sql',
     '021_allow_co_vice_presidents_and_heads.sql',
     '022_transition_notifications.sql',
+    '023_bainsa_email_requests.sql',
   ]);
 });
 
@@ -496,4 +502,13 @@ test('expands division colors to eight square-icon choices', async () => {
 
   assertIncludes(sql, 'DROP CONSTRAINT IF EXISTS divisions_color_check');
   assertIncludes(sql, "CHECK (color IN ('red', 'orange', 'yellow', 'green', 'blue', 'pink', 'brown', 'black'))");
+});
+
+test('stores one private @bainsa.ai email answer per member', async () => {
+  const sql = await readFile(bainsaEmailRequestsMigrationUrl, 'utf8');
+  assertIncludes(sql, 'CREATE TABLE IF NOT EXISTS bainsa_email_requests');
+  assertIncludes(sql, 'discord_user_id text PRIMARY KEY REFERENCES members(discord_user_id) ON DELETE CASCADE');
+  assertIncludes(sql, "status IN ('has_account', 'requested', 'created')");
+  assertIncludes(sql, 'bainsa_email_requests_details_check');
+  assertIncludes(sql, 'university_id bigint REFERENCES universities(id)');
 });

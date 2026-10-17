@@ -1,5 +1,6 @@
 import { Events } from 'discord.js';
 
+import { createBainsaEmailService } from './bainsa-email/service.js';
 import { commands } from './commands/index.js';
 import { closeDatabase, query, transaction } from './db.js';
 import { guideInteractions } from './guide/service.js';
@@ -26,6 +27,7 @@ import { createProjectReconciliationWorker } from './services/projects/reconcili
 const client = createBotClient();
 const onboarding = createOnboardingService();
 const profiles = createProfileService();
+const bainsaEmail = createBainsaEmailService();
 const dispatchInteraction = createInteractionDispatcher(composeInteractionDispatcher({
   commands,
   governanceCommandPanels,
@@ -33,6 +35,7 @@ const dispatchInteraction = createInteractionDispatcher(composeInteractionDispat
   boardUpdatePanel,
   boardInfoPanel,
   projectManagementPanels,
+  bainsaEmail,
   onboarding,
   guide: guideInteractions,
   projectSetup: projectCreateSetup,

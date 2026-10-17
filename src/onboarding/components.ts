@@ -9,6 +9,7 @@ import {
 } from "discord.js";
 
 import { divisionLabel, MEMBER_TYPES } from "../constants.js";
+import { BAINSA_EMAIL_ACTIONS, bainsaEmailId } from "../bainsa-email/custom-ids.js";
 import { config } from "../config.js";
 import { PROFILE_CUSTOM_IDS } from "../profiles/custom-ids.js";
 import { onboardingId, ONBOARDING_ACTIONS } from "./custom-ids.js";
@@ -453,16 +454,20 @@ export function memberSpacesPayload({
         .setDescription("Your map to the community. Keep conversations in the narrowest useful space.")
         .addFields(...fields),
     ],
-    components: profilePublished
-      ? []
-      : [
-        new ActionRowBuilder<ButtonBuilder>().addComponents(
+    components: [
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        ...(profilePublished ? [] : [
           new ButtonBuilder()
             .setCustomId(PROFILE_CUSTOM_IDS.START)
             .setLabel("Create my profile")
             .setStyle(ButtonStyle.Primary),
-        ),
-      ],
+        ]),
+        new ButtonBuilder()
+          .setCustomId(bainsaEmailId(BAINSA_EMAIL_ACTIONS.ASK))
+          .setLabel("My @bainsa.ai email")
+          .setStyle(ButtonStyle.Secondary),
+      ),
+    ],
     allowedMentions: { parse: [] },
   };
 }

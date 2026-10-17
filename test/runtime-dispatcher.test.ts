@@ -4,6 +4,7 @@ import test from 'node:test';
 import { commands } from '../src/commands/index.js';
 import { postUniversityBoardActivity } from '../src/activity/router.js';
 import { handleInteractionError, replyBoardActivity, replyEphemeral } from '../src/discord/reply.js';
+import { createBainsaEmailService } from '../src/bainsa-email/service.js';
 import { UserFacingError } from '../src/errors.js';
 import { guideInteractions } from '../src/guide/service.js';
 import { createOnboardingService } from '../src/onboarding/service.js';
@@ -32,6 +33,7 @@ function payloadText(payload) {
 test('production dispatcher composition includes every handler in dispatch order with disjoint custom-ID namespaces', () => {
   const onboarding = createOnboardingService();
   const profiles = createProfileService();
+  const bainsaEmail = createBainsaEmailService();
   const composition = composeInteractionDispatcher({
     commands,
     governanceCommandPanels,
@@ -39,6 +41,7 @@ test('production dispatcher composition includes every handler in dispatch order
     boardUpdatePanel,
     boardInfoPanel,
     projectManagementPanels,
+    bainsaEmail,
     onboarding,
     guide: guideInteractions,
     projectSetup: projectCreateSetup,
@@ -51,6 +54,7 @@ test('production dispatcher composition includes every handler in dispatch order
     boardUpdatePanel,
     boardInfoPanel,
     projectManagementPanels,
+    bainsaEmail,
   ]);
   assert.equal(composition.commands, commands);
 
@@ -67,6 +71,8 @@ test('production dispatcher composition includes every handler in dispatch order
     'gbu:session:e',
     'gbi:session:u',
     'pm:session:up',
+    'be:req',
+    'be:done:123',
     'ob:start',
     'guide:v1:user:topic:projects',
     'pc:session:crt',
