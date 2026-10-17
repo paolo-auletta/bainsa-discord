@@ -12,6 +12,7 @@ export interface DispatcherCompositionDependencies {
   boardUpdatePanel: ComponentHandler;
   boardInfoPanel: ComponentHandler;
   projectManagementPanels: ComponentHandler;
+  bainsaEmail: ComponentHandler;
   onboarding: ComponentHandler;
   guide: ComponentHandler;
   projectSetup: ComponentHandler;
@@ -25,6 +26,7 @@ export function composeInteractionDispatcher({
   boardUpdatePanel,
   boardInfoPanel,
   projectManagementPanels,
+  bainsaEmail,
   onboarding,
   guide,
   projectSetup,
@@ -40,6 +42,7 @@ export function composeInteractionDispatcher({
       boardUpdatePanel,
       boardInfoPanel,
       projectManagementPanels,
+      bainsaEmail,
     ],
     onboarding,
     guide,

@@ -212,10 +212,13 @@ test('member-space guide explains channels without restating application details
   assert.match(embed.fields.find((field) => field.name === 'People database').value, /<#database>/);
   assert.match(embed.fields.find((field) => field.name === 'Make yourself findable').value, /<#database>/);
   assert.doesNotMatch(embed.description, /application approved|access is active|Applicant|Path/i);
-  assert.equal(payload.components[0].toJSON().components[0].custom_id, PROFILE_CUSTOM_IDS.START);
+  assert.deepEqual(payload.components[0].toJSON().components.map((button) => (button as { custom_id?: string }).custom_id), [
+    PROFILE_CUSTOM_IDS.START,
+    'be:ask',
+  ]);
 
   const published = memberSpacesPayload({ university, profilePublished: true });
-  assert.equal(published.components.length, 0);
+  assert.deepEqual(published.components[0].toJSON().components.map((button) => (button as { custom_id?: string }).custom_id), ['be:ask']);
   assert.equal(published.embeds[0].data.fields.some((field) => field.name === 'Make yourself findable'), false);
 });
 
