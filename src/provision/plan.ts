@@ -77,6 +77,7 @@ export const BOT_ROLE_PERMISSIONS = Object.freeze([
   PermissionFlagsBits.ManageMessages,
   PermissionFlagsBits.ManageThreads,
   PermissionFlagsBits.ManageEvents,
+  PermissionFlagsBits.ManageWebhooks,
   PermissionFlagsBits.ReadMessageHistory,
   PermissionFlagsBits.Connect,
   PermissionFlagsBits.Speak,

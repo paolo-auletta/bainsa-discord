@@ -20,6 +20,7 @@ const EXPECTED_COMMANDS = {
   'project-update': [],
   'project-close': [],
   'project-info': ['project'],
+  'project-slurm-hook': ['project', 'ping', 'reset'],
 };
 
 const PANEL_GOVERNANCE_COMMANDS = [
@@ -68,6 +69,7 @@ test('every command with an inline user target blocks the Bot account', () => {
     [
       'member-info',
       'member-remove',
+      'project-slurm-hook',
     ].sort(),
   );
 
