@@ -14,6 +14,7 @@ import {
 } from '../../services/projects/index.js';
 import { projectAutocompleteChoice } from '../../services/projects/formatters.js';
 import { projectManagementPanels } from '../../services/projects/management-panels.js';
+import { createSlurmHook } from '../../services/projects/slurm-hook.js';
 import { projectCommandChannelScope } from '../../runtime/command-channels.js';
 
 function projectOption(option) {
@@ -128,9 +129,36 @@ const projectInfo = {
   },
 };
 
+const projectSlurmHook = {
+  data: withNoDm(
+    new SlashCommandBuilder()
+      .setName('project-slurm-hook')
+      .setDescription('Get a private Slurm snippet that posts job results in the project channel')
+      .addStringOption(projectOption)
+      .addUserOption((option) => option
+        .setName('ping')
+        .setDescription('Member to ping when a job ends')
+        .setRequired(false))
+      .addBooleanOption((option) => option
+        .setName('reset')
+        .setDescription('Replace the webhook URL; the old URL stops working')
+        .setRequired(false)),
+  ),
+  autocomplete: autocompleteProjects,
+  async execute(interaction) {
+    await runPrivateCommand(interaction, () => createSlurmHook({
+      interaction,
+      project: interaction.options.getString('project', false),
+      pingUserId: interaction.options.getUser('ping', false)?.id ?? null,
+      reset: interaction.options.getBoolean('reset', false) ?? false,
+    }));
+  },
+};
+
 export const projectCommands = [
   projectCreate,
   projectUpdate,
   projectClose,
   projectInfo,
+  projectSlurmHook,
 ];

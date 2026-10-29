@@ -11,6 +11,7 @@ test('exports the v1 project command set', () => {
       'project-update',
       'project-close',
       'project-info',
+      'project-slurm-hook',
     ],
   );
 });

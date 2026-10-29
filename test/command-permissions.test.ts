@@ -35,6 +35,7 @@ test('every registered command has a deliberate board-visibility policy', () => 
     'project-close',
     'project-create',
     'project-info',
+    'project-slurm-hook',
     'project-update',
   ]);
 });

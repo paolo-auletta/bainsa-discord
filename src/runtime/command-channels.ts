@@ -15,6 +15,7 @@ export const PROJECT_CHANNEL_COMMANDS = Object.freeze(new Set([
   'project-update',
   'project-close',
   'project-info',
+  'project-slurm-hook',
 ]));
 
 export function botCommandChannelScope(channel): BotCommandChannelScope | null {
