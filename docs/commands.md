@@ -331,7 +331,8 @@ The bot also does not expose showcase/forum management commands or broad admin/m
 
 `/project-slurm-hook` (project supervisors and scoped board, project channel or with `project:`) creates a
 `BAINSA Slurm` webhook in the project channel and privately replies with a snippet for the user's `.sbatch` script.
-Rerunning returns the same URL; `reset:True` replaces it and the old URL stops working. `ping:` pre-fills a member to
+Rerunning returns the same URL; `reset:True` replaces it and the old URL stops working. On a completed or archived
+project, `reset:True` only removes the webhook so old URLs stop posting. `ping:` pre-fills a member to
 mention when the job ends.
 
 Paste the snippet after the `#SBATCH` lines and before the real commands (bash scripts only). When the job ends the
@@ -342,10 +343,9 @@ partition, and node.
 |---|---|---|
 | `BAINSA_HOOK` | Yes | Filled in by the bot |
 | `BAINSA_PING` | No | `ping:` option or `'<@DISCORD_ID>'` |
-| `BAINSA_NOTE` | No | Short text shown with the result |
+| `BAINSA_NOTE` | No | Short text shown with the result (job name and note are cut to 200 characters) |
 | `BAINSA_ON` | No | `'fail'` to notify only on failure |
 | `#SBATCH --job-name` | No | Name shown in Discord |
-| `#SBATCH --signal=B:TERM@60` | No | Reports timeouts reliably |
 
 Jobs killed with `SIGKILL` (for example out-of-memory kills) cannot run the exit hook. For those, submit a follow-up
 job with `sbatch --dependency=afterany:<jobid>` that sends the notification.

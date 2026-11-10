@@ -1,5 +1,6 @@
 import { assertUser } from '../../errors.js';
 import { interactionOutcome, renderInteractionPanel } from '../../messages/index.js';
+import { OPEN_PROJECT_STATUSES } from '../../constants.js';
 import { query, transaction } from '../../db.js';
 import { canManageProject } from './policy.js';
 import { getProject, getProjectPeople } from './repository.js';
@@ -11,14 +12,14 @@ export const SLURM_WEBHOOK_NAME = 'BAINSA Slurm';
 const DEFAULT_DB = { query, transaction };
 
 // Reuses the bot-owned webhook in the project channel so rerunning the command keeps the same URL.
-// `reset` deletes it first, which immediately invalidates any leaked URL.
-export async function ensureSlurmWebhook(channel, botUserId, { reset = false } = {}) {
-  const existing = (await channel.fetchWebhooks())
-    .filter((webhook) => webhook.name === SLURM_WEBHOOK_NAME && webhook.owner?.id === botUserId);
+// `reset` deletes it first, which immediately invalidates any leaked URL; `create: false` only revokes.
+// Matches on the bot owner alone, so a webhook renamed in Discord is still reset.
+export async function ensureSlurmWebhook(channel, botUserId, { reset = false, create = true } = {}) {
+  const existing = (await channel.fetchWebhooks()).filter((webhook) => webhook.owner?.id === botUserId);
   const reusable = reset ? null : existing.find((webhook) => webhook.token);
   if (reusable) return reusable;
   for (const webhook of existing.values()) await webhook.delete('Slurm notification webhook reset');
-  return channel.createWebhook({ name: SLURM_WEBHOOK_NAME, reason: 'Slurm job notifications' });
+  return create ? channel.createWebhook({ name: SLURM_WEBHOOK_NAME, reason: 'Slurm job notifications' }) : null;
 }
 
 export function slurmSnippet(url: string, pingUserId: string | null = null) {
@@ -28,7 +29,7 @@ BAINSA_HOOK='${url}'  # REQUIRED, keep private
 BAINSA_PING='${ping}'  # OPTIONAL '<@DISCORD_ID>' to ping, '' = no ping
 BAINSA_NOTE=''  # OPTIONAL short note, e.g. 'lr=3e-4 seed=2'
 BAINSA_ON='all'  # OPTIONAL 'all' or 'fail' (only failures)
-bainsa_esc() { printf '%s' "$1" | tr -d '\\000-\\037' | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g'; }
+bainsa_esc() { local v="\${1:0:200}"; printf '%s' "$v" | tr -d '\\000-\\037' | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g'; }
 bainsa_notify() {
   local rc=$? s c f
   case $rc in
@@ -38,7 +39,7 @@ bainsa_notify() {
   esac
   [ "$BAINSA_ON" = fail ] && [ $rc -eq 0 ] && return
   f="{\\"name\\":\\"Job ID\\",\\"value\\":\\"\${SLURM_JOB_ID:-local}\\",\\"inline\\":true}"
-  f="$f,{\\"name\\":\\"User\\",\\"value\\":\\"$(bainsa_esc "\${SLURM_JOB_USER:-$USER}")\\",\\"inline\\":true}"
+  f="$f,{\\"name\\":\\"User\\",\\"value\\":\\"$(bainsa_esc "\${SLURM_JOB_USER:-\${USER:--}}")\\",\\"inline\\":true}"
   f="$f,{\\"name\\":\\"Runtime\\",\\"value\\":\\"$((SECONDS/3600))h $((SECONDS%3600/60))m $((SECONDS%60))s\\",\\"inline\\":true}"
   f="$f,{\\"name\\":\\"Partition\\",\\"value\\":\\"$(bainsa_esc "\${SLURM_JOB_PARTITION:--}")\\",\\"inline\\":true}"
   f="$f,{\\"name\\":\\"Node\\",\\"value\\":\\"$(bainsa_esc "$(hostname)")\\",\\"inline\\":true}"
@@ -71,7 +72,6 @@ export function slurmHookMessage(project, url: string, pingUserId: string | null
         heading: 'Optional settings',
         body: [
           '• `#SBATCH --job-name=my-run`: name shown in Discord (default: the script name).',
-          '• `#SBATCH --signal=B:TERM@60`: makes timeouts report reliably.',
           `• \`BAINSA_PING\`: who gets pinged. ${pingUserId ? 'Already set from the `ping` option.' : 'Run the command with `ping:` to fill it in.'}`,
           '• `BAINSA_NOTE`: short text shown with the result, e.g. the hyperparameters.',
           '• `BAINSA_ON=\'fail\'`: only notify when the job fails.',
@@ -86,6 +86,14 @@ export function slurmHookMessage(project, url: string, pingUserId: string | null
   });
 }
 
+function slurmHookRevokedMessage(project) {
+  return renderInteractionPanel(interactionOutcome({
+    outcome: 'success',
+    title: 'Slurm webhook removed',
+    description: `${project.name} is closed, so no new URL was created. Old Slurm URLs no longer post in <#${project.discord_channel_id}>.`,
+  }));
+}
+
 export async function createSlurmHook(input, deps: { db?: typeof DEFAULT_DB } = {}) {
   const db = deps.db ?? DEFAULT_DB;
   const project = await getProject(db, projectIdFromOption(input.project, input.interaction));
@@ -94,11 +102,14 @@ export async function createSlurmHook(input, deps: { db?: typeof DEFAULT_DB } = 
     canManageProject(input.interaction.member, project, people),
     `Only this project's supervisors and scoped board can manage ${project.name}.`,
   );
-  assertProjectIsOpen(project.status);
+  const open = OPEN_PROJECT_STATUSES.includes(project.status);
+  // Closed projects may still `reset`, which only revokes the webhook so leaked URLs can be shut off.
+  if (!input.reset) assertProjectIsOpen(project.status);
   const channel = project.discord_channel_id
     ? await input.interaction.guild.channels.fetch(project.discord_channel_id).catch(() => null)
     : null;
   assertUser(channel?.fetchWebhooks, 'The project channel is not available yet. Try again shortly.');
-  const webhook = await ensureSlurmWebhook(channel, input.interaction.client.user.id, { reset: input.reset });
+  const webhook = await ensureSlurmWebhook(channel, input.interaction.client.user.id, { reset: input.reset, create: open });
+  if (!webhook) return slurmHookRevokedMessage(project);
   return slurmHookMessage(project, webhook.url, input.pingUserId ?? null, Boolean(input.reset));
 }

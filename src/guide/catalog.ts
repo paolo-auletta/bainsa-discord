@@ -198,12 +198,12 @@ export const GUIDE_CATALOG = Object.freeze([
     topic: GUIDE_TOPICS.LOOKUPS,
     summary: 'Get a private snippet for your Slurm script that posts job results in the project channel.',
     scopeKind: 'project',
-    before: ['The project must be active or paused. Only supervisors and the scoped board can run it.'],
+    before: ['The project must be active or paused (reset also works on closed projects). Only supervisors and the scoped board can run it.'],
     inputs: ['Project (optional inside its channel)', 'Member to ping (optional)', 'Reset the URL (optional)'],
     confirmation: 'The snippet and webhook URL are shown only to you. Keep the URL private.',
     success: 'Paste the snippet into your .sbatch script after the #SBATCH lines; finished jobs post here.',
     activity: 'Nothing is posted in #bot-log.',
-    recovery: 'If the URL leaks, run /project-slurm-hook with reset to replace it; the old URL stops working.',
+    recovery: 'If the URL leaks, run /project-slurm-hook with reset to replace it; the old URL stops working. On a closed project, reset only removes the webhook.',
   }),
 ]);
 
