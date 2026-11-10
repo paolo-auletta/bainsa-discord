@@ -76,6 +76,7 @@ test('a division Head sees only Head commands in the owned division scope', () =
       'project-close',
       'project-create',
       'project-info',
+      'project-slurm-hook',
       'project-update',
     ],
   );

@@ -35,6 +35,7 @@ export const COMMAND_VISIBILITY = Object.freeze({
   'project-update': 'project',
   'project-close': 'project',
   'project-info': 'project',
+  'project-slurm-hook': 'project',
 });
 
 function memberRoleNames(member) {

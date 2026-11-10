@@ -32,6 +32,7 @@ export const COMMAND_SCOPE_POLICIES = Object.freeze({
   'project-update': policy(projectChannels, 'project', 'target-first', 'none', 'all-when-global', 'recheck-scope', 'affected-university'),
   'project-close': policy(projectChannels, 'project', 'target-first', 'none', 'all-when-global', 'recheck-scope', 'affected-university'),
   'project-info': policy(projectChannels, 'project', 'target-first', 'none', 'all-when-global', 'none', 'none'),
+  'project-slurm-hook': policy(projectChannels, 'project', 'target-first', 'none', 'all-when-global', 'none', 'none'),
 }) satisfies Readonly<Record<string, CommandScopePolicy>>;
 
 function policy(
